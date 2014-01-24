@@ -1,0 +1,11 @@
+#ignored patterns
+
+bin/*
+*.o
+*.x
+*.mod
+*.out
+*.o
+*.tex
+*.pdf
+*~
