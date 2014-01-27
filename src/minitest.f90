@@ -28,9 +28,8 @@
          USE gaussian
          USE xyz
          USE hbmixture
-
       IMPLICIT NONE
-
+      
       ! Conversion constant from bohrradius to angstrom 
       DOUBLE PRECISION, PARAMETER :: bohr=0.5291772192171717171717171717171717
       
@@ -54,6 +53,8 @@
       LOGICAL verbose,convert
       
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
+      INTEGER, ALLOCATABLE, DIMENSION(:,:) :: types
+      CHARACTER*4, ALLOCATABLE, DIMENSION(:) :: labels
       CHARACTER*4, DIMENSION(4) :: vtacc,vtdon,vtH
       
       DOUBLE PRECISION dummyd1,dummyd2
@@ -188,7 +189,7 @@
       ENDIF
       
       ! Check the steps and the box parameters 
-      CALL XYZ_GetInfo(filename,dummyi1,dummyd1,dummyi2)
+      CALL xyz_GetInfo(filename,dummyi1,dummyd1,dummyi2)
       ! control nstpes
       IF (nsteps == -1) THEN
          nsteps=dummyi2
@@ -204,6 +205,21 @@
       
       ! we can allocate the vectors now
       ALLOCATE(positions(natoms,3))
+      ALLOCATE(labels(natoms))
+      
+      ! get the labels of the atoms
+      CALL xyz_GetLabels(filename,labels)
+      ! define what is acceptor,donor and hydrogen
+      ALLOCATE(types(natoms,3))
+      ! set to TYPE_NONE
+      types=types*TYPE_NONE
+      DO i=1,natoms
+         IF(testtype(labels(i),vtH)) types(i,1)=TYPE_H
+         IF(testtype(labels(i),vtdon)) types(i,2)=TYPE_DONOR
+         IF(testtype(labels(i),vtacc)) types(i,3)=TYPE_ACCEPTOR
+         write(*,*) labels(i),types(i,1),types(i,2),types(i,3)
+      ENDDO
+      CALL EXIT(-1)
       
       ! Loop over the trajectory
       pos=0
@@ -230,8 +246,10 @@
       ! end the loop over the trajectory
       
       DEALLOCATE(positions)
-            
-      END PROGRAM minitest
+      DEALLOCATE(labels)
+      DEALLOCATE(types)
+      
+      CONTAINS
       
       SUBROUTINE helpmessage
         WRITE(*,*) ""
@@ -245,3 +263,18 @@
         WRITE(*,*) "                  [-c] [-v] "
         WRITE(*,*) ""
       END SUBROUTINE helpmessage
+      
+      LOGICAL FUNCTION testtype(id,vtype)
+         CHARACTER*4, INTENT(IN) :: id
+         CHARACTER*4, DIMENSION(4), INTENT(IN) :: vtype
+         INTEGER i
+         testtype=.false.
+         DO i=1,4
+            IF(trim(id).EQ.trim(vtype(i)))THEN
+               testtype=.true.
+               EXIT
+            ENDIF
+         ENDDO
+      END FUNCTION
+      
+      END PROGRAM minitest

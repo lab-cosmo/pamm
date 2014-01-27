@@ -35,7 +35,7 @@
 
       CONTAINS
       
-         SUBROUTINE XYZ_GetInfo(filename,NAtoms,Lbox,NSteps) !! TO TEST!
+         SUBROUTINE xyz_GetInfo(filename,NAtoms,Lbox,NSteps) !! TO TEST!
             ! Get the number of atoms, the box lenght and the number of steps.
             !
             ! Args:
@@ -77,7 +77,7 @@
 
          END SUBROUTINE
 
-         SUBROUTINE XYZ_GetNts(filename,NSteps) !! TO TEST!
+         SUBROUTINE xyz_GetNts(filename,NSteps) !! TO TEST!
             ! Get the line numbers of the file and return the number of steps.
             !
             ! Args:
@@ -110,7 +110,7 @@
 
          END SUBROUTINE
 
-         SUBROUTINE XYZ_GetNAtoms(filename,NAtoms)
+         SUBROUTINE xyz_GetNAtoms(filename,NAtoms)
             ! Get the the number of atoms.
             !
             ! Args:
@@ -127,7 +127,7 @@
 
          END SUBROUTINE
          
-         SUBROUTINE XYZ_GetDimBox(filename,lbox)
+         SUBROUTINE xyz_GetDimBox(filename,lbox)
             ! Get the box lenght
             ! Simplest case : CUBIC BOX
             ! To improve for the general case
@@ -148,7 +148,7 @@
 
          END SUBROUTINE
 
-         SUBROUTINE XYZ_GetLabels(filename,labels)
+         SUBROUTINE xyz_GetLabels(filename,labels)
             ! Get the line numbers of the file and return the number
             ! of atoms and the number of steps.
             !
@@ -157,7 +157,7 @@
             !    labels: The vector containing the atoms' label
 
             CHARACTER*70, INTENT(IN) :: filename
-            CHARACTER,ALLOCATABLE, DIMENSION(:),INTENT(OUT) :: labels
+            CHARACTER*4,ALLOCATABLE, DIMENSION(:),INTENT(OUT) :: labels
 
             CHARACTER*1024 :: cmdbuffer
             INTEGER NAtoms,i
@@ -168,13 +168,8 @@
             ALLOCATE(labels(NAtoms))
             READ(11,*) cmdbuffer
             DO i=1,NAtoms
-               READ(11,*) labels(i)
-               !! For LAMMPS
-               !IF(labels(i).EQ.'1')THEN
-               !   labels(i)='O'
-               !ELSEIF(labels(i).EQ.'2')THEN
-               !   labels(i)='H'
-               !ENDIF
+               READ(11,*) cmdbuffer
+               labels(i)=trim(cmdbuffer)
             ENDDO
             CLOSE(UNIT=11)
 
@@ -182,7 +177,7 @@
 
          ! We won't never use this routine.
          !! TO CANCEL
-         SUBROUTINE XYZ_CountAtom(NAtoms,labels,id,num)
+         SUBROUTINE xyz_CountAtom(NAtoms,labels,id,num)
             ! Get the line numbers of id atoms in labels.
             !
             ! Args:
@@ -192,22 +187,22 @@
             !    num: the numbers of id atoms in labels
 
             INTEGER, INTENT(IN) :: NAtoms
-            CHARACTER, DIMENSION(NAtoms), INTENT(IN) :: labels
-            CHARACTER, INTENT(IN) :: id
+            CHARACTER*4, DIMENSION(NAtoms), INTENT(IN) :: labels
+            CHARACTER*4, INTENT(IN) :: id
             INTEGER, INTENT(OUT) :: num
 
             INTEGER i
 
             num=0
             DO i=1,NAtoms
-               IF (labels(i).eq.id) THEN
+               IF (trim(labels(i)).eq.trim(id)) THEN
                   num=num+1
                ENDIF
             ENDDO
             
          END SUBROUTINE
 
-         SUBROUTINE XYZ_GetSnap(mode,filename,NAtoms,pos,newpos,positions)
+         SUBROUTINE xyz_GetSnap(mode,filename,NAtoms,pos,newpos,positions)
             ! Get the positions for the chosen step
             !
             ! Args:
@@ -245,13 +240,13 @@
 
          END SUBROUTINE
 
-         SUBROUTINE XYZ_ExtractAtoms(NAtoms,positions,labels,N,idatom,ext_coord)
-            ! Extrat idatom type atomss
+         SUBROUTINE xyz_ExtractAtoms(NAtoms,positions,labels,N,idatom,ext_coord)
+            ! Extrat idatom type atoms
             !
             ! Args:
             INTEGER, INTENT(IN) :: NAtoms
             DOUBLE PRECISION, DIMENSION(NAtoms,3), INTENT(IN)  :: positions
-            CHARACTER, DIMENSION(NAtoms) :: labels
+            CHARACTER*4, DIMENSION(NAtoms) :: labels
             INTEGER, INTENT(IN) :: N
             CHARACTER, INTENT(IN) :: idatom
             DOUBLE PRECISION, DIMENSION(N,4), INTENT(OUT)  :: ext_coord
