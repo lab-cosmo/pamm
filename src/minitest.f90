@@ -41,6 +41,8 @@
       INTEGER nsteps, startstep, delta
       ! gaussians
       INTEGER Nk
+      ! array of gaussians
+      TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:) :: clusters
       ! for the parser
       INTEGER ccmd
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
@@ -53,7 +55,8 @@
       LOGICAL verbose,convert
       
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
-      INTEGER, ALLOCATABLE, DIMENSION(:,:) :: types
+      ! mask to define what is what
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: masktypes
       CHARACTER*4, ALLOCATABLE, DIMENSION(:) :: labels
       CHARACTER*4, DIMENSION(4) :: vtacc,vtdon,vtH
       
@@ -202,7 +205,7 @@
       IF (lbox.LT.(0.0d0)) THEN
          lbox=dummyd1
       ENDIF
-      
+
       ! we can allocate the vectors now
       ALLOCATE(positions(natoms,3))
       ALLOCATE(labels(natoms))
@@ -210,16 +213,30 @@
       ! get the labels of the atoms
       CALL xyz_GetLabels(filename,labels)
       ! define what is acceptor,donor and hydrogen
-      ALLOCATE(types(natoms,3))
+      ALLOCATE(masktypes(natoms))
       ! set to TYPE_NONE
-      types=types*TYPE_NONE
+      masktypes=masktypes*TYPE_NONE
       DO i=1,natoms
-         IF(testtype(labels(i),vtH)) types(i,1)=TYPE_H
-         IF(testtype(labels(i),vtdon)) types(i,2)=TYPE_DONOR
-         IF(testtype(labels(i),vtacc)) types(i,3)=TYPE_ACCEPTOR
-         write(*,*) labels(i),types(i,1),types(i,2),types(i,3)
+         ! set the mask using BITWISE OR OPERATOR
+         IF(testtype(labels(i),vtH)) masktypes(i)=IOR(masktypes(i),TYPE_H)
+         IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
+         IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
       ENDDO
-      CALL EXIT(-1)
+      
+      ! Read gaussian parameters from the gaussian file
+      OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
+      !decomment this if the first line is a comment string
+      !READ(12,*) cmdbuffer
+      ALLOCATE(clusters(Nk))
+      DO i=1,Nk     
+         READ(12,*) clusters(i)%mean(1), clusters(i)%mean(2), &
+                    clusters(i)%cov(1,1), clusters(i)%cov(1,2), &
+                    clusters(i)%cov(2,1), clusters(i)%cov(2,2), &
+                    clusters(i)%pk
+            ! calculate once the Icovs matrix and the norm_const
+            CALL gauss_prepare(clusters(i))
+         ENDDO
+      CLOSE(UNIT=12)
       
       ! Loop over the trajectory
       pos=0
@@ -230,11 +247,8 @@
                WRITE(*,*) "Step: ",ts
             ENDIF
             CALL XYZ_GetSnap(1,filename,NAtoms,pos,newpos,positions)
-            
-            DO i=1,3
-               write(*,*) positions(i,1),positions(i,2),positions(i,3)
-            ENDDO 
-            
+            !!!!!!! HBMIXTURE HERE! !!!!!!!
+            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
          ELSE
             ! discard this snapshot
             CALL XYZ_GetSnap(0,filename,NAtoms,pos,newpos,positions)
@@ -247,34 +261,35 @@
       
       DEALLOCATE(positions)
       DEALLOCATE(labels)
-      DEALLOCATE(types)
+      DEALLOCATE(masktypes)
+      DEALLOCATE(clusters)
       
       CONTAINS
       
-      SUBROUTINE helpmessage
-        WRITE(*,*) ""
-        WRITE(*,*) " SYNTAX: minitest [-h] -i filename -gn Ngaussians -gf gaussianfile "
-        WRITE(*,*) "                  [-o outputfile] [-l box_lenght] [-na Natoms] "
-        WRITE(*,*) "                  [-ns total_steps] [-ss starting_step] [-ev delta] "
-        WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] "
-        WRITE(*,*) "                  [-tacc Accettor_type1,Accettor_type2,...] "
-        WRITE(*,*) "                  [-tdon Donor_type1,Donor_type2,...] "
-        WRITE(*,*) "                  [-tH   Hydrogen_type1,Hydrogen_type2,...] "
-        WRITE(*,*) "                  [-c] [-v] "
-        WRITE(*,*) ""
-      END SUBROUTINE helpmessage
+         SUBROUTINE helpmessage
+            WRITE(*,*) ""
+            WRITE(*,*) " SYNTAX: minitest [-h] -i filename -gn Ngaussians -gf gaussianfile "
+            WRITE(*,*) "                  [-o outputfile] [-l box_lenght] [-na Natoms] "
+            WRITE(*,*) "                  [-ns total_steps] [-ss starting_step] [-ev delta] "
+            WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] "
+            WRITE(*,*) "                  [-tacc Accettor_type1,Accettor_type2,...] "
+            WRITE(*,*) "                  [-tdon Donor_type1,Donor_type2,...] "
+            WRITE(*,*) "                  [-tH   Hydrogen_type1,Hydrogen_type2,...] "
+            WRITE(*,*) "                  [-c] [-v] "
+            WRITE(*,*) ""
+         END SUBROUTINE helpmessage
       
-      LOGICAL FUNCTION testtype(id,vtype)
-         CHARACTER*4, INTENT(IN) :: id
-         CHARACTER*4, DIMENSION(4), INTENT(IN) :: vtype
-         INTEGER i
-         testtype=.false.
-         DO i=1,4
-            IF(trim(id).EQ.trim(vtype(i)))THEN
-               testtype=.true.
-               EXIT
-            ENDIF
-         ENDDO
-      END FUNCTION
+         LOGICAL FUNCTION testtype(id,vtype)
+            CHARACTER*4, INTENT(IN) :: id
+            CHARACTER*4, DIMENSION(4), INTENT(IN) :: vtype
+            INTEGER i
+            testtype=.false.
+            DO i=1,4
+               IF(trim(id).EQ.trim(vtype(i)))THEN
+                  testtype=.true.
+                  EXIT
+               ENDIF
+            ENDDO
+         END FUNCTION
       
       END PROGRAM minitest
