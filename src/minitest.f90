@@ -29,10 +29,10 @@
          USE xyz
          USE hbmixture
       IMPLICIT NONE
-      
-      ! Conversion constant from bohrradius to angstrom 
+
+      ! Conversion constant from bohrradius to angstrom
       DOUBLE PRECISION, PARAMETER :: bohr=0.5291772192171717171717171717171717
-      
+
       CHARACTER*70 :: filename, gaussianfile, outputfile
       CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
@@ -44,7 +44,7 @@
       ! array of gaussians
       TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:) :: clusters
       ! vector that will contain the probabilities calculated using hb-mixture library
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probabilities
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph
       ! for the parser
       INTEGER ccmd
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
@@ -53,19 +53,19 @@
       INTEGER i,ts,k
       ! parmater for seeking in the input file
       INTEGER pos,newpos
-      
-      
+
+
       LOGICAL verbose,convert
-      
+
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
       ! mask to define what is what
       INTEGER, ALLOCATABLE, DIMENSION(:) :: masktypes
       CHARACTER*4, ALLOCATABLE, DIMENSION(:) :: labels
       CHARACTER*4, DIMENSION(4) :: vtacc,vtdon,vtH
-      
+
       DOUBLE PRECISION dummyd1,dummyd2
       INTEGER dummyi1,dummyi2
-      
+
       !! default values
       DO i=1,4
          vtacc(i)="NULL"
@@ -87,7 +87,7 @@
       convert = .false.
       verbose = .false.
       !!
-      
+
       !!!!! PARSER
       DO i = 1, IARGC()
          CALL GETARG(i, cmdbuffer)
@@ -135,15 +135,15 @@
                CALL helpmessage
                CALL EXIT(-1)
             ELSEIF (ccmd == 1) THEN ! input file
-               filename=trim(cmdbuffer) 
+               filename=trim(cmdbuffer)
             ELSEIF (ccmd == 2) THEN ! number of gaussian
-               READ(cmdbuffer,*) Nk 
+               READ(cmdbuffer,*) Nk
             ELSEIF (ccmd == 3) THEN ! gaussian file
-               gaussianfile=trim(cmdbuffer) 
+               gaussianfile=trim(cmdbuffer)
             ELSEIF (ccmd == 4) THEN ! output file
                outputfile=trim(cmdbuffer)
             ELSEIF (ccmd == 5) THEN ! box lenght
-               READ(cmdbuffer,*) lbox 
+               READ(cmdbuffer,*) lbox
             ELSEIF (ccmd == 6) THEN ! numbers of atoms
                READ(cmdbuffer,*) natoms
             ELSEIF (ccmd == 7) THEN ! numbers of steps
@@ -183,11 +183,11 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtH(par_count)
-            ENDIF           
+            ENDIF
          ENDIF
       ENDDO
       !!!!! END PARSER
-      
+
       ! Mandatory parameters
       IF ((ccmd == 0).OR.(filename.EQ."NULL").OR.(gaussianfile.EQ."NULL").OR.(Nk.EQ.-1)) THEN
          WRITE(*,*) ""
@@ -195,8 +195,8 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-      
-      ! Check the steps and the box parameters 
+
+      ! Check the steps and the box parameters
       CALL xyz_GetInfo(filename,dummyi1,dummyd1,dummyi2)
       ! control nstpes
       IF (nsteps == -1) THEN
@@ -214,7 +214,7 @@
       ! we can allocate the vectors now
       ALLOCATE(positions(natoms,3))
       ALLOCATE(labels(natoms))
-      
+
       ! get the labels of the atoms
       CALL xyz_GetLabels(filename,labels)
       ! define what is acceptor,donor and hydrogen
@@ -227,13 +227,13 @@
          IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
          IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
       ENDDO
-      
+
       ! Read gaussian parameters from the gaussian file
       OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
       !decomment this if the first line is a comment string
       !READ(12,*) cmdbuffer
       ALLOCATE(clusters(Nk))
-      DO i=1,Nk     
+      DO i=1,Nk
          READ(12,*) clusters(i)%mean(1), clusters(i)%mean(2), &
                     clusters(i)%cov(1,1), clusters(i)%cov(1,2), &
                     clusters(i)%cov(2,1), clusters(i)%cov(2,2), &
@@ -242,11 +242,13 @@
          CALL gauss_prepare(clusters(i))
       ENDDO
       CLOSE(UNIT=12)
-      
+
       ! we can now define and inizialize the probabilities vector
-      ALLOCATE(probabilities(natoms,nk))
-      probabilities=probabilities*0.0d0
-      
+      ALLOCATE(spa(natoms,nk), spd(natoms,nk), sph(natoms,nk))
+      spa=0.0d0
+      spd=0.0d0
+      sph=0.0d0
+
       ! outputfile
       OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       ! Loop over the trajectory
@@ -255,17 +257,17 @@
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
             IF(verbose) WRITE(*,*) "Step: ",ts
-            
+
             CALL XYZ_GetSnap(1,filename,natoms,pos,newpos,positions)
             IF(convert) positions=positions*bohr
 
             !!!!!!! HBMIXTURE HERE! !!!!!!!
             CALL hbmixture_GetGMMP(natoms,lbox,alpha,wcutoff,positions,masktypes, &
-                                   nk,clusters,probabilities)
+                                   nk,clusters,sph,spd,spa)
             !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            
-            ! write results to a formatted output 
-            CALL write_output(7,natoms,nk,lbox,ts,positions,probabilities)
+
+            ! write results to a formatted output
+            CALL write_output(7,natoms,nk,lbox,ts,positions,sph(:,1),spd(:,1),spa(:,1))
 
          ELSE
             ! discard this snapshot
@@ -273,19 +275,19 @@
          ENDIF
          ! pointer for the position in the coordinates file
          ! update for the next pass
-         pos=newpos 
+         pos=newpos
       ENDDO
       ! end the loop over the trajectory
       CLOSE(UNIT=7)
-      
+
       DEALLOCATE(positions)
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
       DEALLOCATE(clusters)
-      DEALLOCATE(probabilities)
-      
+      DEALLOCATE(spa, sph, spd)
+
       CONTAINS
-      
+
          SUBROUTINE helpmessage
             WRITE(*,*) ""
             WRITE(*,*) " SYNTAX: minitest [-h] -i filename -gn Ngaussians -gf gaussianfile "
@@ -298,32 +300,31 @@
             WRITE(*,*) "                  [-c] [-v] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
-         
-         SUBROUTINE write_output(filen,natoms,nk,lbox,ts,positions,probabilities)
+
+         SUBROUTINE write_output(filen,natoms,nk,lbox,ts,positions,sh, sd, sa)
             INTEGER, INTENT(IN) :: filen
             INTEGER, INTENT(IN) :: natoms
             INTEGER, INTENT(IN) :: nk
             DOUBLE PRECISION, INTENT(IN) :: lbox
             INTEGER, INTENT(IN) :: ts
             DOUBLE PRECISION, DIMENSION(natoms,3), INTENT(IN) :: positions
-            DOUBLE PRECISION, DIMENSION(natoms,nk), INTENT(IN) :: probabilities
-            
+            DOUBLE PRECISION, DIMENSION(natoms), INTENT(IN) :: sh, sd, sa
+
             ! header
             WRITE(filen,"(I4)") natoms
-            WRITE(filen,"(a,F11.7,a,F11.7,a,F11.7,a,I10)") & 
+            WRITE(filen,"(a,F11.7,a,F11.7,a,F11.7,a,I10)") &
                  "# CELL(abc): ",lbox," ",lbox," ",lbox," Step: ",ts
             ! body
             DO i=1,natoms
                WRITE(filen,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", advance='no') &
                     trim(labels(i)), " ", positions(i,1), " ", &
                     positions(i,2), " ", positions(i,3)
-               DO k=1,Nk
-                  WRITE(filen,"(A1,ES18.9)", advance='no') " ", probabilities(i,k)
-               ENDDO
+               WRITE(filen,"(3(A1,ES18.9))", advance='no') " ", sh(i), &
+                       " ", sd(i), " ", sa(i)
                WRITE(filen,*)
             ENDDO
          END SUBROUTINE write_output
-      
+
          LOGICAL FUNCTION testtype(id,vtype)
             CHARACTER*4, INTENT(IN) :: id
             CHARACTER*4, DIMENSION(4), INTENT(IN) :: vtype
@@ -336,5 +337,5 @@
                ENDIF
             ENDDO
          END FUNCTION
-      
+
       END PROGRAM minitest

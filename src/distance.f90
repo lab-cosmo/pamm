@@ -1,7 +1,7 @@
 ! This contains the algorithms needed to calculate the distance between atoms.
-! 
+!
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
-! 
+!
 ! Permission is hereby granted, free of charge, to any person obtaining a copy
 ! of this software and associated documentation files (the "Software"), to deal
 ! in the Software without restriction, including without limitation the rights
@@ -38,8 +38,8 @@
             ! Also note that while this may not work if the simulation
             ! box is highly skewed from orthorhombic, as
             ! in this case it is possible to return a distance less than the
-            ! nearest neighbour distance. However, this will not be of 
-            ! importance unless the cut-off radius is more than half the 
+            ! nearest neighbour distance. However, this will not be of
+            ! importance unless the cut-off radius is more than half the
             ! width of the shortest face-face distance of the simulation box,
             ! which should never be the case.
             !
@@ -55,18 +55,18 @@
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_ih
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
-            DOUBLE PRECISION, DIMENSION(3), INTENT(OUT) :: rij 
+            DOUBLE PRECISION, DIMENSION(3), INTENT(OUT) :: rij
             DOUBLE PRECISION, INTENT(OUT) :: r2
 
             INTEGER k
-            DOUBLE PRECISION, DIMENSION(3) :: sij  
-            ! The separation in a basis where the simulation box  
+            DOUBLE PRECISION, DIMENSION(3) :: sij
+            ! The separation in a basis where the simulation box
             ! is a unit cube.
-                                                   
+
             sij = matmul(cell_ih, ri - rj)
             DO k = 1, 3
                ! Finds the smallest separation of all the images of atom i and j
-               sij(k) = sij(k) - dnint(sij(k)) 
+               sij(k) = sij(k) - dnint(sij(k))
             ENDDO
             rij = matmul(cell_h, sij)
             r2 = dot_product(rij,rij)
@@ -82,8 +82,8 @@
             ! Also note that while this may not work if the simulation
             ! box is highly skewed from orthorhombic, as
             ! in this case it is possible to return a distance less than the
-            ! nearest neighbour distance. However, this will not be of 
-            ! importance unless the cut-off radius is more than half the 
+            ! nearest neighbour distance. However, this will not be of
+            ! importance unless the cut-off radius is more than half the
             ! width of the shortest face-face distance of the simulation box,
             ! which should never be the case.
             !
@@ -96,26 +96,26 @@
 
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_h
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_ih
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri 
+            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
             DOUBLE PRECISION, INTENT(OUT) :: r2
 
             INTEGER k
-            ! The separation in a basis where the simulation box  
+            ! The separation in a basis where the simulation box
             ! is a unit cube.
             DOUBLE PRECISION, DIMENSION(3) :: sij
             DOUBLE PRECISION, DIMENSION(3) :: rij
-                                                   
+
             sij = matmul(cell_ih, ri - rj)
             DO k = 1, 3
                ! Finds the smallest separation of all the images of atom i and j
-               sij(k) = sij(k) - dnint(sij(k)) 
+               sij(k) = sij(k) - dnint(sij(k))
             ENDDO
             rij = matmul(cell_h, sij)
             r2 = dot_product(rij, rij)
 
          END SUBROUTINE
-         
+
          SUBROUTINE separation_cubic(L,ri,rj,r)
             ! Cubic box version.
             ! Calculates the squared distance between two position vectors.
@@ -135,7 +135,7 @@
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
             DOUBLE PRECISION, INTENT(OUT) :: r
 
-            DOUBLE PRECISION, DIMENSION(3) :: rij 
+            DOUBLE PRECISION, DIMENSION(3) :: rij
             INTEGER i
             rij = ri-rj
             DO i=1,3
@@ -144,7 +144,7 @@
             END DO
             r = dsqrt(dot_product(rij,rij))
          END SUBROUTINE
-         
+
          SUBROUTINE vector_separation_cubic(L,ri,rj,rij,r)
             ! Cubic box version.
             ! Calculates the squared distance between two position vectors.
@@ -162,7 +162,7 @@
             DOUBLE PRECISION, INTENT(IN) :: L
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
-            DOUBLE PRECISION, DIMENSION(3), INTENT(OUT) :: rij 
+            DOUBLE PRECISION, DIMENSION(3), INTENT(OUT) :: rij
             DOUBLE PRECISION, INTENT(OUT) :: r
 
             INTEGER i

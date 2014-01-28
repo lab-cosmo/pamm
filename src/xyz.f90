@@ -1,7 +1,7 @@
 ! This file contains some routines to work with XYZ files
-! 
+!
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
-! 
+!
 ! Permission is hereby granted, free of charge, to any person obtaining
 ! a copy of this software and associated documentation files (the
 ! "Software"), to deal in the Software without restriction, including
@@ -9,10 +9,10 @@
 ! distribute, sublicense, and/or sell copies of the Software, and to
 ! permit persons to whom the Software is furnished to do so, subject to
 ! the following conditions:
-! 
+!
 ! The above copyright notice and this permission notice shall be included
 ! in all copies or substantial portions of the Software.
-! 
+!
 ! THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 ! EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 ! MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
@@ -34,7 +34,7 @@
       IMPLICIT NONE
 
       CONTAINS
-      
+
          SUBROUTINE xyz_GetInfo(filename,NAtoms,Lbox,NSteps) !! TO TEST!
             ! Get the number of atoms, the box lenght and the number of steps.
             !
@@ -51,13 +51,13 @@
 
             CHARACTER*1024 :: cmdbuffer
             CHARACTER*30 dummy1,dummy2,dummy3
-            
-            
+
+
             INTEGER Nlines
-            
+
             ! open the file and read the atom number
             OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) NAtoms	
+            READ(11,*) NAtoms
             READ(11,*) dummy1,dummy2,dummy3,Lbox
             CLOSE(UNIT=11)
             ! we assume to be in a unix system and instead of reading all the file
@@ -65,7 +65,7 @@
             ! I used wc because normally we ar using really big file..
             ! get the line number and save to a temp file
             cmdbuffer='wc -l '//filename//'>> tmp.tmp'
-            CALL system(cmdbuffer) 
+            CALL system(cmdbuffer)
             OPEN(UNIT=11,FILE='tmp.tmp',STATUS='OLD',ACTION='READ')
             ! read the line numbers
             READ(11,*) Nlines
@@ -89,16 +89,16 @@
 
             CHARACTER*1024 :: cmdbuffer
             INTEGER Nlines,NAtoms
-            
+
             ! open the file and read the atom number
             OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) NAtoms	
+            READ(11,*) NAtoms
             CLOSE(UNIT=11)
             ! we assume to be in a unix system and instead of reading all the file
             ! we use wc -l (to test if it is faster!!!!!!!!)
             ! get the line number and save to a temp file
             cmdbuffer='wc -l '//filename//'>> tmp.tmp'
-            CALL system(cmdbuffer) 
+            CALL system(cmdbuffer)
             OPEN(UNIT=11,FILE='tmp.tmp',STATUS='OLD',ACTION='READ')
             ! read the line numbers
             READ(11,*) Nlines
@@ -122,11 +122,11 @@
 
             ! open the file and read the atom number
             OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) NAtoms	
-            CLOSE(UNIT=11)      
+            READ(11,*) NAtoms
+            CLOSE(UNIT=11)
 
          END SUBROUTINE
-         
+
          SUBROUTINE xyz_GetDimBox(filename,lbox)
             ! Get the box lenght
             ! Simplest case : CUBIC BOX
@@ -161,7 +161,7 @@
 
             CHARACTER*1024 :: cmdbuffer
             INTEGER NAtoms,i
-            
+
             ! open the file and read the atom number
             OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
             READ(11,*) NAtoms
@@ -199,7 +199,7 @@
                   num=num+1
                ENDIF
             ENDDO
-            
+
          END SUBROUTINE
 
          SUBROUTINE xyz_GetSnap(mode,filename,NAtoms,pos,newpos,positions)
@@ -233,7 +233,7 @@
                   READ(11,*) dummy,positions(i,1),positions(i,2),positions(i,3)
                   !test what we read
                   !WRITE(*,*) trim(dummy),positions(i,1),positions(i,2),positions(i,3)
-               END DO  
+               END DO
             ENDIF
             newpos = FTELL(11)
             CLOSE(UNIT=11)
@@ -262,7 +262,7 @@
                   ext_coord(counter,3) = positions(i,2)
                   ext_coord(counter,4) = positions(i,3)
                ENDIF
-            END DO 
+            END DO
          END SUBROUTINE
 
       END MODULE xyz
