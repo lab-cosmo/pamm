@@ -116,6 +116,35 @@
 
          END SUBROUTINE
          
+         SUBROUTINE separation_cubic(L,ri,rj,r)
+            ! Cubic box version.
+            ! Calculates the squared distance between two position vectors.
+            !
+            ! Note that minimum image convention is used, so only the image of
+            ! atom j that is the shortest distance from atom i is considered.
+            !
+            ! Args:
+            !    L: The box lenght
+            !    ri: The position vector of atom i.
+            !    rj: The position vector of atom j
+            !    rij: The vector separating atoms i and j.
+            !    r: The distance between atoms i and j.
+
+            DOUBLE PRECISION, INTENT(IN) :: L
+            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri
+            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
+            DOUBLE PRECISION, INTENT(OUT) :: r
+
+            DOUBLE PRECISION, DIMENSION(3) :: rij 
+            INTEGER i
+            rij = ri-rj
+            DO i=1,3
+               ! MIC
+               rij(i) = rij(i)-dnint(rij(i)/L)*L
+            END DO
+            r = dsqrt(dot_product(rij,rij))
+         END SUBROUTINE
+         
          SUBROUTINE vector_separation_cubic(L,ri,rj,rij,r)
             ! Cubic box version.
             ! Calculates the squared distance between two position vectors.
@@ -130,7 +159,7 @@
             !    rij: The vector separating atoms i and j.
             !    r: The distance between atoms i and j.
 
-            REAL, INTENT(IN) :: L
+            DOUBLE PRECISION, INTENT(IN) :: L
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
             DOUBLE PRECISION, DIMENSION(3), INTENT(OUT) :: rij 
@@ -142,7 +171,7 @@
                ! MIC
                rij(i) = rij(i)-dnint(rij(i)/L)*L
             END DO
-            r = sqrt(dot_product(rij,rij))
+            r = dsqrt(dot_product(rij,rij))
          END SUBROUTINE
 
       END MODULE distance

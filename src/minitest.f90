@@ -34,7 +34,7 @@
       DOUBLE PRECISION, PARAMETER :: bohr=0.5291772192171717171717171717171717
       
       CHARACTER*70 :: filename, gaussianfile, outputfile
-      CHARACTER*1024 :: cmdbuffer
+      CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
       INTEGER natoms
       DOUBLE PRECISION lbox, alpha, wcutoff
@@ -43,14 +43,17 @@
       INTEGER Nk
       ! array of gaussians
       TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:) :: clusters
+      ! vector that will contain the probabilities calculated using hb-mixture library
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probabilities
       ! for the parser
       INTEGER ccmd
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
       ! for a faster reading
       ! counters
-      INTEGER i,ts
+      INTEGER i,ts,k
       ! parmater for seeking in the input file
       INTEGER pos,newpos
+      
       
       LOGICAL verbose,convert
       
@@ -79,6 +82,8 @@
       natoms=-1
       delta=1
       startstep=1
+      alpha=1.0d0
+      wcutoff=5.0d0
       convert = .false.
       verbose = .false.
       !!
@@ -233,36 +238,51 @@
                     clusters(i)%cov(1,1), clusters(i)%cov(1,2), &
                     clusters(i)%cov(2,1), clusters(i)%cov(2,2), &
                     clusters(i)%pk
-            ! calculate once the Icovs matrix and the norm_const
-            CALL gauss_prepare(clusters(i))
-         ENDDO
+         ! calculate once the Icovs matrix and the norm_const
+         CALL gauss_prepare(clusters(i))
+      ENDDO
       CLOSE(UNIT=12)
       
+      ! we can now define and inizialize the probabilities vector
+      ALLOCATE(probabilities(natoms,nk))
+      probabilities=probabilities*0.0d0
+      
+      ! outputfile
+      OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       ! Loop over the trajectory
       pos=0
       DO ts=1,nsteps
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
-            IF(verbose)THEN
-               WRITE(*,*) "Step: ",ts
-            ENDIF
-            CALL XYZ_GetSnap(1,filename,NAtoms,pos,newpos,positions)
+            IF(verbose) WRITE(*,*) "Step: ",ts
+            
+            CALL XYZ_GetSnap(1,filename,natoms,pos,newpos,positions)
+            IF(convert) positions=positions*bohr
+
             !!!!!!! HBMIXTURE HERE! !!!!!!!
+            CALL hbmixture_GetGMMP(natoms,lbox,alpha,wcutoff,positions,masktypes, &
+                                   nk,clusters,probabilities)
             !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            
+            ! write results to a formatted output 
+            CALL write_output(7,natoms,nk,lbox,ts,positions,probabilities)
+
          ELSE
             ! discard this snapshot
-            CALL XYZ_GetSnap(0,filename,NAtoms,pos,newpos,positions)
+            CALL XYZ_GetSnap(0,filename,natoms,pos,newpos,positions)
          ENDIF
          ! pointer for the position in the coordinates file
          ! update for the next pass
          pos=newpos 
       ENDDO
       ! end the loop over the trajectory
+      CLOSE(UNIT=7)
       
       DEALLOCATE(positions)
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
       DEALLOCATE(clusters)
+      DEALLOCATE(probabilities)
       
       CONTAINS
       
@@ -278,6 +298,31 @@
             WRITE(*,*) "                  [-c] [-v] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
+         
+         SUBROUTINE write_output(filen,natoms,nk,lbox,ts,positions,probabilities)
+            INTEGER, INTENT(IN) :: filen
+            INTEGER, INTENT(IN) :: natoms
+            INTEGER, INTENT(IN) :: nk
+            DOUBLE PRECISION, INTENT(IN) :: lbox
+            INTEGER, INTENT(IN) :: ts
+            DOUBLE PRECISION, DIMENSION(natoms,3), INTENT(IN) :: positions
+            DOUBLE PRECISION, DIMENSION(natoms,nk), INTENT(IN) :: probabilities
+            
+            ! header
+            WRITE(filen,"(I4)") natoms
+            WRITE(filen,"(a,F11.7,a,F11.7,a,F11.7,a,I10)") & 
+                 "# CELL(abc): ",lbox," ",lbox," ",lbox," Step: ",ts
+            ! body
+            DO i=1,natoms
+               WRITE(filen,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", advance='no') &
+                    trim(labels(i)), " ", positions(i,1), " ", &
+                    positions(i,2), " ", positions(i,3)
+               DO k=1,Nk
+                  WRITE(filen,"(A1,ES18.9)", advance='no') " ", probabilities(i,k)
+               ENDDO
+               WRITE(filen,*)
+            ENDDO
+         END SUBROUTINE write_output
       
          LOGICAL FUNCTION testtype(id,vtype)
             CHARACTER*4, INTENT(IN) :: id
