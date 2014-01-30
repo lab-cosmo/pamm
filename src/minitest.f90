@@ -25,6 +25,7 @@
 
       PROGRAM minitest
          USE distance
+         USE matrixinverse
          USE gaussian
          USE xyz
          USE hbmixture
@@ -37,7 +38,10 @@
       CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
       INTEGER natoms
-      DOUBLE PRECISION lbox, alpha, wcutoff
+      !DOUBLE PRECISION, DIMENSION(3) :: box
+      DOUBLE PRECISION cell(3,3), icell(3,3),dummycell
+      DOUBLE PRECISION box(3)
+      DOUBLE PRECISION alpha, wcutoff
       INTEGER nsteps, startstep, delta
       ! gaussians
       INTEGER Nk
@@ -78,7 +82,7 @@
       outputfile="out-Pad.dat"
       Nk=-1
       ccmd=0
-      lbox=-1.0d0
+      cell=0.0d0
       nsteps=-1
       natoms=-1
       delta=1
@@ -102,7 +106,7 @@
             ccmd = 3
          ELSEIF (cmdbuffer == "-o") THEN ! output file
             ccmd = 4
-         ELSEIF (cmdbuffer == "-l") THEN ! box lenght
+         ELSEIF (cmdbuffer == "-L") THEN ! box lenght
             ccmd = 5
          ELSEIF (cmdbuffer == "-na") THEN ! number of atoms
             ccmd = 6
@@ -149,8 +153,18 @@
                gaussianfile=trim(cmdbuffer)
             ELSEIF (ccmd == 4) THEN ! output file
                outputfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 5) THEN ! box lenght
-               READ(cmdbuffer,*) lbox
+            ELSEIF (ccmd == 5) THEN ! box dimensions
+               par_count = 1
+               commas(1) = 0
+               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
+                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
+                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) box(par_count)
+                  par_count = par_count + 1
+               ENDDO
+               READ(cmdbuffer(commas(par_count)+1:),*) box(par_count)
+               cell(1,1)=box(1)
+               cell(2,2)=box(2)
+               cell(3,3)=box(3)
             ELSEIF (ccmd == 6) THEN ! numbers of atoms
                READ(cmdbuffer,*) natoms
             ELSEIF (ccmd == 7) THEN ! numbers of steps
@@ -226,7 +240,8 @@
       ENDIF
       
       ! Check the steps and the box parameters
-      CALL xyz_GetInfo(filename,dummyi1,dummyd1,dummyi2)
+      
+      CALL xyz_GetInfo(filename,dummyi1,cell,dummyi2) 
       ! control nstpes
       IF (nsteps == -1) THEN
          nsteps=dummyi2
@@ -235,14 +250,17 @@
       IF (natoms == -1) THEN
          natoms=dummyi1
       ENDIF
-      ! control lbox
-      IF (lbox.LT.(0.0d0)) THEN
-         lbox=dummyd1
-         IF(convert) lbox=lbox*bohr
+      ! control the cell
+      IF (cell(1,1)==(0.0d0) .OR. cell(2,2)==(0.0d0) .OR. cell(3,3)==(0.0d0)) THEN
+         cell=dummycell
+         IF(convert) cell=cell*bohr
       ENDIF
-
+      
+      ! get the inverse of the cell
+      CALL inv(cell,icell)
+      
       ! we can allocate the vectors now
-      ALLOCATE(positions(natoms,3))
+      ALLOCATE(positions(3,natoms))
       ALLOCATE(labels(natoms))
 
       ! get the labels of the atoms
@@ -266,8 +284,8 @@
          ALLOCATE(clusters(Nk))
          DO i=1,Nk
             READ(12,*) clusters(i)%mean(1), clusters(i)%mean(2), &
-                       clusters(i)%cov(1,1), clusters(i)%cov(1,2), &
-                       clusters(i)%cov(2,1), clusters(i)%cov(2,2), &
+                       clusters(i)%cov(1,1), clusters(i)%cov(2,1), &
+                       clusters(i)%cov(1,2), clusters(i)%cov(2,2), &
                        clusters(i)%pk
             ! calculate once the Icovs matrix and the norm_const
             CALL gauss_prepare(clusters(i))                       
@@ -275,39 +293,39 @@
          CLOSE(UNIT=12)
 
          ! we can now define and inizialize the probabilities vector
-         ALLOCATE(spa(natoms,nk), spd(natoms,nk), sph(natoms,nk))
+         ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
          spa=0.0d0
          spd=0.0d0
          sph=0.0d0
          ! outputfile
          OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       ENDIF
-
+      
+      OPEN(UNIT=11,FILE=filename)
       ! Loop over the trajectory
       pos=0
       DO ts=1,nsteps
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
             IF(verbose) WRITE(*,*) "Step: ",ts
-
-            CALL XYZ_GetSnap(1,filename,natoms,pos,newpos,positions)
+            CALL xyz_GetSnap(1,11,natoms,positions)
             IF(convert) positions=positions*bohr
             
             IF(ptcm)THEN
-               CALL write_vwda(natoms,lbox,wcutoff,masktypes,positions)
+               CALL write_vwda(natoms,cell,icell,wcutoff,masktypes,positions)
             ELSE
                !!!!!!! HBMIXTURE HERE! !!!!!!!
-               CALL hbmixture_GetGMMP(natoms,lbox,alpha,wcutoff,positions,masktypes, &
+               CALL hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
                                    nk,clusters,sph,spd,spa)
                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
                ! write results to a formatted output
-               CALL write_output(7,natoms,nk,lbox,ts,positions,sph(:,1),spd(:,1),spa(:,1))
+               CALL write_output(7,natoms,nk,cell,ts,positions,sph(1,:),spd(1,:),spa(1,:))
             ENDIF
 
          ELSE
             ! discard this snapshot
-            CALL XYZ_GetSnap(0,filename,natoms,pos,newpos,positions)
+            CALL XYZ_GetSnap(0,11,natoms,positions)
          ENDIF
          ! pointer for the position in the coordinates file
          ! update for the next pass
@@ -318,6 +336,7 @@
       DEALLOCATE(positions)
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
+      CLOSE(UNIT=11)
       IF (.NOT.ptcm) THEN 
          DEALLOCATE(clusters)
          DEALLOCATE(spa, sph, spd)
@@ -333,47 +352,48 @@
             WRITE(*,*) "                   -tdon Donor_type1,Donor_type2,... "
             WRITE(*,*) "                   -tH   Hydrogen_type1,Hydrogen_type2,... "
             WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] "
-            WRITE(*,*) "                  [-o outputfile] [-l box_lenght] [-na Natoms] "
+            WRITE(*,*) "                  [-o outputfile] [-L lx,ly,lz] [-na Natoms] "
             WRITE(*,*) "                  [-ns total_steps] [-ss starting_step] [-ev delta] "
             WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] "
             WRITE(*,*) "                  [-c] [-v] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
-         SUBROUTINE write_output(filen,natoms,nk,lbox,ts,positions,sh, sd, sa)
+         SUBROUTINE write_output(filen,natoms,nk,cell,ts,positions,sh,sd,sa)
             INTEGER, INTENT(IN) :: filen
             INTEGER, INTENT(IN) :: natoms
             INTEGER, INTENT(IN) :: nk
-            DOUBLE PRECISION, INTENT(IN) :: lbox
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
             INTEGER, INTENT(IN) :: ts
-            DOUBLE PRECISION, DIMENSION(natoms,3), INTENT(IN) :: positions
+            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
             DOUBLE PRECISION, DIMENSION(natoms), INTENT(IN) :: sh, sd, sa
 
             ! header
             WRITE(filen,"(I4)") natoms
             WRITE(filen,"(a,F11.7,a,F11.7,a,F11.7,a,I10)") &
-                 "# CELL(abc): ",lbox," ",lbox," ",lbox," Step: ",ts
+                 "# CELL(abc): ",cell(1,1)," ",cell(2,2)," ",cell(3,3)," Step: ",ts
             ! body
             DO i=1,natoms
                WRITE(filen,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", advance='no') &
-                    trim(labels(i)), " ", positions(i,1), " ", &
-                    positions(i,2), " ", positions(i,3)
+                    trim(labels(i)), " ", positions(1,i), " ", &
+                    positions(2,i), " ", positions(3,i)
                WRITE(filen,"(3(A1,ES18.9))", advance='no') " ", sh(i), &
                        " ", sd(i), " ", sa(i)
                WRITE(filen,*)
             ENDDO
          END SUBROUTINE write_output
          
-         SUBROUTINE write_vwda(natoms,lbox,wcutoff,masktypes,positions)
+         SUBROUTINE write_vwda(natoms,cell,icell,wcutoff,masktypes,positions)
             ! Calculate the probabilities
             ! ...
             ! Args:
             !    param: descript
             INTEGER, INTENT(IN) :: natoms
-            DOUBLE PRECISION, INTENT(IN) :: lbox
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: icell
             DOUBLE PRECISION, INTENT(IN) :: wcutoff
             INTEGER, DIMENSION(natoms), INTENT(IN) :: masktypes
-            DOUBLE PRECISION, DIMENSION(natoms,3), INTENT(IN) :: positions
+            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
             
             INTEGER ih,id,ia
             DOUBLE PRECISION,DIMENSION(2) :: vw
@@ -383,21 +403,21 @@
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
                DO id=1,natoms
                   IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
-                  CALL separation_cubic(lbox,positions(ih,:),positions(id,:),rdh)
+                  CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
                   IF(rdh .GT. wcutoff) CYCLE  ! if one of the distances is greater 
                                    !than the cutoff, we can already discard the D-H pair
                   DO ia=1,natoms  
                      IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                         .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
 
-                     CALL separation_cubic(lbox,positions(ih,:),positions(ia,:),rah)
+                     CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
                      vw(2)=rah+rdh
                      IF(vw(2).GT.wcutoff) CYCLE
                      vw(1)=rdh-rah
                      ! Calculate the distance donor-acceptor
-                     CALL separation_cubic(lbox,positions(id,:),positions(ia,:),rad)
+                     CALL separation(cell,icell,positions(:,id),positions(:,ia),rad)
                      WRITE(*,*) " ",vw(1)," ",vw(2)," ",rad
-                     !write(*,*) ia,id,ih," ",rah,rdh
+                     !write(*,*) ia,id,ih," ",rah,rdh,rad
                   ENDDO
                ENDDO
             ENDDO

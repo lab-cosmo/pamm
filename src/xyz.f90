@@ -34,8 +34,8 @@
       IMPLICIT NONE
 
       CONTAINS
-
-         SUBROUTINE xyz_GetInfo(filename,NAtoms,Lbox,NSteps) !! TO TEST!
+      
+         SUBROUTINE xyz_GetInfo(filename,NAtoms,cell,NSteps) !! TO TEST (because of wc -l)!
             ! Get the number of atoms, the box lenght and the number of steps.
             !
             ! Args:
@@ -46,11 +46,11 @@
 
             CHARACTER*70, INTENT(IN) :: filename
             INTEGER, INTENT(OUT) :: NAtoms
-            DOUBLE PRECISION, INTENT(OUT) :: Lbox
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: cell
             INTEGER, INTENT(OUT) :: NSteps
 
             CHARACTER*1024 :: cmdbuffer
-            CHARACTER*30 dummy1,dummy2,dummy3
+            CHARACTER*30 dummy1,dummy2
 
 
             INTEGER Nlines
@@ -58,7 +58,7 @@
             ! open the file and read the atom number
             OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
             READ(11,*) NAtoms
-            READ(11,*) dummy1,dummy2,dummy3,Lbox
+            READ(11,*) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
             CLOSE(UNIT=11)
             ! we assume to be in a unix system and instead of reading all the file
             ! we use wc -l (to test if it is faster!!!!!!!!)
@@ -75,78 +75,7 @@
             CALL system(cmdbuffer)
             NSteps = Nlines/(NAtoms+2)
 
-         END SUBROUTINE
-
-         SUBROUTINE xyz_GetNts(filename,NSteps) !! TO TEST!
-            ! Get the line numbers of the file and return the number of steps.
-            !
-            ! Args:
-            !    filename: The filename.
-            !    NSteps: The number of steps.
-
-            CHARACTER*70, INTENT(IN) :: filename
-            INTEGER, INTENT(OUT) :: NSteps
-
-            CHARACTER*1024 :: cmdbuffer
-            INTEGER Nlines,NAtoms
-
-            ! open the file and read the atom number
-            OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) NAtoms
-            CLOSE(UNIT=11)
-            ! we assume to be in a unix system and instead of reading all the file
-            ! we use wc -l (to test if it is faster!!!!!!!!)
-            ! get the line number and save to a temp file
-            cmdbuffer='wc -l '//filename//'>> tmp.tmp'
-            CALL system(cmdbuffer)
-            OPEN(UNIT=11,FILE='tmp.tmp',STATUS='OLD',ACTION='READ')
-            ! read the line numbers
-            READ(11,*) Nlines
-            CLOSE(UNIT=11)
-            !remove the temp file
-            cmdbuffer="rm tmp.tmp"
-            CALL system(cmdbuffer)
-            NSteps = Nlines/(NAtoms+2)
-
-         END SUBROUTINE
-
-         SUBROUTINE xyz_GetNAtoms(filename,NAtoms)
-            ! Get the the number of atoms.
-            !
-            ! Args:
-            !    filename: The filename.
-            !    NAtoms: The number of atoms.
-
-            CHARACTER*70, INTENT(IN) :: filename
-            INTEGER, INTENT(OUT) :: NAtoms
-
-            ! open the file and read the atom number
-            OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) NAtoms
-            CLOSE(UNIT=11)
-
-         END SUBROUTINE
-
-         SUBROUTINE xyz_GetDimBox(filename,lbox)
-            ! Get the box lenght
-            ! Simplest case : CUBIC BOX
-            ! To improve for the general case
-            !
-            ! Args:
-            !    filename: The filename.
-            !    lbox: The box lenght
-
-            CHARACTER*70, INTENT(IN) :: filename
-            DOUBLE PRECISION, INTENT(OUT) :: lbox
-
-            CHARACTER*30 dummy1,dummy2,dummy3
-
-            OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) dummy1
-            READ(11,*) dummy1,dummy2,dummy3,lbox
-            CLOSE(UNIT=11)
-
-         END SUBROUTINE
+         END SUBROUTINE xyz_GetInfo
 
          SUBROUTINE xyz_GetLabels(filename,labels)
             ! Get the line numbers of the file and return the number
@@ -160,14 +89,14 @@
             CHARACTER*4,ALLOCATABLE, DIMENSION(:),INTENT(OUT) :: labels
 
             CHARACTER*1024 :: cmdbuffer
-            INTEGER NAtoms,i
+            INTEGER natoms,i
 
             ! open the file and read the atom number
             OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) NAtoms
-            ALLOCATE(labels(NAtoms))
+            READ(11,*) natoms
+            ALLOCATE(labels(natoms))
             READ(11,*) cmdbuffer
-            DO i=1,NAtoms
+            DO i=1,natoms
                READ(11,*) cmdbuffer
                labels(i)=trim(cmdbuffer)
             ENDDO
@@ -175,94 +104,32 @@
 
          END SUBROUTINE
 
-         ! We won't never use this routine.
-         !! TO CANCEL
-         SUBROUTINE xyz_CountAtom(NAtoms,labels,id,num)
-            ! Get the line numbers of id atoms in labels.
-            !
-            ! Args:
-            !    NAtoms: The number of atoms.
-            !    labels: The vector containing the atoms' label
-            !    id: the atom type to serch for
-            !    num: the numbers of id atoms in labels
-
-            INTEGER, INTENT(IN) :: NAtoms
-            CHARACTER*4, DIMENSION(NAtoms), INTENT(IN) :: labels
-            CHARACTER*4, INTENT(IN) :: id
-            INTEGER, INTENT(OUT) :: num
-
-            INTEGER i
-
-            num=0
-            DO i=1,NAtoms
-               IF (trim(labels(i)).eq.trim(id)) THEN
-                  num=num+1
-               ENDIF
-            ENDDO
-
-         END SUBROUTINE
-
-         SUBROUTINE xyz_GetSnap(mode,filename,NAtoms,pos,newpos,positions)
+         SUBROUTINE xyz_GetSnap(mode,ufile,natoms,positions)
             ! Get the positions for the chosen step
             !
             ! Args:
             INTEGER, INTENT(IN) :: mode
-            CHARACTER*70, INTENT(IN) :: filename
-            INTEGER, INTENT(IN) :: NAtoms
-            INTEGER, INTENT(IN) :: pos
-            INTEGER, INTENT(OUT) :: newpos
-            DOUBLE PRECISION, DIMENSION(NAtoms,3), INTENT(OUT)  :: positions
+            INTEGER, INTENT(IN) :: ufile
+            INTEGER, INTENT(IN) :: natoms
+            DOUBLE PRECISION, DIMENSION(3,NAtoms), INTENT(OUT)  :: positions
 
             CHARACTER*1024 dummy
             INTEGER i, ierr
-            ! open the file and read the atom number
-            OPEN(UNIT=11,FILE=filename)
-            ! go to the desired position
-            CALL FSEEK(11, pos, 0, ierr)
             IF (mode.eq.0) THEN
                ! Discard snap
                DO i=1,NAtoms+2
-                  READ(11,*) dummy
+                  READ(ufile,*) dummy
                END DO
             ELSE
                ! Get the snap
                ! skip the header
-               READ(11,*) dummy ! NAtoms
-               READ(11,*) dummy ! Cell info
-               DO i=1,NAtoms
-                  READ(11,*) dummy,positions(i,1),positions(i,2),positions(i,3)
-                  !test what we read
-                  !WRITE(*,*) trim(dummy),positions(i,1),positions(i,2),positions(i,3)
+               READ(ufile,*) dummy ! NAtoms
+               READ(ufile,*) dummy ! Cell info
+               DO i=1,natoms
+                  READ(ufile,*) dummy,positions(1,i),positions(2,i),positions(3,i)
                END DO
             ENDIF
-            newpos = FTELL(11)
-            CLOSE(UNIT=11)
 
          END SUBROUTINE
-
-         SUBROUTINE xyz_ExtractAtoms(NAtoms,positions,labels,N,idatom,ext_coord)
-            ! Extrat idatom type atoms
-            !
-            ! Args:
-            INTEGER, INTENT(IN) :: NAtoms
-            DOUBLE PRECISION, DIMENSION(NAtoms,3), INTENT(IN)  :: positions
-            CHARACTER*4, DIMENSION(NAtoms) :: labels
-            INTEGER, INTENT(IN) :: N
-            CHARACTER, INTENT(IN) :: idatom
-            DOUBLE PRECISION, DIMENSION(N,4), INTENT(OUT)  :: ext_coord
-
-            INTEGER i,counter
-
-            counter=0
-            DO i=1,NAtoms
-               IF(labels(i).eq.idatom)THEN
-                  counter=counter+1
-                  ext_coord(counter,1) = i
-                  ext_coord(counter,2) = positions(i,1)
-                  ext_coord(counter,3) = positions(i,2)
-                  ext_coord(counter,4) = positions(i,3)
-               ENDIF
-            END DO
-         END SUBROUTINE
-
+         
       END MODULE xyz

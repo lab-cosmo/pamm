@@ -38,47 +38,22 @@
 
       CONTAINS
 
-         ! TODO : general cell
-         ! SUBROUTINE hbmixture_Getvw(cell_h, cell_ih, rH, rD, rA, vw)
-         SUBROUTINE hbmixture_Getvw(L, rH, rD, rA, vw)
-            ! Calculates the proton transfer coordinates
-            !DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_h
-            !DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_ih
-            ! BOX lenght
-            DOUBLE PRECISION, INTENT(IN) :: L
-            ! position vectors
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rH ! Hydrogen
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rD ! Donor (D)
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rA ! Acceptor (A)
-            DOUBLE PRECISION, DIMENSION(2), INTENT(OUT) :: vw
-
-            ! separation D-H , A-H
-            DOUBLE PRECISION rDH,rAH
-
-            CALL separation_cubic(L,rD,rH,rDH)
-            CALL separation_cubic(L,rA,rH,rAH)
-
-            ! PTC
-            vw(1) = rDH - rAH
-            vw(2) = rDH + rAH
-
-         END SUBROUTINE hbmixture_Getvw
-
-         SUBROUTINE hbmixture_GetGMMP(natoms,lbox,alpha,wcutoff,positions, &
+         SUBROUTINE hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions, &
                                       masktypes,nk, clusters, sph, spd, spa)
             ! Calculate the probabilities
             ! ...
             ! Args:
             !    param: descript
             INTEGER, INTENT(IN) :: natoms
-            DOUBLE PRECISION, INTENT(IN) :: lbox
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: icell
             DOUBLE PRECISION, INTENT(IN) :: alpha
             DOUBLE PRECISION, INTENT(IN) :: wcutoff
-            DOUBLE PRECISION, DIMENSION(natoms,3), INTENT(IN) :: positions
+            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
             INTEGER, DIMENSION(natoms), INTENT(IN) :: masktypes
             INTEGER, INTENT(IN) :: nk
             TYPE(GAUSS_TYPE), DIMENSION(nk), INTENT(IN) :: clusters
-            DOUBLE PRECISION, DIMENSION(natoms,nk), INTENT(OUT) :: sph, spa, spd
+            DOUBLE PRECISION, DIMENSION(nk,natoms), INTENT(OUT) :: sph, spa, spd
 
             DOUBLE PRECISION, DIMENSION(2) :: vw
             DOUBLE PRECISION, DIMENSION(nk) :: pnk
@@ -95,14 +70,14 @@
                DO id=1,natoms
                   IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
 
-                  CALL separation_cubic(lbox,positions(ih,:),positions(id,:),rdh)
+                  CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
                   IF(rdh .gt. wcutoff) CYCLE  ! if one of the distances is greater than the cutoff, we can already discard the D-H pair
 
                   DO ia=1,natoms
                      IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                          .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
 
-                     CALL separation_cubic(lbox,positions(ih,:),positions(ia,:),rah)
+                     CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
                      vw(2)=rah+rdh
                      IF(vw(2).GT.wcutoff) CYCLE
                      vw(1)=rdh-rah
@@ -116,9 +91,9 @@
                      ENDDO
                      ! Normalize
                      pnk = pnk/pnormpk
-                     sph(ih,:) = sph(ih,:) + pnk(:)
-                     spa(ia,:) = spa(ia,:) + pnk(:)
-                     spd(id,:) = spd(id,:) + pnk(:)
+                     sph(:,ih) = sph(:,ih) + pnk(:)
+                     spa(:,ia) = spa(:,ia) + pnk(:)
+                     spd(:,id) = spd(:,id) + pnk(:)
                      !write(*,*) vw(1),vw(2),"//",ih,"",ia,"",id,"//",sph(ih,1),"",spa(ia,1),"",spd(id,1)
                   ENDDO
                ENDDO

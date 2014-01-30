@@ -22,7 +22,7 @@
 .PHONY: all
 
 SOURCES=$(shell ls *.f90)
-MODULES=distance.f90 gaussian.f90 hbmixture.f90 xyz.f90
+MODULES=distance.f90 gaussian.f90 hbmixture.f90 xyz.f90 matrixinverse.f90
 OBJECTS=$(SOURCES:.f90=.o)
 all: modules minitest
 
@@ -30,10 +30,10 @@ modules: $(MODULES)
 	gfortran -O3 -c $(MODULES)
 
 minitest: $(OBJECTS)
-	gfortran -O3 -o minitest $(OBJECTS) 
+	gfortran -O3 -o minitest $(OBJECTS)
 
 %.o: %.f90
-	gfortran -O3 -c $< 
+	gfortran -O3 -c $<
 
 clean:
 	rm *.o *.mod
