@@ -106,8 +106,8 @@
                      vw(2)=rah+rdh
                      IF(vw(2).GT.wcutoff) CYCLE
                      vw(1)=rdh-rah
-
-
+                     !write(*,*)vw(1)," ",vw(2)
+                     
                      pnk=pnk*0.0d0
                      pnormpk=0.0d0 ! Normalization factor
                      DO k=1,Nk
@@ -119,6 +119,7 @@
                      sph(ih,:) = sph(ih,:) + pnk(:)
                      spa(ia,:) = spa(ia,:) + pnk(:)
                      spd(id,:) = spd(id,:) + pnk(:)
+                     !write(*,*) vw(1),vw(2),"//",ih,"",ia,"",id,"//",sph(ih,1),"",spa(ia,1),"",spd(id,1)
                   ENDDO
                ENDDO
             ENDDO

@@ -55,7 +55,8 @@
       INTEGER pos,newpos
 
 
-      LOGICAL verbose,convert
+      LOGICAL verbose,convert,ptcm
+      INTEGER errdef
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
       ! mask to define what is what
@@ -86,6 +87,8 @@
       wcutoff=5.0d0
       convert = .false.
       verbose = .false.
+      ptcm = .false.
+      errdef=0 
       !!
 
       !!!!! PARSER
@@ -119,6 +122,8 @@
             ccmd = 13
          ELSEIF (cmdbuffer == "-tH") THEN ! hydrogen types
             ccmd = 14
+         ELSEIF (cmdbuffer == "-ev") THEN ! starting step
+            ccmd = 15
          ELSEIF (cmdbuffer == "-h") THEN ! help
             WRITE(*,*) ""
             WRITE(*,*) " HB-mixture test program."
@@ -128,10 +133,12 @@
             convert = .true.
          ELSEIF (cmdbuffer == "-v") THEN ! flag for verbose standard output
             verbose = .true.
+         ELSEIF (cmdbuffer == "-P") THEN ! PTC mode
+            ptcm = .true.
          ELSE
             IF (ccmd == 0) THEN
                WRITE(*,*) ""
-               WRITE(*,*) " Wrong usage."
+               WRITE(*,*) " Wrong usage. Insert the right parameters!"
                CALL helpmessage
                CALL EXIT(-1)
             ELSEIF (ccmd == 1) THEN ! input file
@@ -157,6 +164,7 @@
             ELSEIF (ccmd == 11) THEN ! cutoff for w
                READ(cmdbuffer,*) wcutoff
             ELSEIF (ccmd == 12) THEN ! accettor types
+               errdef=errdef+1
                par_count = 1
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
@@ -166,6 +174,7 @@
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtacc(par_count)
             ELSEIF (ccmd == 13) THEN ! donor types
+               errdef=errdef+1
                par_count = 1
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
@@ -175,6 +184,7 @@
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtdon(par_count)
             ELSEIF (ccmd == 14) THEN ! hydrogen types
+               errdef=errdef+1
                par_count = 1
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
@@ -183,19 +193,38 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtH(par_count)
+            ELSEIF (ccmd == 15) THEN ! cutoff for w
+               READ(cmdbuffer,*) delta
             ENDIF
          ENDIF
       ENDDO
       !!!!! END PARSER
 
       ! Mandatory parameters
-      IF ((ccmd == 0).OR.(filename.EQ."NULL").OR.(gaussianfile.EQ."NULL").OR.(Nk.EQ.-1)) THEN
+      IF (filename.EQ."NULL") THEN
          WRITE(*,*) ""
-         WRITE(*,*) " Wrong usage. Insert the right parameters! "
+         WRITE(*,*) " Error: insert an input file! "
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-
+      
+      IF (.NOT.(errdef.EQ.3)) THEN
+         WRITE(*,*) ""
+         WRITE(*,*) " Error: insert hydrongen, donor and acceptor species! "
+         CALL helpmessage
+         CALL EXIT(-1)
+      ENDIF
+      
+      IF (.NOT.ptcm) THEN 
+         ! Mandatory parameters
+         IF ((gaussianfile.EQ."NULL").OR.(Nk.EQ.-1)) THEN
+            WRITE(*,*) ""
+            WRITE(*,*) " Error: insert the gaussians parameters! "
+            CALL helpmessage
+            CALL EXIT(-1)
+         ENDIF
+      ENDIF
+      
       ! Check the steps and the box parameters
       CALL xyz_GetInfo(filename,dummyi1,dummyd1,dummyi2)
       ! control nstpes
@@ -209,6 +238,7 @@
       ! control lbox
       IF (lbox.LT.(0.0d0)) THEN
          lbox=dummyd1
+         IF(convert) lbox=lbox*bohr
       ENDIF
 
       ! we can allocate the vectors now
@@ -227,30 +257,32 @@
          IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
          IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
       ENDDO
+      
+      IF (.NOT.ptcm) THEN 
+         ! Read gaussian parameters from the gaussian file
+         OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
+         !decomment this if the first line is a comment string
+         !READ(12,*) cmdbuffer
+         ALLOCATE(clusters(Nk))
+         DO i=1,Nk
+            READ(12,*) clusters(i)%mean(1), clusters(i)%mean(2), &
+                       clusters(i)%cov(1,1), clusters(i)%cov(1,2), &
+                       clusters(i)%cov(2,1), clusters(i)%cov(2,2), &
+                       clusters(i)%pk
+            ! calculate once the Icovs matrix and the norm_const
+            CALL gauss_prepare(clusters(i))                       
+         ENDDO
+         CLOSE(UNIT=12)
 
-      ! Read gaussian parameters from the gaussian file
-      OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
-      !decomment this if the first line is a comment string
-      !READ(12,*) cmdbuffer
-      ALLOCATE(clusters(Nk))
-      DO i=1,Nk
-         READ(12,*) clusters(i)%mean(1), clusters(i)%mean(2), &
-                    clusters(i)%cov(1,1), clusters(i)%cov(1,2), &
-                    clusters(i)%cov(2,1), clusters(i)%cov(2,2), &
-                    clusters(i)%pk
-         ! calculate once the Icovs matrix and the norm_const
-         CALL gauss_prepare(clusters(i))
-      ENDDO
-      CLOSE(UNIT=12)
+         ! we can now define and inizialize the probabilities vector
+         ALLOCATE(spa(natoms,nk), spd(natoms,nk), sph(natoms,nk))
+         spa=0.0d0
+         spd=0.0d0
+         sph=0.0d0
+         ! outputfile
+         OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
+      ENDIF
 
-      ! we can now define and inizialize the probabilities vector
-      ALLOCATE(spa(natoms,nk), spd(natoms,nk), sph(natoms,nk))
-      spa=0.0d0
-      spd=0.0d0
-      sph=0.0d0
-
-      ! outputfile
-      OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       ! Loop over the trajectory
       pos=0
       DO ts=1,nsteps
@@ -260,14 +292,18 @@
 
             CALL XYZ_GetSnap(1,filename,natoms,pos,newpos,positions)
             IF(convert) positions=positions*bohr
-
-            !!!!!!! HBMIXTURE HERE! !!!!!!!
-            CALL hbmixture_GetGMMP(natoms,lbox,alpha,wcutoff,positions,masktypes, &
+            
+            IF(ptcm)THEN
+               CALL write_vwda(natoms,lbox,wcutoff,masktypes,positions)
+            ELSE
+               !!!!!!! HBMIXTURE HERE! !!!!!!!
+               CALL hbmixture_GetGMMP(natoms,lbox,alpha,wcutoff,positions,masktypes, &
                                    nk,clusters,sph,spd,spa)
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+               !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-            ! write results to a formatted output
-            CALL write_output(7,natoms,nk,lbox,ts,positions,sph(:,1),spd(:,1),spa(:,1))
+               ! write results to a formatted output
+               CALL write_output(7,natoms,nk,lbox,ts,positions,sph(:,1),spd(:,1),spa(:,1))
+            ENDIF
 
          ELSE
             ! discard this snapshot
@@ -278,25 +314,28 @@
          pos=newpos
       ENDDO
       ! end the loop over the trajectory
-      CLOSE(UNIT=7)
 
       DEALLOCATE(positions)
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
-      DEALLOCATE(clusters)
-      DEALLOCATE(spa, sph, spd)
+      IF (.NOT.ptcm) THEN 
+         DEALLOCATE(clusters)
+         DEALLOCATE(spa, sph, spd)
+         CLOSE(UNIT=7)
+      ENDIF
 
       CONTAINS
 
          SUBROUTINE helpmessage
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: minitest [-h] -i filename -gn Ngaussians -gf gaussianfile "
+            WRITE(*,*) " SYNTAX: minitest [-h] [-P] -i filename  "
+            WRITE(*,*) "                   -tacc Accettor_type1,Accettor_type2,... "
+            WRITE(*,*) "                   -tdon Donor_type1,Donor_type2,... "
+            WRITE(*,*) "                   -tH   Hydrogen_type1,Hydrogen_type2,... "
+            WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] "
             WRITE(*,*) "                  [-o outputfile] [-l box_lenght] [-na Natoms] "
             WRITE(*,*) "                  [-ns total_steps] [-ss starting_step] [-ev delta] "
             WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] "
-            WRITE(*,*) "                  [-tacc Accettor_type1,Accettor_type2,...] "
-            WRITE(*,*) "                  [-tdon Donor_type1,Donor_type2,...] "
-            WRITE(*,*) "                  [-tH   Hydrogen_type1,Hydrogen_type2,...] "
             WRITE(*,*) "                  [-c] [-v] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
@@ -324,6 +363,45 @@
                WRITE(filen,*)
             ENDDO
          END SUBROUTINE write_output
+         
+         SUBROUTINE write_vwda(natoms,lbox,wcutoff,masktypes,positions)
+            ! Calculate the probabilities
+            ! ...
+            ! Args:
+            !    param: descript
+            INTEGER, INTENT(IN) :: natoms
+            DOUBLE PRECISION, INTENT(IN) :: lbox
+            DOUBLE PRECISION, INTENT(IN) :: wcutoff
+            INTEGER, DIMENSION(natoms), INTENT(IN) :: masktypes
+            DOUBLE PRECISION, DIMENSION(natoms,3), INTENT(IN) :: positions
+            
+            INTEGER ih,id,ia
+            DOUBLE PRECISION,DIMENSION(2) :: vw
+            DOUBLE PRECISION rah,rdh,rad
+            
+            DO ih=1,natoms ! loop over H
+               IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
+               DO id=1,natoms
+                  IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
+                  CALL separation_cubic(lbox,positions(ih,:),positions(id,:),rdh)
+                  IF(rdh .GT. wcutoff) CYCLE  ! if one of the distances is greater 
+                                   !than the cutoff, we can already discard the D-H pair
+                  DO ia=1,natoms  
+                     IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
+                        .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
+
+                     CALL separation_cubic(lbox,positions(ih,:),positions(ia,:),rah)
+                     vw(2)=rah+rdh
+                     IF(vw(2).GT.wcutoff) CYCLE
+                     vw(1)=rdh-rah
+                     ! Calculate the distance donor-acceptor
+                     CALL separation_cubic(lbox,positions(id,:),positions(ia,:),rad)
+                     WRITE(*,*) " ",vw(1)," ",vw(2)," ",rad
+                     !write(*,*) ia,id,ih," ",rah,rdh
+                  ENDDO
+               ENDDO
+            ENDDO
+         END SUBROUTINE write_vwda
 
          LOGICAL FUNCTION testtype(id,vtype)
             CHARACTER*4, INTENT(IN) :: id
