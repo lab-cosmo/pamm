@@ -55,11 +55,14 @@
             TYPE(GAUSS_TYPE), DIMENSION(nk), INTENT(IN) :: clusters
             DOUBLE PRECISION, DIMENSION(nk,natoms), INTENT(OUT) :: sph, spa, spd
 
-            DOUBLE PRECISION, DIMENSION(2) :: vw
+            DOUBLE PRECISION, DIMENSION(3) :: vwd
             DOUBLE PRECISION, DIMENSION(nk) :: pnk
             DOUBLE PRECISION pnormpk
             INTEGER ih,ia,id,k
             DOUBLE PRECISION rah, rdh
+            !!da cancellare counter finito il debug
+            INTEGER counter
+            counter=0
 
             ! initialize
             spa=0.0d0
@@ -78,15 +81,15 @@
                          .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
 
                      CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
-                     vw(2)=rah+rdh
-                     IF(vw(2).GT.wcutoff) CYCLE
-                     vw(1)=rdh-rah
-                     !write(*,*)vw(1)," ",vw(2)
+                     vwd(2)=rah+rdh
+                     IF(vwd(2).GT.wcutoff) CYCLE
+                     vwd(1)=rdh-rah
+                     CALL separation(cell,icell,positions(:,id),positions(:,ia),vwd(3))
                      
                      pnk=pnk*0.0d0
                      pnormpk=0.0d0 ! Normalization factor
                      DO k=1,Nk
-                        pnk(k) = gauss_eval(clusters(k), vw)**alpha
+                        pnk(k) = gauss_eval(clusters(k), vwd)**alpha
                         pnormpk = pnormpk+pnk(k)
                      ENDDO
                      ! Normalize
@@ -94,10 +97,18 @@
                      sph(:,ih) = sph(:,ih) + pnk(:)
                      spa(:,ia) = spa(:,ia) + pnk(:)
                      spd(:,id) = spd(:,id) + pnk(:)
-                     !write(*,*) vw(1),vw(2),"//",ih,"",ia,"",id,"//",sph(ih,1),"",spa(ia,1),"",spd(id,1)
+                     !write(*,*) vwd(1),vwd(2),"//",ih,"",ia,"",id,"//",sph(1,ih),"",spa(1,ia),"",spd(1,id)
+                     !write(*,*) ih,id,ia,pnk(1),pnk(2),pnk(3),pnk(4),pnk(5),pnk(6),pnk(7)
+                     !write(*,*) "### ",pnk(8),pnk(9),pnk(10),sum(pnk)
+                     IF(pnk(1).GT.(0.5d0))THEN
+                        counter=counter+1
+                        write(*,*) "### ",vwd(1),vwd(2),vwd(3),spd(1,id),">>",counter
+                     ENDIF
+                     
                   ENDDO
                ENDDO
             ENDDO
+           
 
          END SUBROUTINE hbmixture_GetGMMP
 

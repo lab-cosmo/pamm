@@ -25,16 +25,17 @@
 
 
       MODULE gaussian
+         USE matrixinverse
       IMPLICIT NONE
       
-      DOUBLE PRECISION, PARAMETER :: dpigreco = 2.0d0*3.14159265358979d0
+      DOUBLE PRECISION, PARAMETER :: dpigreco = (2.0d0*3.14159265358979d0)**3
 
       TYPE gauss_type
          DOUBLE PRECISION pk
          DOUBLE PRECISION norm
-         DOUBLE PRECISION, DIMENSION(2) :: mean
-         DOUBLE PRECISION, DIMENSION(2,2) :: cov
-         DOUBLE PRECISION, DIMENSION(2,2) :: icov
+         DOUBLE PRECISION, DIMENSION(3) :: mean
+         DOUBLE PRECISION, DIMENSION(3,3) :: cov
+         DOUBLE PRECISION, DIMENSION(3,3) :: icov
       END TYPE
 
       CONTAINS
@@ -46,12 +47,13 @@
             !    param: descript 
             TYPE(GAUSS_TYPE), INTENT(INOUT) :: gpars
             DOUBLE PRECISION det
-
-            det = gpars%cov(1,1) * gpars%cov(2,2) - gpars%cov(1,2) * gpars%cov(2,1)
-            gpars%icov(1,1) = gpars%cov(2,2)/det
-            gpars%icov(1,2) = -gpars%cov(1,2)/det
-            gpars%icov(2,1) = -gpars%cov(2,1)/det
-            gpars%icov(2,2) = gpars%cov(1,1)/det
+            
+            ! saurus rule
+            det = gpars%cov(1,1)*(gpars%cov(2,2)*gpars%cov(3,3)-gpars%cov(3,2)*gpars%cov(2,3)) - &
+                  gpars%cov(1,2)*(gpars%cov(2,1)*gpars%cov(3,3)-gpars%cov(2,3)*gpars%cov(3,1)) + &
+                  gpars%cov(1,3)*(gpars%cov(2,1)*gpars%cov(3,2)-gpars%cov(2,2)*gpars%cov(3,1))
+                  
+            CALL inv(gpars%cov,gpars%icov)
 
             gpars%norm = gpars%pk/dsqrt(dpigreco*det)   ! includes the weight in
                                                         ! the normalization constant
@@ -60,15 +62,15 @@
          DOUBLE PRECISION FUNCTION gauss_eval(gpars, x)
             ! Get the value value of the gaussian in X
             TYPE(GAUSS_TYPE), INTENT(IN) :: gpars
-            DOUBLE PRECISION, INTENT(IN) :: x(2)
-            DOUBLE PRECISION xcx, dx, dy
+            DOUBLE PRECISION, INTENT(IN) :: x(3)
+            DOUBLE PRECISION dv(3),tmpv(3)
+            DOUBLE PRECISION xcx
 
-            dx=x(1)-gpars%mean(1)
-            dy=x(2)-gpars%mean(2)
-            ! we assume to work in 2 dimensions so it is better to avoid to use
-            ! lapack 
-            xcx=dx*(dx*gpars%icov(1,1)+dy*gpars%icov(1,2)) + & 
-                dy*(dy*gpars%icov(2,2)+dx*gpars%icov(2,1))
+            dv=x-gpars%mean
+            
+            tmpv = matmul(dv,gpars%icov)
+            
+            xcx = dot_product(tmpv,tmpv)
 
             gauss_eval = gpars%norm * dexp(-0.5d0*xcx)
          END FUNCTION gauss_eval

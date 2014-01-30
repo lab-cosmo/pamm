@@ -39,7 +39,7 @@
       ! system parameters
       INTEGER natoms
       !DOUBLE PRECISION, DIMENSION(3) :: box
-      DOUBLE PRECISION cell(3,3), icell(3,3),dummycell
+      DOUBLE PRECISION cell(3,3), icell(3,3), dummycell(3,3)
       DOUBLE PRECISION box(3)
       DOUBLE PRECISION alpha, wcutoff
       INTEGER nsteps, startstep, delta
@@ -241,7 +241,7 @@
       
       ! Check the steps and the box parameters
       
-      CALL xyz_GetInfo(filename,dummyi1,cell,dummyi2) 
+      CALL xyz_GetInfo(filename,dummyi1,dummycell,dummyi2) 
       ! control nstpes
       IF (nsteps == -1) THEN
          nsteps=dummyi2
@@ -283,12 +283,16 @@
          !READ(12,*) cmdbuffer
          ALLOCATE(clusters(Nk))
          DO i=1,Nk
-            READ(12,*) clusters(i)%mean(1), clusters(i)%mean(2), &
-                       clusters(i)%cov(1,1), clusters(i)%cov(2,1), &
-                       clusters(i)%cov(1,2), clusters(i)%cov(2,2), &
-                       clusters(i)%pk
+            READ(12,*) clusters(i)%mean(1), clusters(i)%mean(2), clusters(i)%mean(3), &
+                       clusters(i)%cov(1,1), clusters(i)%cov(2,1), clusters(i)%cov(3,1), &
+                       clusters(i)%cov(1,2), clusters(i)%cov(2,2), clusters(i)%cov(3,2), &
+                       clusters(i)%cov(1,3), clusters(i)%cov(2,3), clusters(i)%cov(3,3), &
+                       dummyd2
+            !! the follow because I'm using the gaussianmix of Michele (that save log(pk))
+            clusters(i)%pk=exp(dummyd2) 
             ! calculate once the Icovs matrix and the norm_const
-            CALL gauss_prepare(clusters(i))                       
+            CALL gauss_prepare(clusters(i))     
+            
          ENDDO
          CLOSE(UNIT=12)
 
@@ -312,11 +316,11 @@
             IF(convert) positions=positions*bohr
             
             IF(ptcm)THEN
-               CALL write_vwda(natoms,cell,icell,wcutoff,masktypes,positions)
+               CALL write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
             ELSE
                !!!!!!! HBMIXTURE HERE! !!!!!!!
                CALL hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
-                                   nk,clusters,sph,spd,spa)
+                                      nk,clusters,sph,spd,spa)
                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
                ! write results to a formatted output
@@ -383,7 +387,7 @@
             ENDDO
          END SUBROUTINE write_output
          
-         SUBROUTINE write_vwda(natoms,cell,icell,wcutoff,masktypes,positions)
+         SUBROUTINE write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
             ! Calculate the probabilities
             ! ...
             ! Args:
@@ -396,32 +400,32 @@
             DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
             
             INTEGER ih,id,ia
-            DOUBLE PRECISION,DIMENSION(2) :: vw
-            DOUBLE PRECISION rah,rdh,rad
+            DOUBLE PRECISION,DIMENSION(3) :: vwd
+            DOUBLE PRECISION rah,rdh
             
             DO ih=1,natoms ! loop over H
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
                DO id=1,natoms
                   IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
                   CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
-                  IF(rdh .GT. wcutoff) CYCLE  ! if one of the distances is greater 
+                  IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater 
                                    !than the cutoff, we can already discard the D-H pair
                   DO ia=1,natoms  
                      IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                         .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
 
                      CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
-                     vw(2)=rah+rdh
-                     IF(vw(2).GT.wcutoff) CYCLE
-                     vw(1)=rdh-rah
+                     vwd(2)=rdh+rah
+                     IF(vwd(2).GT.wcutoff) CYCLE
+                     vwd(1)=rdh-rah
                      ! Calculate the distance donor-acceptor
-                     CALL separation(cell,icell,positions(:,id),positions(:,ia),rad)
-                     WRITE(*,*) " ",vw(1)," ",vw(2)," ",rad
+                     CALL separation(cell,icell,positions(:,id),positions(:,ia),vwd(3))
+                     WRITE(*,*) " ",vwd(1)," ",vwd(2)," ",vwd(3)
                      !write(*,*) ia,id,ih," ",rah,rdh,rad
                   ENDDO
                ENDDO
             ENDDO
-         END SUBROUTINE write_vwda
+         END SUBROUTINE write_vwd
 
          LOGICAL FUNCTION testtype(id,vtype)
             CHARACTER*4, INTENT(IN) :: id
