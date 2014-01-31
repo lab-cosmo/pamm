@@ -70,7 +70,7 @@
             
             tmpv = matmul(dv,gpars%icov)
             
-            xcx = dot_product(tmpv,tmpv)
+            xcx = dot_product(dv,tmpv)
 
             gauss_eval = gpars%norm * dexp(-0.5d0*xcx)
          END FUNCTION gauss_eval

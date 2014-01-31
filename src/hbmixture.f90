@@ -88,23 +88,19 @@
                      
                      pnk=pnk*0.0d0
                      pnormpk=0.0d0 ! Normalization factor
+                     !write(*,*) "VECTOR", vwd
                      DO k=1,Nk
+                        !write(*,*) k, clusters(k)%norm, clusters(k)%mean
                         pnk(k) = gauss_eval(clusters(k), vwd)**alpha
                         pnormpk = pnormpk+pnk(k)
                      ENDDO
+                     IF (pnormpk.eq.0.0d0) CYCLE   ! skip cases in which the probability is tooooo tiny
                      ! Normalize
                      pnk = pnk/pnormpk
+                     
                      sph(:,ih) = sph(:,ih) + pnk(:)
                      spa(:,ia) = spa(:,ia) + pnk(:)
-                     spd(:,id) = spd(:,id) + pnk(:)
-                     !write(*,*) vwd(1),vwd(2),"//",ih,"",ia,"",id,"//",sph(1,ih),"",spa(1,ia),"",spd(1,id)
-                     !write(*,*) ih,id,ia,pnk(1),pnk(2),pnk(3),pnk(4),pnk(5),pnk(6),pnk(7)
-                     !write(*,*) "### ",pnk(8),pnk(9),pnk(10),sum(pnk)
-                     IF(pnk(1).GT.(0.5d0))THEN
-                        counter=counter+1
-                        write(*,*) "### ",vwd(1),vwd(2),vwd(3),spd(1,id),">>",counter
-                     ENDIF
-                     
+                     spd(:,id) = spd(:,id) + pnk(:)                 
                   ENDDO
                ENDDO
             ENDDO
