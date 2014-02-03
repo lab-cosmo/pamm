@@ -22,7 +22,7 @@
 .PHONY: all
 
 SOURCES=$(shell ls *.f90)
-MODULES=distance.f90 gaussian.f90 hbmixture.f90 xyz.f90 matrixinverse.f90
+MODULES=distance.f90 matrixinverse.f90 gaussian.f90 xyz.f90 hbmixture.f90
 OBJECTS=$(SOURCES:.f90=.o)
 all: modules minitest
 

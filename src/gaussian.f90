@@ -48,12 +48,12 @@
             TYPE(GAUSS_TYPE), INTENT(INOUT) :: gpars
             DOUBLE PRECISION det
             
-            ! saurus rule
+            
             det = gpars%cov(1,1)*(gpars%cov(2,2)*gpars%cov(3,3)-gpars%cov(3,2)*gpars%cov(2,3)) - &
                   gpars%cov(1,2)*(gpars%cov(2,1)*gpars%cov(3,3)-gpars%cov(2,3)*gpars%cov(3,1)) + &
                   gpars%cov(1,3)*(gpars%cov(2,1)*gpars%cov(3,2)-gpars%cov(2,2)*gpars%cov(3,1))
                   
-            CALL inv(gpars%cov,gpars%icov)
+            CALL inv3x3(gpars%cov,gpars%icov)
 
             gpars%norm = gpars%pk/dsqrt(dpigreco*det)   ! includes the weight in
                                                         ! the normalization constant

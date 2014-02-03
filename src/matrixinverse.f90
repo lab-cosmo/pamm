@@ -27,8 +27,27 @@
       MODULE matrixinverse
       IMPLICIT NONE
       CONTAINS
+         
+         SUBROUTINE inv2x2(M,IM)
+            ! Invert the matrix, simplest case
+            ! ...
+            ! Args:
+            !    param: descript 
+            DOUBLE PRECISION, DIMENSION(2,2), INTENT(IN) :: M
+            DOUBLE PRECISION, DIMENSION(2,2), INTENT(OUT) :: IM
+            
+            DOUBLE PRECISION det
+            
+            IM=0.0d0
+            det=M(1,1)*M(2,2) - M(1,2)*M(2,1)
+            IM(1,1) = M(2,2)/det
+            IM(1,2) = -M(1,2)/det
+            IM(2,1) = -M(2,1)/det
+            IM(2,2) = M(1,1)/det
 
-         SUBROUTINE inv(M,IM)
+         END SUBROUTINE inv2x2
+
+         SUBROUTINE inv3x3(M,IM)
             ! Invert the matrix using the cofactors
             ! ...
             ! Args:
@@ -61,32 +80,6 @@
                ENDDO
             ENDDO
 
-         END SUBROUTINE inv
-
-! INVERT USING LAPACK         
-!         SUBROUTINE invL(M,IM)
-!         
-!            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: M
-!            DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: IM
-!  
-!            INTEGER, PARAMETER :: D=3 
-!            DOUBLE PRECISION, DIMENSION(3) :: WORK
-!            INTEGER, DIMENSION(3) :: IPIV
-!            INTEGER k,i,j,info,error
-!
-!            IM=M
-!
-!                 info = 0
-!                 error = 0
-!                 IPIV(1) = 0
-!                 IPIV(2) = 0
-!                 IPIV(3) = 0
-!                 call DGETRF(D,D,IM,D,IPIV,info)
-!                 WORK(1) = 0.0d0
-!                 WORK(2) = 0.0d0
-!                 WORK(3) = 0.0d0
-!                 call DGETRI(D,IM,D,IPIV,WORK,D,info)   
-!
-!         END SUBROUTINE
+         END SUBROUTINE inv3x3
 
       END MODULE matrixinverse

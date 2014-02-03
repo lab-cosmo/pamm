@@ -55,9 +55,6 @@
       ! for a faster reading
       ! counters
       INTEGER i,ts,k
-      ! parmater for seeking in the input file
-      INTEGER pos,newpos
-
 
       LOGICAL verbose,convert,ptcm
       INTEGER errdef
@@ -114,7 +111,7 @@
             ccmd = 7
          ELSEIF (cmdbuffer == "-ss") THEN ! starting step
             ccmd = 8
-         ELSEIF (cmdbuffer == "-gf") THEN ! delta
+         ELSEIF (cmdbuffer == "-ev") THEN ! delta
             ccmd = 9
          ELSEIF (cmdbuffer == "-a") THEN ! smoothing factor, alpha
             ccmd = 10
@@ -126,8 +123,6 @@
             ccmd = 13
          ELSEIF (cmdbuffer == "-tH") THEN ! hydrogen types
             ccmd = 14
-         ELSEIF (cmdbuffer == "-ev") THEN ! starting step
-            ccmd = 15
          ELSEIF (cmdbuffer == "-h") THEN ! help
             WRITE(*,*) ""
             WRITE(*,*) " HB-mixture test program."
@@ -207,8 +202,6 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtH(par_count)
-            ELSEIF (ccmd == 15) THEN ! cutoff for w
-               READ(cmdbuffer,*) delta
             ENDIF
          ENDIF
       ENDDO
@@ -257,7 +250,7 @@
       ENDIF
       
       ! get the inverse of the cell
-      CALL inv(cell,icell)
+      CALL inv3x3(cell,icell)
       
       ! we can allocate the vectors now
       ALLOCATE(positions(3,natoms))
@@ -307,7 +300,6 @@
       
       OPEN(UNIT=11,FILE=filename)
       ! Loop over the trajectory
-      pos=0
       DO ts=1,nsteps
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
@@ -331,9 +323,6 @@
             ! discard this snapshot
             CALL XYZ_GetSnap(0,11,natoms,positions)
          ENDIF
-         ! pointer for the position in the coordinates file
-         ! update for the next pass
-         pos=newpos
       ENDDO
       ! end the loop over the trajectory
 
