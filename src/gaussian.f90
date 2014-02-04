@@ -28,7 +28,7 @@
          USE matrixinverse
       IMPLICIT NONE
       
-      DOUBLE PRECISION, PARAMETER :: dpigreco = (2.0d0*3.14159265358979d0)**3
+      DOUBLE PRECISION, PARAMETER :: dpigreco = (2.0d0*3.14159265358979d0)
 
       TYPE gauss_type
          DOUBLE PRECISION pk
@@ -55,7 +55,7 @@
                   
             CALL inv(gpars%cov,gpars%icov)
 
-            gpars%norm = gpars%pk/dsqrt(dpigreco*det)   ! includes the weight in
+            gpars%norm = gpars%pk/dsqrt((dpigreco**3)*det)   ! includes the weight in
                                                         ! the normalization constant
          END SUBROUTINE gauss_prepare
 
