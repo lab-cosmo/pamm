@@ -28,11 +28,11 @@
          USE matrixinverse
       IMPLICIT NONE
       
-      DOUBLE PRECISION, PARAMETER :: dpigreco = (2.0d0*3.14159265358979d0)**3
+      DOUBLE PRECISION, PARAMETER :: dpigreco = (2.0d0*3.14159265358979d0)
 
       TYPE gauss_type
-         DOUBLE PRECISION pk
-         DOUBLE PRECISION norm
+         DOUBLE PRECISION lnorm
+         DOUBLE PRECISION det
          DOUBLE PRECISION, DIMENSION(3) :: mean
          DOUBLE PRECISION, DIMENSION(3,3) :: cov
          DOUBLE PRECISION, DIMENSION(3,3) :: icov
@@ -46,21 +46,19 @@
             ! Args:
             !    param: descript 
             TYPE(GAUSS_TYPE), INTENT(INOUT) :: gpars
-            DOUBLE PRECISION det
             
             
-            det = gpars%cov(1,1)*(gpars%cov(2,2)*gpars%cov(3,3)-gpars%cov(3,2)*gpars%cov(2,3)) - &
-                  gpars%cov(1,2)*(gpars%cov(2,1)*gpars%cov(3,3)-gpars%cov(2,3)*gpars%cov(3,1)) + &
-                  gpars%cov(1,3)*(gpars%cov(2,1)*gpars%cov(3,2)-gpars%cov(2,2)*gpars%cov(3,1))
+            gpars%det = gpars%cov(1,1)*(gpars%cov(2,2)*gpars%cov(3,3)-gpars%cov(3,2)*gpars%cov(2,3)) - &
+                        gpars%cov(1,2)*(gpars%cov(2,1)*gpars%cov(3,3)-gpars%cov(2,3)*gpars%cov(3,1)) + &
+                        gpars%cov(1,3)*(gpars%cov(2,1)*gpars%cov(3,2)-gpars%cov(2,2)*gpars%cov(3,1))
                   
             CALL inv3x3(gpars%cov,gpars%icov)
-
-            gpars%norm = gpars%pk/dsqrt(dpigreco*det)   ! includes the weight in
+            gpars%lnorm = dlog(1.0d0/dsqrt((dpigreco**3)*gpars%det))   ! includes the weight in
                                                         ! the normalization constant
          END SUBROUTINE gauss_prepare
 
-         DOUBLE PRECISION FUNCTION gauss_eval(gpars, x)
-            ! Get the value value of the gaussian in X
+         DOUBLE PRECISION FUNCTION gauss_logeval(gpars, x)
+            ! Get the log value of the gaussian in X
             TYPE(GAUSS_TYPE), INTENT(IN) :: gpars
             DOUBLE PRECISION, INTENT(IN) :: x(3)
             DOUBLE PRECISION dv(3),tmpv(3)
@@ -72,7 +70,15 @@
             
             xcx = dot_product(dv,tmpv)
 
-            gauss_eval = gpars%norm * dexp(-0.5d0*xcx)
+            gauss_logeval = gpars%lnorm - 0.5d0*xcx
+         END FUNCTION gauss_logeval
+
+         DOUBLE PRECISION FUNCTION gauss_eval(gpars, x)
+            ! Get the value value of the gaussian in X
+            TYPE(GAUSS_TYPE), INTENT(IN) :: gpars
+            DOUBLE PRECISION, INTENT(IN) :: x(3)
+            
+            gauss_eval = dexp(gauss_logeval(gpars,x))
          END FUNCTION gauss_eval
 
       END MODULE
