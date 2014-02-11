@@ -79,10 +79,11 @@
       verbose = .false. ! no verbosity
       errc=1.0e-05
       Nk=-1 ! number of Gaussians in the mixture. Initialized at -1
-      ! Initialize loglike
-      loglike=-1e-40
       test=111
-      rangevwd=0.0d0
+      rangevwd=-11.1d0
+      DO j=1,3
+        rangevwd(j,1)=11.1d0
+      ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
@@ -201,6 +202,8 @@
       ENDIF
       
       i=0
+      ! Initialize loglike
+      loglike=-1e-40
       DO WHILE(test>errc) ! convergence criteria
          i=i+1
          IF(verbose) WRITE(*,*) "Iteration N. ",i
@@ -306,14 +309,13 @@
                   ! spherical gaussian
                   clusters(i)%cov(j,j)=1e-10
                ENDDO
-               lpks(i)=dlog(1.0d0/Nk)
-               CALL gauss_prepare(clusters(i))
-               ! Call estep
-               CALL estep(ng,nsamples,vwda,clusters,lpks,pnk,loglike)
-               ! Call mstep
-               CALL mstep(ng,nsamples,vwda,clusters,lpks,pnk,0.0d0)
+               lpks(i)=dlog(1.0d0/ng)
+               CALL gauss_prepare(clusters(i))             
             ENDDO
-            
+            ! Call estep
+            CALL estep(ng,nsamples,vwda,clusters,lpks,pnk,loglike)
+            ! Call mstep
+            CALL mstep(ng,nsamples,vwda,clusters,lpks,pnk,0.0d0)
          END SUBROUTINE generatefromscratch
          
          INTEGER FUNCTION GetNlines(filein)

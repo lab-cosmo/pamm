@@ -56,7 +56,7 @@
       ! counters
       INTEGER i,ts,k
 
-      LOGICAL verbose,convert,ptcm
+      LOGICAL verbose,convert,ptcm1,ptcm2
       INTEGER errdef
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
@@ -88,7 +88,8 @@
       wcutoff=5.0d0
       convert = .false.
       verbose = .false.
-      ptcm = .false.
+      ptcm1 = .false.
+      ptcm2 = .false.
       errdef=0 
       !!
 
@@ -132,8 +133,10 @@
             convert = .true.
          ELSEIF (cmdbuffer == "-v") THEN ! flag for verbose standard output
             verbose = .true.
-         ELSEIF (cmdbuffer == "-P") THEN ! PTC mode
-            ptcm = .true.
+         ELSEIF (cmdbuffer == "-P1") THEN ! PTC mode
+            ptcm1 = .true.
+         ELSEIF (cmdbuffer == "-P2") THEN ! PTC mode
+            ptcm2 = .true.
          ELSE
             IF (ccmd == 0) THEN
                WRITE(*,*) ""
@@ -206,7 +209,14 @@
          ENDIF
       ENDDO
       !!!!! END PARSER
-
+      
+      IF (ptcm1 .and. ptcm2) THEN
+         WRITE(*,*) ""
+         WRITE(*,*) " Error: you have to chose! -P1 or -P2, not both!! "
+         CALL helpmessage
+         CALL EXIT(-1)
+      ENDIF
+      
       ! Mandatory parameters
       IF (filename.EQ."NULL") THEN
          WRITE(*,*) ""
@@ -222,7 +232,7 @@
          CALL EXIT(-1)
       ENDIF
       
-      IF (.NOT.ptcm) THEN 
+      IF (.NOT.ptcm1 .and. .NOT.ptcm2) THEN 
          ! Mandatory parameters
          IF ((gaussianfile.EQ."NULL").OR.(Nk.EQ.-1)) THEN
             WRITE(*,*) ""
@@ -269,7 +279,7 @@
          IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
       ENDDO
       
-      IF (.NOT.ptcm) THEN 
+      IF (.NOT.ptcm1 .and. .NOT.ptcm2) THEN 
          ! HB-mixture mode
          ! Read gaussian parameters from the gaussian file
          OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
@@ -308,8 +318,10 @@
             CALL xyz_GetSnap(1,11,natoms,positions)
             IF(convert) positions=positions*bohr
             
-            IF(ptcm)THEN
+            IF(ptcm1)THEN
                CALL write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
+            ELSEIF(ptcm2)THEN
+               CALL write_xyz(natoms,cell,icell,wcutoff,masktypes,positions)
             ELSE
                !!!!!!! HBMIXTURE HERE! !!!!!!!
                CALL hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
@@ -331,7 +343,7 @@
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
       CLOSE(UNIT=11)
-      IF (.NOT.ptcm) THEN 
+      IF (.NOT.ptcm1) THEN 
          DEALLOCATE(clusters,pks)
          DEALLOCATE(spa, sph, spd)
          CLOSE(UNIT=7)
@@ -341,7 +353,7 @@
 
          SUBROUTINE helpmessage
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: minitest [-h] [-P] -i filename  "
+            WRITE(*,*) " SYNTAX: minitest [-h] [-P1/-P2] -i filename  "
             WRITE(*,*) "                   -tacc Accettor_type1,Accettor_type2,... "
             WRITE(*,*) "                   -tdon Donor_type1,Donor_type2,... "
             WRITE(*,*) "                   -tH   Hydrogen_type1,Hydrogen_type2,... "
@@ -438,6 +450,48 @@
                ENDDO
             ENDDO
          END SUBROUTINE write_vwd
+         
+         SUBROUTINE write_xyz(natoms,cell,icell,cutoff,masktypes,positions)
+            ! Calculate the probabilities
+            ! ...
+            ! Args:
+            !    param: descript
+            INTEGER, INTENT(IN) :: natoms
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: icell
+            DOUBLE PRECISION, INTENT(IN) :: cutoff
+            INTEGER, DIMENSION(natoms), INTENT(IN) :: masktypes
+            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
+            
+            INTEGER ih,id,ia
+            DOUBLE PRECISION,DIMENSION(3) :: vwd
+            DOUBLE PRECISION rah,rdh,rad
+            
+            DO ih=1,natoms ! loop over H
+               IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
+               DO id=1,natoms
+                  IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
+                  CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
+                  IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater 
+                                   !than the cutoff, we can already discard the D-H pair
+                  DO ia=1,natoms  
+                     IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
+                        .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
+
+                     CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
+                     
+                     vwd(2)=rdh-rah+rad ! y
+                     vwd(1)=rdh+rah-rad ! x
+                     ! Calculate the distance donor-acceptor
+                     CALL separation(cell,icell,positions(:,id),positions(:,ia),rad)
+                     vwd(3)=-rdh+rah+rad ! z
+                     IF(rdh.GT.cutoff .or. rah.GT.cutoff .or. rad.GT.cutoff) CYCLE
+                     WRITE(*,*) " ",vwd(1)," ",vwd(2)," ",vwd(3)
+                     !write(*,*) ia,id,ih," ",rah,rdh,rad
+                  ENDDO
+               ENDDO
+            ENDDO
+         END SUBROUTINE write_xyz
 
          LOGICAL FUNCTION testtype(id,vtype)
             CHARACTER*4, INTENT(IN) :: id
