@@ -31,14 +31,13 @@
          USE hbmixture
       IMPLICIT NONE
 
-      ! Conversion constant from bohrradius to angstrom
+      ! Constant to convert from bohrradius to angstrom
       DOUBLE PRECISION, PARAMETER :: bohr=0.5291772192171717171717171717171717
 
       CHARACTER*70 :: filename, gaussianfile, outputfile
       CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
       INTEGER natoms
-      !DOUBLE PRECISION, DIMENSION(3) :: box
       DOUBLE PRECISION cell(3,3), icell(3,3), dummycell(3,3)
       DOUBLE PRECISION box(3)
       DOUBLE PRECISION alpha, wcutoff
@@ -47,6 +46,7 @@
       INTEGER Nk
       ! array of gaussians
       TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:) :: clusters
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pks
       ! vector that will contain the probabilities calculated using hb-mixture library
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph
       ! for the parser
@@ -270,22 +270,23 @@
       ENDDO
       
       IF (.NOT.ptcm) THEN 
+         ! HB-mixture mode
          ! Read gaussian parameters from the gaussian file
          OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
-         !decomment this if the first line is a comment string
-         !READ(12,*) cmdbuffer
+         ! skip the first two comment lines
+         READ(12,*) cmdbuffer
+         READ(12,*) cmdbuffer
+         ! read the number of gaussians form the file
+         READ(12,*) dummyi1
+         ! test the inserted value with the one from the file
+         IF(Nk.ne.dummyi1)THEN 
+            WRITE(0,*) "Number of Gaussians on command line does not match init.", &
+                       "Will read what I can."
+         ENDIF
          ALLOCATE(clusters(Nk))
-         DO i=1,Nk
-            READ(12,*) clusters(i)%mean(1), clusters(i)%mean(2), clusters(i)%mean(3), &
-                       clusters(i)%cov(1,1), clusters(i)%cov(2,1), clusters(i)%cov(3,1), &
-                       clusters(i)%cov(1,2), clusters(i)%cov(2,2), clusters(i)%cov(3,2), &
-                       clusters(i)%cov(1,3), clusters(i)%cov(2,3), clusters(i)%cov(3,3), &
-                       dummyd2
-            !! the follow because I'm using the gaussianmix of Michele (that save log(pk))
-            clusters(i)%pk=exp(dummyd2) 
-            ! calculate once the Icovs matrix and the norm_const
-            CALL gauss_prepare(clusters(i))     
-            
+         ALLOCATE(pks(Nk))
+         DO i=1,Nk 
+            CALL readgaussfromfile(12,clusters(i),pks(i))
          ENDDO
          CLOSE(UNIT=12)
 
@@ -312,7 +313,7 @@
             ELSE
                !!!!!!! HBMIXTURE HERE! !!!!!!!
                CALL hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
-                                      nk,clusters,sph,spd,spa)
+                                      nk,clusters,pks,sph,spd,spa)
                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
                ! write results to a formatted output
@@ -331,7 +332,7 @@
       DEALLOCATE(masktypes)
       CLOSE(UNIT=11)
       IF (.NOT.ptcm) THEN 
-         DEALLOCATE(clusters)
+         DEALLOCATE(clusters,pks)
          DEALLOCATE(spa, sph, spd)
          CLOSE(UNIT=7)
       ENDIF
@@ -351,6 +352,28 @@
             WRITE(*,*) "                  [-c] [-v] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
+         
+         SUBROUTINE readgaussfromfile(fileid,gaussp,pk)
+            ! Read a line from the file and get the paramters for the related gaussian
+            ! 
+            ! Args:
+            !    fileid: the file containing the gaussians parameters
+            !    gaussp: type_gaussian container in wich we store the gaussian parameters
+            !    lpk: logarithm of the Pk associated to the gaussian
+            
+            INTEGER, INTENT(IN) :: fileid
+            TYPE(gauss_type) , INTENT(INOUT) :: gaussp
+            DOUBLE PRECISION, INTENT(INOUT) :: pk
+            
+            READ(fileid,*) gaussp%mean(1), gaussp%mean(2), gaussp%mean(3), &
+                           gaussp%cov(1,1), gaussp%cov(2,1), gaussp%cov(3,1), &
+                           gaussp%cov(1,2), gaussp%cov(2,2), gaussp%cov(3,2), &
+                           gaussp%cov(1,3), gaussp%cov(2,3), gaussp%cov(3,3), &
+                           pk
+                           
+            CALL gauss_prepare(gaussp)
+            
+         END SUBROUTINE readgaussfromfile
 
          SUBROUTINE write_output(filen,natoms,nk,cell,ts,positions,sh,sd,sa)
             INTEGER, INTENT(IN) :: filen

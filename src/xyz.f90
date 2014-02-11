@@ -1,4 +1,4 @@
-! This file contains some routines to work with XYZ files
+! This file contains the routines used to work with XYZ files
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
@@ -21,69 +21,66 @@
 ! TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 ! SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 !
-!
-! This contains the functions that calculate the potential, forces and
-! virial tensor of a single-component LJ system.
-! Includes functions which calculate the long-range correction terms for a
-! simulation with a sharp nearest-neighbour cut-off.
-!
 ! Functions:
-!    XYZ_functions: Description ...
+!    xyz_GetInfo: Get the general info from the file (natoms,cell,nsteps)
+!    xyz_GetLabels: Get the atoms label
+!    xyz_GetSnap: Get the atoms coordinates
 
       MODULE xyz
       IMPLICIT NONE
 
       CONTAINS
       
-         SUBROUTINE xyz_GetInfo(filename,NAtoms,cell,NSteps) !! TO TEST (because of wc -l)!
+         SUBROUTINE xyz_GetInfo(filename,natoms,cell,nsteps)
             ! Get the number of atoms, the box lenght and the number of steps.
             !
             ! Args:
             !    filename: The filename.
-            !    NAtoms: The number of atoms.
+            !    natoms: The number of atoms in the system.
             !    Lbox: The box lenght
             !    NSteps: The number of steps.
 
             CHARACTER*70, INTENT(IN) :: filename
-            INTEGER, INTENT(OUT) :: NAtoms
+            INTEGER, INTENT(OUT) :: natoms
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: cell
-            INTEGER, INTENT(OUT) :: NSteps
+            INTEGER, INTENT(OUT) :: nsteps
 
             CHARACTER*1024 :: cmdbuffer
             CHARACTER*30 dummy1,dummy2
 
 
-            INTEGER Nlines
+            INTEGER nlines
 
             ! open the file and read the atom number
             OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) NAtoms
+            READ(11,*) natoms
+            ! we assume an orthorombic box
             READ(11,*) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
             CLOSE(UNIT=11)
             ! we assume to be in a unix system and instead of reading all the file
             ! we use wc -l (to test if it is faster!!!!!!!!)
             ! I used wc because normally we ar using really big file..
+            
             ! get the line number and save to a temp file
             cmdbuffer='wc -l '//filename//'>> tmp.tmp'
+            ! execute the bash command
             CALL system(cmdbuffer)
             OPEN(UNIT=11,FILE='tmp.tmp',STATUS='OLD',ACTION='READ')
             ! read the line numbers
-            READ(11,*) Nlines
+            READ(11,*) nlines
             CLOSE(UNIT=11)
-            !remove the temp file
+            ! remove the temp file
             cmdbuffer="rm tmp.tmp"
             CALL system(cmdbuffer)
-            NSteps = Nlines/(NAtoms+2)
-
+            nsteps = nlines/(natoms+2)
          END SUBROUTINE xyz_GetInfo
 
          SUBROUTINE xyz_GetLabels(filename,labels)
-            ! Get the line numbers of the file and return the number
-            ! of atoms and the number of steps.
+            ! Get the atoms label
             !
             ! Args:
             !    filename: The filename.
-            !    labels: The vector containing the atoms' label
+            !    labels: The vector containing the atoms label
 
             CHARACTER*70, INTENT(IN) :: filename
             CHARACTER*4,ALLOCATABLE, DIMENSION(:),INTENT(OUT) :: labels
@@ -105,27 +102,32 @@
          END SUBROUTINE
 
          SUBROUTINE xyz_GetSnap(mode,ufile,natoms,positions)
-            ! Get the positions for the chosen step
+            ! Get the coordinates of all the atoms
             !
             ! Args:
-            INTEGER, INTENT(IN) :: mode
+            !    mode: The flag that tell if we have to skip or not the snapshot
+            !    ufile: ID of the input file
+            !    natoms: The number of atoms in the system.
+            !    positions: The array containing the atoms coordinates.
+            
+            INTEGER, INTENT(IN) :: mode 
             INTEGER, INTENT(IN) :: ufile
             INTEGER, INTENT(IN) :: natoms
             DOUBLE PRECISION, DIMENSION(3,NAtoms), INTENT(OUT)  :: positions
 
             CHARACTER*1024 dummy
-            INTEGER i, ierr
+            INTEGER i
             IF (mode.eq.0) THEN
-               ! Discard snap
+               ! Discard this timesnapshot
                DO i=1,NAtoms+2
                   READ(ufile,*) dummy
                END DO
             ELSE
-               ! Get the snap
+               ! Get the snapshot
                ! skip the header
                READ(ufile,*) dummy ! NAtoms
                READ(ufile,*) dummy ! Cell info
-               DO i=1,natoms
+               DO i=1,natoms ! label, x, y, z
                   READ(ufile,*) dummy,positions(1,i),positions(2,i),positions(3,i)
                END DO
             ENDIF

@@ -1,4 +1,4 @@
-! This contains the algorithms needed to calculate the distance between atoms.
+! This module contains the routine to calculate the distance between two atoms.
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
@@ -21,8 +21,7 @@
 ! THE SOFTWARE.
 !
 ! Functions:
-!    vector_separation: Calculates the vector separating two atoms.
-!    separation: Calculates the square distance between two vectors.
+!    separation: Calculates the distance between two vectors.
 
       MODULE distance
       IMPLICIT NONE
@@ -48,7 +47,7 @@
             !    cell_ih: The inverse of the simulation box cell vector matrix.
             !    ri: The position vector of atom i.
             !    rj: The position vector of atom j
-            !    r2: The square of the distance between atoms i and j.
+            !    r: The distance between the atoms i and j.
 
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_h
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_ih
@@ -62,11 +61,12 @@
             DOUBLE PRECISION, DIMENSION(3) :: sij
             DOUBLE PRECISION, DIMENSION(3) :: rij
 
-            sij = matmul(cell_ih, ri - rj)
+            sij = matmul(cell_ih, ri-rj)
             DO k = 1, 3
                ! Finds the smallest separation of all the images of atom i and j
-               sij(k) = sij(k) - dnint(sij(k))
+               sij(k) = sij(k) - dnint(sij(k)) ! Minimum Image Convention
             ENDDO
+            ! TO IMPROVE WRITING THE FORMULAS EXPLICITLY
             rij = matmul(cell_h, sij)
             r = dsqrt(dot_product(rij, rij))
 

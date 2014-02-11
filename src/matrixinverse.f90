@@ -1,4 +1,4 @@
-! This contains the routine needed to invert a 3x3 matrix.
+! This contains the routine needed to invert a matrix.
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
@@ -21,24 +21,27 @@
 ! THE SOFTWARE.
 !
 ! Functions:
-!    X_functions: Description
-
+!    inv2x2: Invert a 2x2 matrix
+!    inv3x3: Invert a 3x3 matrix
 
       MODULE matrixinverse
       IMPLICIT NONE
       CONTAINS
          
          SUBROUTINE inv2x2(M,IM)
-            ! Invert the matrix, simplest case
-            ! ...
+            ! Invert a 2x2 matrix
+            ! 
             ! Args:
-            !    param: descript 
+            !    M: The 2x2 symmetric matrix to invert
+            !    IM: The inverse matrix of M
+            
             DOUBLE PRECISION, DIMENSION(2,2), INTENT(IN) :: M
             DOUBLE PRECISION, DIMENSION(2,2), INTENT(OUT) :: IM
             
             DOUBLE PRECISION det
             
             IM=0.0d0
+            ! first, calculate the determinant
             det=M(1,1)*M(2,2) - M(1,2)*M(2,1)
             IM(1,1) = M(2,2)/det
             IM(1,2) = -M(1,2)/det
@@ -48,13 +51,16 @@
          END SUBROUTINE inv2x2
 
          SUBROUTINE inv3x3(M,IM)
-            ! Invert the matrix using the cofactors
-            ! ...
+            ! Invert a 3x3 matrix
+            ! 
             ! Args:
-            !    param: descript 
+            !    M: The 3x3 symmetric matrix to invert
+            !    IM: The inverse matrix of M
+            
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: M
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: IM
             
+            ! cofactor maatrix
             DOUBLE PRECISION, DIMENSION(3,3) :: cof
             DOUBLE PRECISION d
             INTEGER i,j
@@ -72,6 +78,7 @@
             cof(3,2)=(M(1,2)*M(3,1)-M(1,1)*M(3,2))
             cof(3,3)=(M(1,1)*M(2,2)-M(1,2)*M(2,1))
             
+            ! claculate the determinant
             d=M(1,1)*cof(1,1)+M(1,2)*cof(2,1)+M(1,3)*cof(3,1)
             
             DO i=1,3
