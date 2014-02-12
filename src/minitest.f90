@@ -472,20 +472,20 @@
                DO id=1,natoms
                   IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
                   CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
-                  IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater 
-                                   !than the cutoff, we can already discard the D-H pair
+                  IF(rdh.GT.(cutoff)) CYCLE
                   DO ia=1,natoms  
                      IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                         .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
 
                      CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
-                     
-                     vwd(2)=rdh-rah+rad ! y
-                     vwd(1)=rdh+rah-rad ! x
+                     IF(rah.GT.(cutoff)) CYCLE
                      ! Calculate the distance donor-acceptor
                      CALL separation(cell,icell,positions(:,id),positions(:,ia),rad)
+                     
+                     vwd(1)=rdh+rah-rad ! x
+                     vwd(2)=rdh-rah+rad ! y
                      vwd(3)=-rdh+rah+rad ! z
-                     IF(rdh.GT.cutoff .or. rah.GT.cutoff .or. rad.GT.cutoff) CYCLE
+                     !IF(rdh.GT.cutoff .or. rah.GT.cutoff .or. rad.GT.cutoff) CYCLE
                      WRITE(*,*) " ",vwd(1)," ",vwd(2)," ",vwd(3)
                      !write(*,*) ia,id,ih," ",rah,rdh,rad
                   ENDDO
