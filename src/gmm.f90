@@ -1,4 +1,4 @@
-! This file contain the main program for the Gaussian Mixture Model 
+! This file contain the main program for the Gaussian Mixture Model
 ! clustering. Starting from a set of 3D data points it will return the
 ! Nk gaussians better describing the clusters.
 !
@@ -26,7 +26,7 @@
 ! Functions:
 !    GetNlines: Get the number of lines from a file.
 !    generatefromscratch: Iniatialize from scratch. Guess starting values for
-!                         the gaussians parameters. 
+!                         the gaussians parameters.
 !    readgaussfromfile: Get the gaussian paramters from file
 !    helpmessage: banner containing the help message
 
@@ -35,7 +35,7 @@
          USE gaussian
          USE gaussmix
       IMPLICIT NONE
-      
+
       CHARACTER*70 :: filename     ! The input data file containing v,w and rad
       CHARACTER*70 :: gaussianfile ! The input file containing the initial gaussians
       CHARACTER*70 :: outputfile   ! The output file containing the calculated gaussians
@@ -50,7 +50,7 @@
       INTEGER delta    ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines   ! Number of lines of the input data file
       INTEGER nsamples ! Number of points used during the calculation
-      
+
       ! Array of Gaussians containing the gaussians parameters
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
       ! Array containing the logarithm of the fractions (Pk) for each gaussian
@@ -61,12 +61,12 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad
       ! Array containing the nk probalities for each of nsamples points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: pnk ! responsibility matrix
-      
+
       ! PARSER
       CHARACTER*1024 :: cmdbuffer   ! String used for reading text lines from files
       INTEGER ccmd                  ! Index used to control the input parameters
       LOGICAL verbose ! flag for verbosity
-      
+
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
 
       !!!!!!! Iniatialze the parameters !!!!!!!
@@ -127,15 +127,16 @@
             ELSEIF (ccmd == 5) THEN ! smoothing factor
                READ(cmdbuffer,*) smooth
             ELSEIF (ccmd == 6) THEN ! number of gaussians
-               READ(cmdbuffer,*) Nk   
+               READ(cmdbuffer,*) Nk
             ELSEIF (ccmd == 7) THEN ! stop criteria
                READ(cmdbuffer,*) errc
             ENDIF
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      
-      ! Check the input parameters         
+      CALL SRAND(1301) !!TODO GIVE SEED AS OPTION
+
+      ! Check the input parameters
       IF (ccmd.EQ.0 .OR. Nk.LE.0 .OR. filename.EQ."NULL") THEN
          ! ccmd==0 : no parameters inserted
          ! Nk<0 : no Nk insterted
@@ -145,10 +146,10 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-      
+
       ! Get total number of data points in the file
       Nlines = GetNlines(filename)
-      ! New number of points 
+      ! New number of points
       nsamples = Nlines/delta
       counter=0
       ALLOCATE(vwad(3,nsamples))
@@ -169,14 +170,14 @@
          ENDIF
       ENDDO
       CLOSE(UNIT=12)
-      
+
       ALLOCATE(pnk(Nk,nsamples))
       pnk=0.0d0 ! responsibility matrix initialized to zero
-      
+
       ! Initializes Gaussians
       ALLOCATE(clusters(Nk), lpks(Nk)) ! Allocate the arrays with Nk specified by the user
-      ! Generate from scractch the gaussians parameters     
-      CALL generatefromscratch(Nk,nsamples,vwad,rangevwd,pnk,loglike,clusters,lpks)
+      ! Generate from scractch the gaussians parameters
+      CALL generatefromscratch(nsamples,vwad,Nk,clusters,lpks)
 
       IF (gaussianfile.ne."NULL") THEN
          ! initializes Gaussians from file
@@ -187,20 +188,20 @@
          ! Read the number of gaussian from the file
          READ(12,*) dummyi1 ! use a dummy variables to check the equivalence with the input parameters
          ! Actually Nk=-1 or a value specified by the user with the command line
-         IF(Nk.ne.dummyi1)THEN 
+         IF(Nk.ne.dummyi1)THEN
             WRITE(0,*) "Number of Gaussians on command line does not match init.", &
                        "Will read what I can."
          ENDIF
          ! Nk==dummyi1 -> read all the gaussian from the file
          ! Nk<dummyi1  -> read only Nk from the file
-         ! Nk>dummyi1  -> read all the gaussain from the file a the rest gaussians are 
-         !                generated from scratch 
+         ! Nk>dummyi1  -> read all the gaussain from the file a the rest gaussians are
+         !                generated from scratch
          DO i=1,min(Nk,dummyi1)
             CALL readgaussfromfile(12,clusters(i),lpks(i))
          ENDDO
-         CLOSE(UNIT=12)            
+         CLOSE(UNIT=12)
       ENDIF
-      
+
       i=0
       ! Initialize loglike
       loglike=-1e-40
@@ -224,10 +225,10 @@
             WRITE(*,*) " AIC: ", aic
          ENDIF
       ENDDO
-      
+
       OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
-      WRITE(11,"(A2,I11,A3,F14.7,A3,F14.7,A9,F14.7,A6)") "# ", nsamples, " , ", loglike, " , ", & 
-                                                         bic, " (BIC) , ", aic, " (AIC)" 
+      WRITE(11,"(A2,I11,A3,F14.7,A3,F14.7,A9,F14.7,A6)") "# ", nsamples, " , ", loglike, " , ", &
+                                                         bic, " (BIC) , ", aic, " (AIC)"
       WRITE(11,*) "# mean cov pk"
       WRITE(11,*) Nk
       DO k=1,Nk      ! write mean
@@ -240,33 +241,33 @@
                      dexp(lpks(k))
       ENDDO
       CLOSE(UNIT=11)
-      
+
       DEALLOCATE(clusters,lpks,vwad,pnk)
 
       CONTAINS
 
          SUBROUTINE helpmessage
             ! Banner to print out for helping purpose
-            ! 
-            
+            !
+
             WRITE(*,*) ""
             WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-gf gaussianfile] "
             WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
-         
+
          SUBROUTINE readgaussfromfile(fileid,gaussp,lpk)
             ! Read a line from the file and get the paramters for the related gaussian
-            ! 
+            !
             ! Args:
             !    fileid: the file containing the gaussians parameters
             !    gaussp: type_gaussian container in wich we store the gaussian parameters
             !    lpk: logarithm of the Pk associated to the gaussian
-            
+
             INTEGER, INTENT(IN) :: fileid
             TYPE(gauss_type) , INTENT(INOUT) :: gaussp
             DOUBLE PRECISION, INTENT(INOUT) :: lpk
-            
+
             READ(fileid,*) gaussp%mean(1), gaussp%mean(2), gaussp%mean(3), &
                            gaussp%cov(1,1), gaussp%cov(2,1), gaussp%cov(3,1), &
                            gaussp%cov(1,2), gaussp%cov(2,2), gaussp%cov(3,2), &
@@ -274,13 +275,13 @@
                            lpk
             lpk=log(lpk)
             CALL gauss_prepare(gaussp)
-            
+
          END SUBROUTINE readgaussfromfile
-         
-         SUBROUTINE generatefromscratch(ng,nsamples,vwda,rangevwd,pnk,loglike,clusters,lpks)
+
+         SUBROUTINE generatefromscratch(nsamples,vwda,ng,clusters,lpks)
             ! Iniatialize from scratch. Guess starting values for
             ! the gaussians parameters.
-            ! 
+            !
             ! Args:
             !    ng: number of gaussians to generate
             !    nsamples: number of points
@@ -290,43 +291,80 @@
             !    loglike: logarithm of the likelihood
             !    clusters: array containing gaussians parameters
             !    lpks: array containing the logarithm of the Pk for each gaussian
-            
+
             INTEGER, INTENT(IN) :: ng
             INTEGER, INTENT(IN) :: nsamples
             DOUBLE PRECISION, DIMENSION(3,nsamples), INTENT(IN) :: vwda
-            DOUBLE PRECISION, DIMENSION(3,2), INTENT(IN) :: rangevwd
-            DOUBLE PRECISION, DIMENSION(ng,nsamples), INTENT(INOUT) :: pnk
-            DOUBLE PRECISION, INTENT(INOUT) :: loglike
             TYPE(gauss_type), DIMENSION(ng), INTENT(INOUT) :: clusters
             DOUBLE PRECISION, DIMENSION(ng), INTENT(INOUT) :: lpks
-            INTEGER i,j
-            
+
+            INTEGER i,j,jmax
+            DOUBLE PRECISION :: cov(3,3), m(3)
+            DOUBLE PRECISION :: dminij(nsamples), dij, dmax
+
+            ! gets initial covariance as the covariance of the whole data set
+            cov = 0.0
+            m = 0.0
+            do i=1,nsamples
+              m = m + vwda(:,i)
+              cov(1,1) = cov(1,1) + vwda(1,i) * vwda(1,i)
+              cov(1,2) = cov(1,2) + vwda(1,i) * vwda(2,i)
+              cov(1,3) = cov(1,3) + vwda(1,i) * vwda(3,i)
+              cov(2,2) = cov(2,2) + vwda(2,i) * vwda(2,i)
+              cov(2,3) = cov(2,3) + vwda(2,i) * vwda(3,i)
+              cov(3,3) = cov(3,3) + vwda(3,i) * vwda(3,i)
+            enddo
+            m = m/nsamples
+            cov = cov/nsamples
+            cov(1,1) = cov(1,1) - m(1)*m(1)
+            cov(1,2) = cov(1,2) - m(1)*m(2)
+            cov(1,3) = cov(1,3) - m(1)*m(3)
+            cov(2,2) = cov(2,2) - m(2)*m(2)
+            cov(2,3) = cov(2,3) - m(2)*m(3)
+            cov(3,3) = cov(3,3) - m(3)*m(3)
+            cov(2,1) = cov(1,2)
+            cov(3,1) = cov(1,3)
+            cov(2,3) = cov(3,2)
+
+            ! initializes the means with minmax
+            clusters(1)%mean = vwda(:,int(RAND()*nsamples))
+            dminij = 1d99
+            do i=2,ng
+              dmax = 0.0
+              do j=1,nsamples
+                dij = dot_product( clusters(i-1)%mean - vwda(:,j) , &
+                                   clusters(i-1)%mean - vwda(:,j) )
+                dminij(j) = min(dminij(j), dij)
+                if (dminij(j) > dmax) then
+                  dmax = dminij(j)
+                  jmax = j
+                endif
+              enddo
+              clusters(i)%mean = vwda(:, jmax)
+            enddo
+
+            ! initializes the means randomly
+            do i = 1,ng
+              clusters(i)%mean = vwda(:,int(RAND()*nsamples))
+            enddo
+
+            ! initializes the covariance matrix of all the clusters
             DO i=1,ng
-               clusters(i)%cov=0.0d0
-               DO j=1,3
-                  ! random mean
-                  clusters(i)%mean(j)=RAND()*(rangevwd(j,2)-rangevwd(j,1))+rangevwd(j,1) 
-                  ! spherical gaussian
-                  clusters(i)%cov(j,j)=1e-10
-               ENDDO
+               clusters(i)%cov = cov
                lpks(i)=dlog(1.0d0/ng)
-               CALL gauss_prepare(clusters(i))             
+               CALL gauss_prepare(clusters(i))
             ENDDO
-            ! Call estep
-            CALL estep(ng,nsamples,vwda,clusters,lpks,pnk,loglike)
-            ! Call mstep
-            CALL mstep(ng,nsamples,vwda,clusters,lpks,pnk,0.0d0)
          END SUBROUTINE generatefromscratch
-         
+
          INTEGER FUNCTION GetNlines(filein)
             ! Get the number of lines from the file.
             ! This is usefull to calculate the number of timesnapshots.
-            ! 
+            !
             ! Args:
             !    filein: a text file
-            
+
             CHARACTER*70, INTENT(IN) :: filein
-            
+
             CHARACTER*1024 :: cmdbuffer
             ! call the shell command wc and save the output to a temporary file
 			   cmdbuffer='wc -l '//filein//'>> tmp.tmp'
