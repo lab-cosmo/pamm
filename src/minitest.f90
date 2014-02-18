@@ -24,7 +24,6 @@
 !
 
       PROGRAM minitest
-         USE distance
          USE matrixinverse
          USE gaussian
          USE xyz
@@ -90,7 +89,7 @@
       verbose = .false.
       ptcm1 = .false.
       ptcm2 = .false.
-      errdef=0 
+      errdef=0
       !!
 
       !!!!! PARSER
@@ -209,14 +208,14 @@
          ENDIF
       ENDDO
       !!!!! END PARSER
-      
+
       IF (ptcm1 .and. ptcm2) THEN
          WRITE(*,*) ""
          WRITE(*,*) " Error: you have to chose! -P1 or -P2, not both!! "
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-      
+
       ! Mandatory parameters
       IF (filename.EQ."NULL") THEN
          WRITE(*,*) ""
@@ -224,15 +223,15 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-      
+
       IF (.NOT.(errdef.EQ.3)) THEN
          WRITE(*,*) ""
          WRITE(*,*) " Error: insert hydrongen, donor and acceptor species! "
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-      
-      IF (.NOT.ptcm1 .and. .NOT.ptcm2) THEN 
+
+      IF (.NOT.ptcm1 .and. .NOT.ptcm2) THEN
          ! Mandatory parameters
          IF ((gaussianfile.EQ."NULL").OR.(Nk.EQ.-1)) THEN
             WRITE(*,*) ""
@@ -241,10 +240,10 @@
             CALL EXIT(-1)
          ENDIF
       ENDIF
-      
+
       ! Check the steps and the box parameters
-      
-      CALL xyz_GetInfo(filename,dummyi1,dummycell,dummyi2) 
+
+      CALL xyz_GetInfo(filename,dummyi1,dummycell,dummyi2)
       ! control nstpes
       IF (nsteps == -1) THEN
          nsteps=dummyi2
@@ -258,10 +257,10 @@
          cell=dummycell
          IF(convert) cell=cell*bohr
       ENDIF
-      
+
       ! get the inverse of the cell
       CALL inv3x3(cell,icell)
-      
+
       ! we can allocate the vectors now
       ALLOCATE(positions(3,natoms))
       ALLOCATE(labels(natoms))
@@ -278,8 +277,8 @@
          IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
          IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
       ENDDO
-      
-      IF (.NOT.ptcm1 .and. .NOT.ptcm2) THEN 
+
+      IF (.NOT.ptcm1 .and. .NOT.ptcm2) THEN
          ! HB-mixture mode
          ! Read gaussian parameters from the gaussian file
          OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
@@ -289,13 +288,13 @@
          ! read the number of gaussians form the file
          READ(12,*) dummyi1
          ! test the inserted value with the one from the file
-         IF(Nk.ne.dummyi1)THEN 
+         IF(Nk.ne.dummyi1)THEN
             WRITE(0,*) "Number of Gaussians on command line does not match init.", &
                        "Will read what I can."
          ENDIF
          ALLOCATE(clusters(Nk))
          ALLOCATE(pks(Nk))
-         DO i=1,Nk 
+         DO i=1,Nk
             CALL readgaussfromfile(12,clusters(i),pks(i))
          ENDDO
          CLOSE(UNIT=12)
@@ -308,7 +307,7 @@
          ! outputfile
          OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       ENDIF
-      
+
       OPEN(UNIT=11,FILE=filename)
       ! Loop over the trajectory
       DO ts=1,nsteps
@@ -317,7 +316,7 @@
             IF(verbose) WRITE(*,*) "Step: ",ts
             CALL xyz_GetSnap(1,11,natoms,positions)
             IF(convert) positions=positions*bohr
-            
+
             IF(ptcm1)THEN
                CALL write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
             ELSEIF(ptcm2)THEN
@@ -343,7 +342,7 @@
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
       CLOSE(UNIT=11)
-      IF (.NOT.ptcm1) THEN 
+      IF (.NOT.ptcm1) THEN
          DEALLOCATE(clusters,pks)
          DEALLOCATE(spa, sph, spd)
          CLOSE(UNIT=7)
@@ -364,27 +363,27 @@
             WRITE(*,*) "                  [-c] [-v] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
-         
+
          SUBROUTINE readgaussfromfile(fileid,gaussp,pk)
             ! Read a line from the file and get the paramters for the related gaussian
-            ! 
+            !
             ! Args:
             !    fileid: the file containing the gaussians parameters
             !    gaussp: type_gaussian container in wich we store the gaussian parameters
             !    lpk: logarithm of the Pk associated to the gaussian
-            
+
             INTEGER, INTENT(IN) :: fileid
             TYPE(gauss_type) , INTENT(INOUT) :: gaussp
             DOUBLE PRECISION, INTENT(INOUT) :: pk
-            
+
             READ(fileid,*) gaussp%mean(1), gaussp%mean(2), gaussp%mean(3), &
                            gaussp%cov(1,1), gaussp%cov(2,1), gaussp%cov(3,1), &
                            gaussp%cov(1,2), gaussp%cov(2,2), gaussp%cov(3,2), &
                            gaussp%cov(1,3), gaussp%cov(2,3), gaussp%cov(3,3), &
                            pk
-                           
+
             CALL gauss_prepare(gaussp)
-            
+
          END SUBROUTINE readgaussfromfile
 
          SUBROUTINE write_output(filen,natoms,nk,cell,ts,positions,sh,sd,sa)
@@ -410,7 +409,7 @@
                WRITE(filen,*)
             ENDDO
          END SUBROUTINE write_output
-         
+
          SUBROUTINE write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
             ! Calculate the probabilities
             ! ...
@@ -422,19 +421,19 @@
             DOUBLE PRECISION, INTENT(IN) :: wcutoff
             INTEGER, DIMENSION(natoms), INTENT(IN) :: masktypes
             DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
-            
+
             INTEGER ih,id,ia
             DOUBLE PRECISION,DIMENSION(3) :: vwd
             DOUBLE PRECISION rah,rdh
-            
+
             DO ih=1,natoms ! loop over H
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
                DO id=1,natoms
                   IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
                   CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
-                  IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater 
+                  IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater
                                    !than the cutoff, we can already discard the D-H pair
-                  DO ia=1,natoms  
+                  DO ia=1,natoms
                      IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                         .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
 
@@ -450,7 +449,7 @@
                ENDDO
             ENDDO
          END SUBROUTINE write_vwd
-         
+
          SUBROUTINE write_xyz(natoms,cell,icell,cutoff,masktypes,positions)
             ! Calculate the probabilities
             ! ...
@@ -462,18 +461,18 @@
             DOUBLE PRECISION, INTENT(IN) :: cutoff
             INTEGER, DIMENSION(natoms), INTENT(IN) :: masktypes
             DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
-            
+
             INTEGER ih,id,ia
             DOUBLE PRECISION,DIMENSION(3) :: vwd
             DOUBLE PRECISION rah,rdh,rad
-            
+
             DO ih=1,natoms ! loop over H
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
                DO id=1,natoms
                   IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
                   CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
                   IF(rdh.GT.(cutoff)) CYCLE
-                  DO ia=1,natoms  
+                  DO ia=1,natoms
                      IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                         .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
 
@@ -481,7 +480,7 @@
                      IF(rah.GT.(cutoff)) CYCLE
                      ! Calculate the distance donor-acceptor
                      CALL separation(cell,icell,positions(:,id),positions(:,ia),rad)
-                     
+
                      vwd(1)=rdh+rah-rad ! x
                      vwd(2)=rdh-rah+rad ! y
                      vwd(3)=-rdh+rah+rad ! z

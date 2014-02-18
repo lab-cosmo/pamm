@@ -25,7 +25,6 @@
 !    hbmixture_GetGMMP: Return for each atom sh,sd and sa
 
       MODULE hbmixture
-         USE distance
          USE gaussian
       IMPLICIT NONE
 
@@ -38,6 +37,54 @@
 
       CONTAINS
 
+         ! A few utility functions
+
+         SUBROUTINE separation(cell_h, cell_ih, ri, rj, r)
+            ! Calculates the distance between two position vectors (with PBC).
+            !
+            ! Note that minimum image convention is used, so only the image of
+            ! atom j that is the shortest distance from atom i is considered.
+            !
+            ! Also note that while this may not work if the simulation
+            ! box is highly skewed from orthorhombic, as
+            ! in this case it is possible to return a distance less than the
+            ! nearest neighbour distance. However, this will not be of
+            ! importance unless the cut-off radius is more than half the
+            ! width of the shortest face-face distance of the simulation box,
+            ! which should never be the case.
+            !
+            ! Args:
+            !    cell_h: The simulation box cell vector matrix.
+            !    cell_ih: The inverse of the simulation box cell vector matrix.
+            !    ri: The position vector of atom i.
+            !    rj: The position vector of atom j
+            !    r: The distance between the atoms i and j.
+
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_h
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_ih
+            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri
+            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
+            DOUBLE PRECISION, INTENT(OUT) :: r
+
+            INTEGER k
+            ! The separation in a basis where the simulation box
+            ! is a unit cube.
+            DOUBLE PRECISION, DIMENSION(3) :: sij
+            DOUBLE PRECISION, DIMENSION(3) :: rij
+
+            sij = matmul(cell_ih, ri-rj)
+            DO k = 1, 3
+               ! Finds the smallest separation of all the images of atom i and j
+               sij(k) = sij(k) - dnint(sij(k)) ! Minimum Image Convention
+            ENDDO
+            ! TO IMPROVE WRITING THE FORMULAS EXPLICITLY
+            rij = matmul(cell_h, sij)
+            r = dsqrt(dot_product(rij, rij))
+
+         END SUBROUTINE
+
+
+         ! the main routine for evaluating cluster weights
          SUBROUTINE hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions, &
                                       masktypes,nk,clusters,pks,sph,spd,spa)
             ! Return for each atoms the sum of the ..
@@ -56,7 +103,7 @@
             !    sph:
             !    spd:
             !    spa:
-            
+
             INTEGER, INTENT(IN) :: natoms
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: icell
@@ -79,7 +126,7 @@
             spa=0.0d0
             spd=0.0d0
             sph=0.0d0
-            
+
             DO ih=1,natoms ! loop over H
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE ! test if it is an hydrogen
                DO id=1,natoms ! loop over D
@@ -103,9 +150,9 @@
                      ! calculate the A-D distance
                      CALL separation(cell,icell,positions(:,id),positions(:,ia),vwd(3))
 
-                     pnk=0.0d0 
+                     pnk=0.0d0
                      pnormpk=0.0d0 ! normalization factor (mixture weight)
-                     
+
                      DO k=1,Nk
                         ! calculate the k probability for the point (v,w,rad)
                         ! and apply a smoothing elvating to alpha
@@ -115,14 +162,14 @@
                      ENDDO
                      IF (pnormpk.eq.0.0d0) CYCLE   ! skip cases in which the probability is tooooo tiny
                      pnk = pnk/pnormpk ! normalization
-                     
+
                      sph(:,ih) = sph(:,ih) + pnk(:)
                      spa(:,ia) = spa(:,ia) + pnk(:)
-                     spd(:,id) = spd(:,id) + pnk(:)                 
+                     spd(:,id) = spd(:,id) + pnk(:)
                   ENDDO
                ENDDO
             ENDDO
-           
+
 
          END SUBROUTINE hbmixture_GetGMMP
 
