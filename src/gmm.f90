@@ -223,7 +223,7 @@
       ENDDO
 
       OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
-      WRITE(11,"(A2,I11,A3,F14.7,A3,F14.7,A9,F14.7,A6)") "# n. samples: ", nsamples, &
+      WRITE(11,"(A14,I11,A36,F16.7,A8,F16.7,A8,F16.7)") "# n. samples: ", nsamples, &
                                                          " , loglikelihood (* nsamples^(-1)): ", loglike/nsamples, " , bic: ", &
                                                          bic, " , aic: ", aic
       WRITE(11,*) "# mean cov pk"
