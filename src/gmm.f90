@@ -138,7 +138,7 @@
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      
+
       CALL SRAND(seed) ! initialize the random number generator
 
       ! Check the input parameters
@@ -223,9 +223,9 @@
       ENDDO
 
       OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
-      WRITE(11,"(A14,I11,A36,F16.7,A8,F16.7,A8,F16.7)") "# n. samples: ", nsamples, &
-                                                         " , loglikelihood (* nsamples^(-1)): ", loglike/nsamples, " , bic: ", &
-                                                         bic, " , aic: ", aic
+      WRITE(11,"(A13,I11,A17,F16.7,A6,F16.7,A6,F16.7)") "# n.samples: ", nsamples, &
+                                                         " loglikelihood: ", loglike/nsamples, " bic: ", &
+                                                         bic/nsamples, " aic: ", aic/nsamples
       WRITE(11,*) "# mean cov pk"
       WRITE(11,*) Nk
       DO k=1,Nk      ! write mean
@@ -290,7 +290,7 @@
             !    loglike: logarithm of the likelihood
             !    clusters: array containing gaussians parameters
             !    lpks: array containing the logarithm of the Pk for each gaussian
-            
+
             LOGICAL, INTENT(IN) :: maxmin
             INTEGER, INTENT(IN) :: ng
             INTEGER, INTENT(IN) :: nsamples
@@ -326,12 +326,12 @@
             cov(2,1) = cov(1,2)
             cov(3,1) = cov(1,3)
             cov(2,3) = cov(3,2)
-            
+
             ! initializes the means randomly
             DO i=1,ng
               clusters(i)%mean = vwda(:,int(RAND()*nsamples))
             ENDDO
-            
+
             IF(maxmin)THEN
                ! initializes the means with minmax
                clusters(1)%mean = vwda(:,int(RAND()*nsamples))
