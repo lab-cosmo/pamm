@@ -22,7 +22,7 @@ for ((j=1; j<=$maxtry; j++)); do
   ((seed+=121))
   echo "Trial number $j."
   $gmx -i $fin -n $gn -seed $seed -o $fo.$j -ev $ev -err $err -s $smooth
-  loglike=$( head -1 $fo.$j | awk '{print $9}' )
+  loglike=$( head -1 $fo.$j | awk '{print $5}' )
   echo "    loglike/nsample: $loglike"
   if [ $( echo " $loglike > $logbest " | bc ) -eq 1 ]; then
     echo "Found improved clusters"

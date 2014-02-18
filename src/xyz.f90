@@ -31,7 +31,7 @@
 
       CONTAINS
       
-         SUBROUTINE xyz_GetInfo(filename,natoms,cell,nsteps)
+         SUBROUTINE xyz_GetInfo(filename,natoms,cell)
             ! Get the number of atoms, the box lenght and the number of steps.
             !
             ! Args:
@@ -43,7 +43,6 @@
             CHARACTER*70, INTENT(IN) :: filename
             INTEGER, INTENT(OUT) :: natoms
             DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: cell
-            INTEGER, INTENT(OUT) :: nsteps
 
             CHARACTER*1024 :: cmdbuffer
             CHARACTER*30 dummy1,dummy2
@@ -57,22 +56,6 @@
             ! we assume an orthorombic box
             READ(11,*) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
             CLOSE(UNIT=11)
-            ! we assume to be in a unix system and instead of reading all the file
-            ! we use wc -l (to test if it is faster!!!!!!!!)
-            ! I used wc because normally we ar using really big file..
-            
-            ! get the line number and save to a temp file
-            cmdbuffer='wc -l '//filename//'>> tmp.tmp'
-            ! execute the bash command
-            CALL system(cmdbuffer)
-            OPEN(UNIT=11,FILE='tmp.tmp',STATUS='OLD',ACTION='READ')
-            ! read the line numbers
-            READ(11,*) nlines
-            CLOSE(UNIT=11)
-            ! remove the temp file
-            cmdbuffer="rm tmp.tmp"
-            CALL system(cmdbuffer)
-            nsteps = nlines/(natoms+2)
          END SUBROUTINE xyz_GetInfo
 
          SUBROUTINE xyz_GetLabels(filename,labels)
@@ -101,7 +84,7 @@
 
          END SUBROUTINE
 
-         SUBROUTINE xyz_GetSnap(mode,ufile,natoms,positions)
+         SUBROUTINE xyz_GetSnap(mode,ufile,natoms,positions,endf)
             ! Get the coordinates of all the atoms
             !
             ! Args:
@@ -114,21 +97,31 @@
             INTEGER, INTENT(IN) :: ufile
             INTEGER, INTENT(IN) :: natoms
             DOUBLE PRECISION, DIMENSION(3,NAtoms), INTENT(OUT)  :: positions
+            LOGICAL, INTENT(OUT) :: endf
 
             CHARACTER*1024 dummy
-            INTEGER i
+            INTEGER i,ierr
+            
+            endf = .false.
+            
             IF (mode.eq.0) THEN
                ! Discard this timesnapshot
                DO i=1,NAtoms+2
-                  READ(ufile,*) dummy
+                  READ(ufile,*,IOSTAT=ierr) dummy
+                  IF(ierr<0) endf=.true.
+                  IF(endf) cycle
                END DO
             ELSE
                ! Get the snapshot
                ! skip the header
-               READ(ufile,*) dummy ! NAtoms
-               READ(ufile,*) dummy ! Cell info
+               READ(ufile,*,IOSTAT=ierr) dummy ! NAtoms
+               IF(ierr<0) endf=.true.
+               READ(ufile,*,IOSTAT=ierr) dummy ! Cell info
+               IF(ierr<0) endf=.true.
                DO i=1,natoms ! label, x, y, z
-                  READ(ufile,*) dummy,positions(1,i),positions(2,i),positions(3,i)
+                  READ(ufile,*,IOSTAT=ierr) dummy,positions(1,i),positions(2,i),positions(3,i)
+                  IF(ierr<0) endf=.true.
+                  IF(endf) EXIT
                END DO
             ENDIF
 

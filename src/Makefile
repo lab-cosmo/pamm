@@ -22,7 +22,7 @@
 .PHONY: all
 
 FFLAGS=-g -O3
-MODULES=matrixinverse.f90 gaussian.f90 hbmixture.f90 xyz.f90  gaussmix.f90
+MODULES=hbmixture.f90 xyz.f90  gaussmix.f90
 OBJECTS=$(MODULES:.f90=.o)
 
 all: minitest gmm

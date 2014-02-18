@@ -26,7 +26,7 @@
 !    mstep: Maximizastion step
 
       MODULE gaussmix
-         USE gaussian
+         USE hbmixture
       IMPLICIT NONE
       
       CONTAINS

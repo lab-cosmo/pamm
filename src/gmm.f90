@@ -31,8 +31,6 @@
 !    helpmessage: banner containing the help message
 
       PROGRAM gmm
-         USE matrixinverse
-         USE gaussian
          USE gaussmix
       IMPLICIT NONE
 

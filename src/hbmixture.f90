@@ -22,11 +22,17 @@
 ! SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 !
 ! Functions:
+!    separation: Calculates the distance between two position vectors (with PBC).
+!    inv3x3: Invert a 3x3 matrix
+!    gauss_prepare: Initialize all the parameters of the gaussian
+!    gauss_logeval: Return the logarithm of the multivariate gaussian density
+!    gauss_eval: Return the multivariate gaussian density
 !    hbmixture_GetGMMP: Return for each atom sh,sd and sa
 
       MODULE hbmixture
-         USE gaussian
       IMPLICIT NONE
+      
+      DOUBLE PRECISION, PARAMETER :: dpigreco = (2.0d0*3.14159265358979d0)
 
       ! Types used by bitwise operators to control the atom type
       ! they must be power of 2
@@ -34,6 +40,16 @@
       INTEGER, PARAMETER :: TYPE_H=1
       INTEGER, PARAMETER :: TYPE_DONOR=2
       INTEGER, PARAMETER :: TYPE_ACCEPTOR=4
+      
+      ! Structure that contains the parameters needed to define and
+      ! estimate a gaussian
+      TYPE gauss_type
+         DOUBLE PRECISION lnorm ! logarithm of the normalization factor
+         DOUBLE PRECISION det ! determinant of the covariance matrix
+         DOUBLE PRECISION, DIMENSION(3) :: mean
+         DOUBLE PRECISION, DIMENSION(3,3) :: cov ! convariance matrix
+         DOUBLE PRECISION, DIMENSION(3,3) :: icov ! inverse convariance matrix
+      END TYPE
 
       CONTAINS
 
@@ -82,6 +98,97 @@
             r = dsqrt(dot_product(rij, rij))
 
          END SUBROUTINE
+         
+         ! routine needed to invert a matrix.   
+         SUBROUTINE inv3x3(M,IM)
+            ! Invert a 3x3 matrix
+            ! 
+            ! Args:
+            !    M: The 3x3 symmetric matrix to invert
+            !    IM: The inverse matrix of M
+            
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: M
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: IM
+            
+            ! cofactor maatrix
+            DOUBLE PRECISION, DIMENSION(3,3) :: cof
+            DOUBLE PRECISION d
+            INTEGER i,j
+            
+            cof=0.0d0
+            IM=0.0d0
+            
+            cof(1,1)=(M(2,2)*M(3,3)-M(2,3)*M(3,2))
+            cof(1,2)=(M(1,3)*M(3,2)-M(1,2)*M(3,3))
+            cof(1,3)=(M(1,2)*M(2,3)-M(2,2)*M(1,3))
+            cof(2,1)=(M(2,3)*M(3,1)-M(2,1)*M(3,3))
+            cof(2,2)=(M(1,1)*M(3,3)-M(1,3)*M(3,1))
+            cof(2,3)=(M(1,3)*M(2,1)-M(1,1)*M(2,3))
+            cof(3,1)=(M(2,1)*M(3,2)-M(2,2)*M(3,1))
+            cof(3,2)=(M(1,2)*M(3,1)-M(1,1)*M(3,2))
+            cof(3,3)=(M(1,1)*M(2,2)-M(1,2)*M(2,1))
+            
+            ! claculate the determinant
+            d=M(1,1)*cof(1,1)+M(1,2)*cof(2,1)+M(1,3)*cof(3,1)
+            
+            DO i=1,3
+               DO j=1,3
+                  IM(i,j)=cof(i,j)/d
+               ENDDO
+            ENDDO
+
+         END SUBROUTINE inv3x3
+
+         SUBROUTINE gauss_prepare(gpars)
+            ! Initialize all the parameters of the gaussian
+            ! 
+            ! Args:
+            !    gpars: gauss_type variable to initialize
+             
+            TYPE(gauss_type), INTENT(INOUT) :: gpars
+            
+            ! calculate the determinant of the covariance matrix
+            gpars%det = gpars%cov(1,1)*(gpars%cov(2,2)*gpars%cov(3,3)-gpars%cov(3,2)*gpars%cov(2,3)) - &
+                        gpars%cov(1,2)*(gpars%cov(2,1)*gpars%cov(3,3)-gpars%cov(2,3)*gpars%cov(3,1)) + &
+                        gpars%cov(1,3)*(gpars%cov(2,1)*gpars%cov(3,2)-gpars%cov(2,2)*gpars%cov(3,1))
+            
+            ! calculate the inverse of the convariance matrix      
+            CALL inv3x3(gpars%cov,gpars%icov)
+            
+            ! calculate the  logarithm of the normalization factor
+            gpars%lnorm = dlog(1.0d0/dsqrt((dpigreco**3)*gpars%det))
+         END SUBROUTINE gauss_prepare
+
+         DOUBLE PRECISION FUNCTION gauss_logeval(gpars, x)
+            ! Return the logarithm of the multivariate gaussian density
+            ! 
+            ! Args:
+            !    gpars: gaussian parameters
+            !    x: point in wich estimate the log of the gaussian 
+            
+            TYPE(gauss_type), INTENT(IN) :: gpars
+            DOUBLE PRECISION, INTENT(IN) :: x(3)
+            DOUBLE PRECISION dv(3),tmpv(3)
+            DOUBLE PRECISION xcx
+
+            dv=x-gpars%mean
+            tmpv = matmul(dv,gpars%icov)
+            xcx = dot_product(dv,tmpv)
+
+            gauss_logeval = gpars%lnorm - 0.5d0*xcx
+         END FUNCTION gauss_logeval
+
+         DOUBLE PRECISION FUNCTION gauss_eval(gpars, x)
+            ! Return the multivariate gaussian density
+            ! Args:
+            !    gpars: gaussian parameters
+            !    x: point in wich estimate the value of the gaussian 
+            
+            TYPE(gauss_type), INTENT(IN) :: gpars
+            DOUBLE PRECISION, INTENT(IN) :: x(3)
+            
+            gauss_eval = dexp(gauss_logeval(gpars,x))
+         END FUNCTION gauss_eval
 
 
          ! the main routine for evaluating cluster weights

@@ -24,8 +24,6 @@
 !
 
       PROGRAM minitest
-         USE matrixinverse
-         USE gaussian
          USE xyz
          USE hbmixture
       IMPLICIT NONE
@@ -66,6 +64,7 @@
 
       DOUBLE PRECISION dummyd1,dummyd2
       INTEGER dummyi1,dummyi2
+      LOGICAL endf
 
       !! default values
       DO i=1,4
@@ -89,6 +88,7 @@
       verbose = .false.
       ptcm1 = .false.
       ptcm2 = .false.
+      endf = .false.
       errdef=0
       !!
 
@@ -134,7 +134,7 @@
             verbose = .true.
          ELSEIF (cmdbuffer == "-P1") THEN ! PTC mode
             ptcm1 = .true.
-         ELSEIF (cmdbuffer == "-P2") THEN ! PTC mode
+         ELSEIF (cmdbuffer == "-P2") THEN ! Perimetric coordinates mode
             ptcm2 = .true.
          ELSE
             IF (ccmd == 0) THEN
@@ -241,13 +241,9 @@
          ENDIF
       ENDIF
 
-      ! Check the steps and the box parameters
+      ! Check the box parameters
 
-      CALL xyz_GetInfo(filename,dummyi1,dummycell,dummyi2)
-      ! control nstpes
-      IF (nsteps == -1) THEN
-         nsteps=dummyi2
-      ENDIF
+      CALL xyz_GetInfo(filename,dummyi1,dummycell)
       ! control natoms
       IF (natoms == -1) THEN
          natoms=dummyi1
@@ -310,11 +306,18 @@
 
       OPEN(UNIT=11,FILE=filename)
       ! Loop over the trajectory
-      DO ts=1,nsteps
+      ts=0
+      DO
+         
+         ts=ts+1
+         IF(nsteps.NE.-1)THEN
+            IF(nsteps.LT.ts) EXIT
+         ENDIF
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
             IF(verbose) WRITE(*,*) "Step: ",ts
-            CALL xyz_GetSnap(1,11,natoms,positions)
+            CALL xyz_GetSnap(1,11,natoms,positions,endf)
+            IF(endf) EXIT
             IF(convert) positions=positions*bohr
 
             IF(ptcm1)THEN
@@ -333,7 +336,8 @@
 
          ELSE
             ! discard this snapshot
-            CALL XYZ_GetSnap(0,11,natoms,positions)
+            CALL XYZ_GetSnap(0,11,natoms,positions,endf)
+            IF(endf) EXIT
          ENDIF
       ENDDO
       ! end the loop over the trajectory
@@ -480,7 +484,6 @@
                      IF(rah.GT.(cutoff)) CYCLE
                      ! Calculate the distance donor-acceptor
                      CALL separation(cell,icell,positions(:,id),positions(:,ia),rad)
-
                      vwd(1)=rdh+rah-rad ! x
                      vwd(2)=rdh-rah+rad ! y
                      vwd(3)=-rdh+rah+rad ! z
