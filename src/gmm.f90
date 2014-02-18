@@ -50,13 +50,13 @@
       INTEGER delta    ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines   ! Number of lines of the input data file
       INTEGER nsamples ! Number of points used during the calculation
+      INTEGER seed     ! seed for the random number generator
+      LOGICAL maxmin ! flag for verbosity
 
       ! Array of Gaussians containing the gaussians parameters
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
       ! Array containing the logarithm of the fractions (Pk) for each gaussian
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: lpks
-      ! Array containing the extreme values in the input data set
-      DOUBLE PRECISION, DIMENSION(3,2) :: rangevwd
       ! Array containing the input data pints
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad
       ! Array containing the nk probalities for each of nsamples points
@@ -77,38 +77,40 @@
       delta=1 ! read every point
       smooth=0.0d0 ! no smoothing by default
       verbose = .false. ! no verbosity
+      maxmin = .false. ! no maxmin
       errc=1.0e-05
       Nk=-1 ! number of Gaussians in the mixture. Initialized at -1
+      seed=1357
       test=111
-      rangevwd=-11.1d0
-      DO j=1,3
-        rangevwd(j,1)=11.1d0
-      ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
       DO i = 1, IARGC()
          CALL GETARG(i, cmdbuffer)
-         IF (cmdbuffer == "-i") THEN       ! data file (v,w,rad)
+         IF (cmdbuffer == "-i") THEN          ! data file (v,w,rad)
             ccmd = 1
-         ELSEIF (cmdbuffer == "-gf") THEN  ! file containing intial gaussian parmeters
+         ELSEIF (cmdbuffer == "-gf") THEN     ! file containing intial gaussian parmeters
             ccmd = 2
-         ELSEIF (cmdbuffer == "-o") THEN   ! output file
+         ELSEIF (cmdbuffer == "-o") THEN      ! output file
             ccmd = 3
-         ELSEIF (cmdbuffer == "-ev") THEN  ! delta
+         ELSEIF (cmdbuffer == "-ev") THEN     ! delta
             ccmd = 4
-         ELSEIF (cmdbuffer == "-s") THEN   ! smoothing factor
+         ELSEIF (cmdbuffer == "-s") THEN      ! smoothing factor
             ccmd = 5
-         ELSEIF (cmdbuffer == "-n") THEN   ! Nk
+         ELSEIF (cmdbuffer == "-n") THEN      ! Nk
             ccmd = 6
-         ELSEIF (cmdbuffer == "-err") THEN ! convergence error in the likelihood
+         ELSEIF (cmdbuffer == "-err") THEN    ! convergence error in the likelihood
             ccmd = 7
-         ELSEIF (cmdbuffer == "-h") THEN   ! help
+         ELSEIF (cmdbuffer == "-seed") THEN   ! seed for the random number genarator
+            ccmd = 8
+         ELSEIF (cmdbuffer == "-maxmin") THEN ! initialize using maxmin routine
+            maxmin = .true.
+         ELSEIF (cmdbuffer == "-h") THEN      ! help
             WRITE(*,*) ""
             WRITE(*,*) " GMM (Gaussian-Mixture Model)"
             CALL helpmessage
             CALL EXIT(-1)
-         ELSEIF (cmdbuffer == "-v") THEN   ! flag for verbose standard output
+         ELSEIF (cmdbuffer == "-v") THEN      ! flag for verbose standard output
             verbose = .true.
          ELSE
             IF (ccmd == 0) THEN
@@ -130,11 +132,14 @@
                READ(cmdbuffer,*) Nk
             ELSEIF (ccmd == 7) THEN ! stop criteria
                READ(cmdbuffer,*) errc
+            ELSEIF (ccmd == 8) THEN ! read the seed
+               READ(cmdbuffer,*) seed
             ENDIF
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      CALL SRAND(1301) !!TODO GIVE SEED AS OPTION
+      
+      CALL SRAND(seed) ! initialize the random number generator
 
       ! Check the input parameters
       IF (ccmd.EQ.0 .OR. Nk.LE.0 .OR. filename.EQ."NULL") THEN
@@ -158,15 +163,6 @@
          IF(MODULO(i,delta)==0)THEN ! read a point every delta
             counter=counter+1 ! index for the real data set
             READ(12,*) vwad(1,counter),vwad(2,counter),vwad(3,counter)
-            ! define the max,min value in the data points
-            ! this is neededonly to initiazialize the gaussian parameters
-            ! from scratch
-            DO j=1,3
-               ! min value alng j dimension
-               IF(vwad(j,counter).LT.rangevwd(j,1)) rangevwd(j,1)=vwad(j,counter)
-               ! max value alng j dimension
-               IF(vwad(j,counter).GT.rangevwd(j,2)) rangevwd(j,2)=vwad(j,counter)
-            ENDDO
          ENDIF
       ENDDO
       CLOSE(UNIT=12)
@@ -177,7 +173,7 @@
       ! Initializes Gaussians
       ALLOCATE(clusters(Nk), lpks(Nk)) ! Allocate the arrays with Nk specified by the user
       ! Generate from scractch the gaussians parameters
-      CALL generatefromscratch(nsamples,vwad,Nk,clusters,lpks)
+      CALL generatefromscratch(maxmin,nsamples,vwad,Nk,clusters,lpks)
 
       IF (gaussianfile.ne."NULL") THEN
          ! initializes Gaussians from file
@@ -192,7 +188,7 @@
             WRITE(0,*) "Number of Gaussians on command line does not match init.", &
                        "Will read what I can."
          ENDIF
-         ! Nk==dummyi1 -> read all the gaussian from the file
+         ! Nk=dummyi1  -> read all the gaussian from the file
          ! Nk<dummyi1  -> read only Nk from the file
          ! Nk>dummyi1  -> read all the gaussain from the file a the rest gaussians are
          !                generated from scratch
@@ -227,8 +223,9 @@
       ENDDO
 
       OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
-      WRITE(11,"(A2,I11,A3,F14.7,A3,F14.7,A9,F14.7,A6)") "# ", nsamples, " , ", loglike, " , ", &
-                                                         bic, " (BIC) , ", aic, " (AIC)"
+      WRITE(11,"(A2,I11,A3,F14.7,A3,F14.7,A9,F14.7,A6)") "# n. samples: ", nsamples, &
+                                                         " , loglikelihood (* nsamples^(-1)): ", loglike/nsamples, " , bic: ", &
+                                                         bic, " , aic: ", aic
       WRITE(11,*) "# mean cov pk"
       WRITE(11,*) Nk
       DO k=1,Nk      ! write mean
@@ -251,8 +248,9 @@
             !
 
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-gf gaussianfile] "
+            WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-seed seedrandom] "
             WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
+            WRITE(*,*) "             [-gf gaussianfile] [-maxmin] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
@@ -278,11 +276,12 @@
 
          END SUBROUTINE readgaussfromfile
 
-         SUBROUTINE generatefromscratch(nsamples,vwda,ng,clusters,lpks)
+         SUBROUTINE generatefromscratch(maxmin,nsamples,vwda,ng,clusters,lpks)
             ! Iniatialize from scratch. Guess starting values for
             ! the gaussians parameters.
             !
             ! Args:
+            !    maxmin: logical to decide to if maxmin or not
             !    ng: number of gaussians to generate
             !    nsamples: number of points
             !    vwda: array containing the data
@@ -291,7 +290,8 @@
             !    loglike: logarithm of the likelihood
             !    clusters: array containing gaussians parameters
             !    lpks: array containing the logarithm of the Pk for each gaussian
-
+            
+            LOGICAL, INTENT(IN) :: maxmin
             INTEGER, INTENT(IN) :: ng
             INTEGER, INTENT(IN) :: nsamples
             DOUBLE PRECISION, DIMENSION(3,nsamples), INTENT(IN) :: vwda
@@ -300,6 +300,7 @@
 
             INTEGER i,j,jmax
             DOUBLE PRECISION :: cov(3,3), m(3)
+            ! maxmin
             DOUBLE PRECISION :: dminij(nsamples), dij, dmax
 
             ! gets initial covariance as the covariance of the whole data set
@@ -325,28 +326,30 @@
             cov(2,1) = cov(1,2)
             cov(3,1) = cov(1,3)
             cov(2,3) = cov(3,2)
-
-            ! initializes the means with minmax
-            clusters(1)%mean = vwda(:,int(RAND()*nsamples))
-            dminij = 1d99
-            do i=2,ng
-              dmax = 0.0
-              do j=1,nsamples
-                dij = dot_product( clusters(i-1)%mean - vwda(:,j) , &
-                                   clusters(i-1)%mean - vwda(:,j) )
-                dminij(j) = min(dminij(j), dij)
-                if (dminij(j) > dmax) then
-                  dmax = dminij(j)
-                  jmax = j
-                endif
-              enddo
-              clusters(i)%mean = vwda(:, jmax)
-            enddo
-
+            
             ! initializes the means randomly
-            do i = 1,ng
+            DO i=1,ng
               clusters(i)%mean = vwda(:,int(RAND()*nsamples))
-            enddo
+            ENDDO
+            
+            IF(maxmin)THEN
+               ! initializes the means with minmax
+               clusters(1)%mean = vwda(:,int(RAND()*nsamples))
+               dminij = 1d99
+               DO i=2,ng
+                  dmax = 0.0
+                  DO j=1,nsamples
+                     dij = dot_product( clusters(i-1)%mean - vwda(:,j) , &
+                                        clusters(i-1)%mean - vwda(:,j) )
+                     dminij(j) = min(dminij(j), dij)
+                     IF (dminij(j) > dmax) THEN
+                        dmax = dminij(j)
+                        jmax = j
+                     ENDIF
+                  ENDDO
+                  clusters(i)%mean = vwda(:, jmax)
+               ENDDO
+            ENDIF
 
             ! initializes the covariance matrix of all the clusters
             DO i=1,ng
