@@ -103,7 +103,7 @@
             ccmd = 3
          ELSEIF (cmdbuffer == "-o") THEN ! output file
             ccmd = 4
-         ELSEIF (cmdbuffer == "-L") THEN ! box lenght
+         ELSEIF (cmdbuffer == "-l") THEN ! box lenght
             ccmd = 5
          ELSEIF (cmdbuffer == "-na") THEN ! number of atoms
             ccmd = 6
@@ -117,11 +117,11 @@
             ccmd = 10
          ELSEIF (cmdbuffer == "-ct") THEN ! cutoff for w
             ccmd = 11
-         ELSEIF (cmdbuffer == "-tacc") THEN ! acceptor types
+         ELSEIF (cmdbuffer == "-ta") THEN ! acceptor types
             ccmd = 12
-         ELSEIF (cmdbuffer == "-tdon") THEN ! donor types
+         ELSEIF (cmdbuffer == "-td") THEN ! donor types
             ccmd = 13
-         ELSEIF (cmdbuffer == "-tH") THEN ! hydrogen types
+         ELSEIF (cmdbuffer == "-th") THEN ! hydrogen types
             ccmd = 14
          ELSEIF (cmdbuffer == "-h") THEN ! help
             WRITE(*,*) ""
@@ -357,11 +357,11 @@
          SUBROUTINE helpmessage
             WRITE(*,*) ""
             WRITE(*,*) " SYNTAX: minitest [-h] [-P1/-P2] -i filename  "
-            WRITE(*,*) "                   -tacc Accettor_type1,Accettor_type2,... "
-            WRITE(*,*) "                   -tdon Donor_type1,Donor_type2,... "
-            WRITE(*,*) "                   -tH   Hydrogen_type1,Hydrogen_type2,... "
+            WRITE(*,*) "                   -ta Accettor_type1,Accettor_type2,... "
+            WRITE(*,*) "                   -td Donor_type1,Donor_type2,... "
+            WRITE(*,*) "                   -th   Hydrogen_type1,Hydrogen_type2,... "
             WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] "
-            WRITE(*,*) "                  [-o outputfile] [-L lx,ly,lz] [-na Natoms] "
+            WRITE(*,*) "                  [-o outputfile] [-l lx,ly,lz] [-na Natoms] "
             WRITE(*,*) "                  [-ns total_steps] [-ss starting_step] [-ev delta] "
             WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] "
             WRITE(*,*) "                  [-c] [-v] "
