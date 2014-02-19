@@ -153,9 +153,6 @@
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      
-      write(*,*) prif
-      CALL EXIT(-1)
 
       CALL SRAND(seed) ! initialize the random number generator
 
