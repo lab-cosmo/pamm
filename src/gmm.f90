@@ -362,8 +362,8 @@
             cov(3,3) = cov(3,3) - m(3)*m(3)
             cov(2,1) = cov(1,2)
             cov(3,1) = cov(1,3)
-            cov(2,3) = cov(3,2)
-
+            cov(3,2) = cov(2,3)
+            
             ! initializes the means randomly
             DO i=1,ng
               clusters(i)%mean = vwda(:,int(RAND()*nsamples))
