@@ -28,7 +28,8 @@
 !    generatefromscratch: Iniatialize from scratch. Guess starting values for
 !                         the gaussians parameters.
 !    readgaussfromfile: Get the gaussian paramters from file
-!    helpmessage: banner containing the help message
+!    helpmessage: Banner containing the help message
+!    ordergaussians: Order gaussians
 
       PROGRAM gmm
          USE gaussmix
@@ -237,7 +238,8 @@
          ENDIF
       ENDDO
       
-      best=bestgaussian(Nk,clusters,prif)
+      ! oreder gaussians from the closest to the reference point
+      CALL ordergaussians(Nk,clusters,prif)
 
       OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       WRITE(11,"(A13,I11,A17,F16.7,A6,F16.7,A6,F16.7)") "# n.samples: ", nsamples, &
@@ -245,11 +247,8 @@
                                                          bic/nsamples, " aic: ", aic/nsamples
       WRITE(11,*) "# mean cov pk"
       WRITE(11,*) Nk
-      ! Write the first the most important gaussian
-      CALL writegausstofile(11,clusters(best),lpks(best))
-      ! and now all the others
+      ! Write out the gaussians
       DO k=1,Nk      ! write mean
-         IF(k.EQ.best) CYCLE
          CALL writegausstofile(11,clusters(k),lpks(k))
       ENDDO
       CLOSE(UNIT=11)
@@ -363,7 +362,7 @@
             cov(2,1) = cov(1,2)
             cov(3,1) = cov(1,3)
             cov(3,2) = cov(2,3)
-            
+
             ! initializes the means randomly
             DO i=1,ng
               clusters(i)%mean = vwda(:,int(RAND()*nsamples))
@@ -419,8 +418,8 @@
             CALL system(cmdbuffer)
          END FUNCTION
          
-         INTEGER FUNCTION bestgaussian(ng,clusters,prif)
-            ! Return the index of the gaussian closest to prif
+         SUBROUTINE ordergaussians(ng,clusters,prif)
+            ! Order the gaussians from closest to prif
             !
             ! Args:
             !    ng: number of gaussians to generate
@@ -431,19 +430,33 @@
             TYPE(gauss_type), DIMENSION(ng), INTENT(INOUT) :: clusters
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: prif
             
-            DOUBLE PRECISION old,new
-			INTEGER i
+            TYPE(gauss_type) tmpgauss
+            DOUBLE PRECISION distances(ng),tmpdistance
+			INTEGER j,i
+			LOGICAL :: swapped = .TRUE.
 			
-			old=dsqrt(dot_product(clusters(1)%mean, prif))
-			bestgaussian=1
-			DO i=2,ng
-			   new=dsqrt(dot_product(clusters(i)%mean, prif))
-			   IF(new.LT.old)THEN
-			      old=new
-			      bestgaussian=i
-			   ENDIF			   
+			! calculate the distances
+			DO i=1,ng
+			   distances(i)=dot_product(clusters(i)%mean, prif)		   
             ENDDO
-
-         END FUNCTION bestgaussian
+            ! now we can sort using the distances
+            ! will use bubble sort
+            DO j=ng-1,1,-1
+               swapped = .FALSE.
+               DO i = 1, j
+                  IF (distances(i) > distances(i+1)) THEN            
+                     tmpdistance=distances(i)
+                     distances(i)=distances(i+1)
+                     distances(i+1)=tmpdistance
+                     ! upgrade also the clusters
+                     tmpgauss=clusters(i)
+                     clusters(i)=clusters(i+1)
+                     clusters(i+1)=tmpgauss
+                     swapped = .TRUE.
+                  END IF
+               END DO
+               IF (.NOT. swapped) EXIT	   
+            ENDDO         
+         END SUBROUTINE ordergaussians
 
       END PROGRAM gmm

@@ -59,6 +59,8 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
       ! mask to define what is what
       INTEGER, ALLOCATABLE, DIMENSION(:) :: masktypes
+      INTEGER vtghb(12),nghb
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: vghb
       CHARACTER*4, ALLOCATABLE, DIMENSION(:) :: labels
       CHARACTER*4, DIMENSION(4) :: vtacc,vtdon,vtH
 
@@ -90,6 +92,7 @@
       ptcm2 = .false.
       endf = .false.
       errdef=0
+      vtghb=-1
       !!
 
       !!!!! PARSER
@@ -97,7 +100,7 @@
          CALL GETARG(i, cmdbuffer)
          IF (cmdbuffer == "-i") THEN ! input xyz
             ccmd = 1
-         ELSEIF (cmdbuffer == "-gn") THEN ! number of gaussians
+         ELSEIF (cmdbuffer == "-gn") THEN ! total number of gaussians
             ccmd = 2
          ELSEIF (cmdbuffer == "-gf") THEN ! file containing gaussian parmeters
             ccmd = 3
@@ -123,6 +126,8 @@
             ccmd = 13
          ELSEIF (cmdbuffer == "-th") THEN ! hydrogen types
             ccmd = 14
+         ELSEIF (cmdbuffer == "-ghb") THEN ! gaussians used to describe the HB
+            ccmd = 15
          ELSEIF (cmdbuffer == "-h") THEN ! help
             WRITE(*,*) ""
             WRITE(*,*) " HB-mixture test program."
@@ -204,6 +209,24 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtH(par_count)
+            ELSEIF (ccmd == 15) THEN ! gaussians describing the HB
+               par_count = 1
+               commas(1) = 0
+               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
+                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
+                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vtghb(par_count)
+                  par_count = par_count + 1
+                  IF(par_count>15)THEN
+                     WRITE(*,*) "To much HBgaussians for me... Change the source code!"
+                     CALL EXIT(-1)
+                  ENDIF
+               ENDDO
+               READ(cmdbuffer(commas(par_count)+1:),*) vtghb(par_count)
+               ! parameters readed. Now I know the number of the parameters passed
+               ! and so I can allocate the vector I will use later
+               nghb=par_count
+               ALLOCATE(vghb(nghb))
+               vghb(1:nghb)=vtghb(1:nghb)
             ENDIF
          ENDIF
       ENDDO
@@ -223,7 +246,7 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-
+      
       IF (.NOT.(errdef.EQ.3)) THEN
          WRITE(*,*) ""
          WRITE(*,*) " Error: insert hydrongen, donor and acceptor species! "
@@ -238,6 +261,13 @@
             WRITE(*,*) " Error: insert the gaussians parameters! "
             CALL helpmessage
             CALL EXIT(-1)
+         ELSEIF (vtghb(1).EQ.-1) THEN
+            ! the user didn't passed the numbers of the gaussians to use
+            ! we will use the first
+            IF(verbose) WRITE(*,*) " Will use the first gaussian to describe the HB. "
+            ALLOCATE(vghb(1))
+            vghb(1)=1
+            nghb=1
          ENDIF
       ENDIF
 
@@ -329,7 +359,12 @@
                CALL hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
                                       nk,clusters,pks,sph,spd,spa)
                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
+               ! sum all the gaussians describing the HB
+               DO i=2,nghb
+                  sph(1,:)=sph(1,:)+sph(i,:)
+                  spd(1,:)=spd(1,:)+spd(i,:)
+                  spa(1,:)=spa(1,:)+spa(i,:)
+               ENDDO
                ! write results to a formatted output
                CALL write_output(7,natoms,nk,cell,ts,positions,sph(1,:),spd(1,:),spa(1,:))
             ENDIF
@@ -344,7 +379,7 @@
 
       DEALLOCATE(positions)
       DEALLOCATE(labels)
-      DEALLOCATE(masktypes)
+      DEALLOCATE(masktypes,vghb)
       CLOSE(UNIT=11)
       IF (.NOT.ptcm1) THEN
          DEALLOCATE(clusters,pks)
@@ -356,15 +391,12 @@
 
          SUBROUTINE helpmessage
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: minitest [-h] [-P1/-P2] -i filename  "
-            WRITE(*,*) "                   -ta Accettor_type1,Accettor_type2,... "
-            WRITE(*,*) "                   -td Donor_type1,Donor_type2,... "
-            WRITE(*,*) "                   -th   Hydrogen_type1,Hydrogen_type2,... "
-            WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] "
-            WRITE(*,*) "                  [-o outputfile] [-l lx,ly,lz] [-na Natoms] "
-            WRITE(*,*) "                  [-ns total_steps] [-ss starting_step] [-ev delta] "
-            WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] "
-            WRITE(*,*) "                  [-c] [-v] "
+            WRITE(*,*) " SYNTAX: minitest [-P1/-P2] -i filename [-o outputfile] [-l lx,ly,lz] "
+            WRITE(*,*) "                   -ta acc1,acc2,... -td don1,don2,... -th hyd1,hyd2,... "
+            WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] [-ghb ghb1,ghb2,..]"
+            WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] [-ev delta] "
+            WRITE(*,*) "                  [-na Natoms] [-ns total_steps] [-ss starting_step]"
+            WRITE(*,*) "                  [-h] [-c] [-v] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
