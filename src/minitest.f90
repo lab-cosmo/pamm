@@ -46,6 +46,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pks
       ! vector that will contain the probabilities calculated using hb-mixture library
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sa, sd, sh
       ! for the parser
       INTEGER ccmd
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
@@ -327,6 +328,7 @@
 
          ! we can now define and inizialize the probabilities vector
          ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
+         ALLOCATE(sa(natoms), sd(natoms), sh(natoms))
          spa=0.0d0
          spd=0.0d0
          sph=0.0d0
@@ -360,13 +362,16 @@
                                       nk,clusters,pks,sph,spd,spa)
                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                ! sum all the gaussians describing the HB
-               DO i=2,nghb
-                  sph(1,:)=sph(1,:)+sph(i,:)
-                  spd(1,:)=spd(1,:)+spd(i,:)
-                  spa(1,:)=spa(1,:)+spa(i,:)
+               sa=0.0d0
+               sd=0.0d0
+               sh=0.0d0
+               DO i=1,nghb
+                  sh(:)=sh(:)+sph(vghb(i),:)
+                  sd(:)=sd(:)+spd(vghb(i),:)
+                  sa(:)=sa(:)+spa(vghb(i),:)
                ENDDO
                ! write results to a formatted output
-               CALL write_output(7,natoms,nk,cell,ts,positions,sph(1,:),spd(1,:),spa(1,:))
+               CALL write_output(7,natoms,nk,cell,ts,positions,sh,sd,sa)
             ENDIF
 
          ELSE
@@ -383,7 +388,7 @@
       CLOSE(UNIT=11)
       IF (.NOT.ptcm1) THEN
          DEALLOCATE(clusters,pks)
-         DEALLOCATE(spa, sph, spd)
+         DEALLOCATE(spa, sph, spd, sa, sh, sd)
          CLOSE(UNIT=7)
       ENDIF
 
