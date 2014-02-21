@@ -384,11 +384,11 @@
 
       DEALLOCATE(positions)
       DEALLOCATE(labels)
-      DEALLOCATE(masktypes,vghb)
+      DEALLOCATE(masktypes)
       CLOSE(UNIT=11)
       IF (.NOT.ptcm1) THEN
          DEALLOCATE(clusters,pks)
-         DEALLOCATE(spa, sph, spd, sa, sh, sd)
+         DEALLOCATE(spa, sph, spd, sa, sh, sd, vghb)
          CLOSE(UNIT=7)
       ENDIF
 
