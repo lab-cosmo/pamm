@@ -445,7 +445,7 @@
                WRITE(filen,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", advance='no') &
                     trim(labels(i)), " ", positions(1,i), " ", &
                     positions(2,i), " ", positions(3,i)
-               WRITE(filen,"(3(A1,ES18.9))", advance='no') " ", sh(i), &
+               WRITE(filen,"(3(A1,ES20.9E4))", advance='no') " ", sh(i), &
                        " ", sd(i), " ", sa(i)
                WRITE(filen,*)
             ENDDO
