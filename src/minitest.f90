@@ -54,7 +54,7 @@
       ! counters
       INTEGER i,ts,k
 
-      LOGICAL verbose,convert,ptcm1,ptcm2
+      LOGICAL verbose,convert,ptcm1,ptcm2,nptm
       INTEGER errdef
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
@@ -91,6 +91,7 @@
       verbose = .false.
       ptcm1 = .false.
       ptcm2 = .false.
+      nptm = .false.
       endf = .false.
       errdef=0
       vtghb=-1
@@ -129,6 +130,8 @@
             ccmd = 14
          ELSEIF (cmdbuffer == "-ghb") THEN ! gaussians used to describe the HB
             ccmd = 15
+         ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
+            nptm = .true.
          ELSEIF (cmdbuffer == "-h") THEN ! help
             WRITE(*,*) ""
             WRITE(*,*) " HB-mixture test program."
@@ -348,6 +351,7 @@
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
             IF(verbose) WRITE(*,*) "Step: ",ts
+            IF(nptm) CALL xyz_AdjustCELL(11,cell,icell)
             CALL xyz_GetSnap(1,11,natoms,positions,endf)
             IF(endf) EXIT
             IF(convert) positions=positions*bohr
@@ -401,7 +405,7 @@
             WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] [-ghb ghb1,ghb2,..]"
             WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] [-ev delta] "
             WRITE(*,*) "                  [-na Natoms] [-ns total_steps] [-ss starting_step]"
-            WRITE(*,*) "                  [-h] [-c] [-v] "
+            WRITE(*,*) "                  [-npt] [-c] [-v] [-h] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 

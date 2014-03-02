@@ -23,10 +23,12 @@
 !
 ! Functions:
 !    xyz_GetInfo: Get the general info from the file (natoms,cell,nsteps)
+!    xyz_AdjustCELL: Get the cell and the inverse cell
 !    xyz_GetLabels: Get the atoms label
 !    xyz_GetSnap: Get the atoms coordinates
 
       MODULE xyz
+         USE hbmixture
       IMPLICIT NONE
 
       CONTAINS
@@ -57,6 +59,33 @@
             READ(11,*) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
             CLOSE(UNIT=11)
          END SUBROUTINE xyz_GetInfo
+         
+         SUBROUTINE xyz_AdjustCELL(ufile,cell,icell)
+            ! Get the number of atoms, the box lenght and the number of steps.
+            !
+            ! Args:
+            !    ufile: ID of the input file
+            !    cell: The simulation box cell vector matrix.
+            !    icell: The inverse of the simulation box cell vector matrix.
+            
+            INTEGER, INTENT(IN) :: ufile
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: cell
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: icell
+
+            CHARACTER*30 dummy1,dummy2
+            INTEGER pos,ierr
+			
+			pos=FTELL(ufile)
+			
+			cell=0.0d0
+            ! discard the first line (number of atoms)
+            READ(ufile,*) dummy1
+            ! we assume an orthorombic box
+            READ(ufile,*) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
+            ! get the inverse of the cell
+            CALL inv3x3(cell,icell)
+            CALL FSEEK(ufile, pos, 0, ierr)
+         END SUBROUTINE xyz_AdjustCELL
 
          SUBROUTINE xyz_GetLabels(filename,labels)
             ! Get the atoms label
