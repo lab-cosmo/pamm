@@ -28,9 +28,6 @@
          USE hbmixture
       IMPLICIT NONE
 
-      ! Constant to convert from bohrradius to angstrom
-      DOUBLE PRECISION, PARAMETER :: bohr=0.5291772192171717171717171717171717
-
       CHARACTER*70 :: filename, gaussianfile, outputfile
       CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
@@ -67,7 +64,7 @@
 
       DOUBLE PRECISION dummyd1,dummyd2
       INTEGER dummyi1,dummyi2
-      LOGICAL endf
+      INTEGER endf
 
       !! default values
       DO i=1,4
@@ -92,7 +89,7 @@
       ptcm1 = .false.
       ptcm2 = .false.
       nptm = .false.
-      endf = .false.
+      endf = 0
       errdef=0
       vtghb=-1
       !!
@@ -274,29 +271,11 @@
             nghb=1
          ENDIF
       ENDIF
+      
+      OPEN(UNIT=11,FILE=filename)
+      CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
+      CLOSE(UNIT=11)
 
-      ! Check the box parameters
-
-      CALL xyz_GetInfo(filename,dummyi1,dummycell)
-      ! control natoms
-      IF (natoms == -1) THEN
-         natoms=dummyi1
-      ENDIF
-      ! control the cell
-      IF (cell(1,1)==(0.0d0) .OR. cell(2,2)==(0.0d0) .OR. cell(3,3)==(0.0d0)) THEN
-         cell=dummycell
-         IF(convert) cell=cell*bohr
-      ENDIF
-
-      ! get the inverse of the cell
-      CALL inv3x3(cell,icell)
-
-      ! we can allocate the vectors now
-      ALLOCATE(positions(3,natoms))
-      ALLOCATE(labels(natoms))
-
-      ! get the labels of the atoms
-      CALL xyz_GetLabels(filename,labels)
       ! define what is acceptor,donor and hydrogen
       ALLOCATE(masktypes(natoms))
       ! set to TYPE_NONE
@@ -351,10 +330,8 @@
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
             IF(verbose) WRITE(*,*) "Step: ",ts
-            IF(nptm) CALL xyz_AdjustCELL(11,cell,icell)
-            CALL xyz_GetSnap(1,11,natoms,positions,endf)
-            IF(endf) EXIT
-            IF(convert) positions=positions*bohr
+            CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
+            IF(endf<0)EXIT
 
             IF(ptcm1)THEN
                CALL write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
@@ -375,13 +352,13 @@
                   sa(:)=sa(:)+spa(vghb(i),:)
                ENDDO
                ! write results to a formatted output
-               CALL write_output(7,natoms,nk,cell,ts,positions,sh,sd,sa)
+               CALL xyz_write(7,natoms,cell,ts,labels,positions,sh,sd,sa)
             ENDIF
 
          ELSE
             ! discard this snapshot
-            CALL XYZ_GetSnap(0,11,natoms,positions,endf)
-            IF(endf) EXIT
+            CALL xyz_read(0,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
+            IF(endf<0)EXIT
          ENDIF
       ENDDO
       ! end the loop over the trajectory
@@ -430,30 +407,6 @@
             CALL gauss_prepare(gaussp)
 
          END SUBROUTINE readgaussfromfile
-
-         SUBROUTINE write_output(filen,natoms,nk,cell,ts,positions,sh,sd,sa)
-            INTEGER, INTENT(IN) :: filen
-            INTEGER, INTENT(IN) :: natoms
-            INTEGER, INTENT(IN) :: nk
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
-            INTEGER, INTENT(IN) :: ts
-            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
-            DOUBLE PRECISION, DIMENSION(natoms), INTENT(IN) :: sh, sd, sa
-
-            ! header
-            WRITE(filen,"(I4)") natoms
-            WRITE(filen,"(a,F11.7,a,F11.7,a,F11.7,a,I10)") &
-                 "# CELL(abc): ",cell(1,1)," ",cell(2,2)," ",cell(3,3)," Step: ",ts
-            ! body
-            DO i=1,natoms
-               WRITE(filen,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", advance='no') &
-                    trim(labels(i)), " ", positions(1,i), " ", &
-                    positions(2,i), " ", positions(3,i)
-               WRITE(filen,"(3(A1,ES20.9E4))", advance='no') " ", sh(i), &
-                       " ", sd(i), " ", sa(i)
-               WRITE(filen,*)
-            ENDDO
-         END SUBROUTINE write_output
 
          SUBROUTINE write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
             ! Calculate the probabilities

@@ -22,98 +22,18 @@
 ! SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 !
 ! Functions:
-!    xyz_GetInfo: Get the general info from the file (natoms,cell,nsteps)
-!    xyz_AdjustCELL: Get the cell and the inverse cell
-!    xyz_GetLabels: Get the atoms label
-!    xyz_GetSnap: Get the atoms coordinates
+!    xyz_read: Get one frame off a xyz file
 
       MODULE xyz
          USE hbmixture
       IMPLICIT NONE
-
-      CONTAINS
       
-         SUBROUTINE xyz_GetInfo(filename,natoms,cell)
-            ! Get the number of atoms, the box lenght and the number of steps.
-            !
-            ! Args:
-            !    filename: The filename.
-            !    natoms: The number of atoms in the system.
-            !    Lbox: The box lenght
-            !    NSteps: The number of steps.
+      ! Constant to convert from bohrradius to angstrom
+      DOUBLE PRECISION, PARAMETER :: bohr=0.5291772192171717171717171717171717
+      
+      CONTAINS
 
-            CHARACTER*70, INTENT(IN) :: filename
-            INTEGER, INTENT(OUT) :: natoms
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: cell
-
-            CHARACTER*1024 :: cmdbuffer
-            CHARACTER*30 dummy1,dummy2
-
-
-            INTEGER nlines
-
-            ! open the file and read the atom number
-            OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) natoms
-            ! we assume an orthorombic box
-            READ(11,*) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
-            CLOSE(UNIT=11)
-         END SUBROUTINE xyz_GetInfo
-         
-         SUBROUTINE xyz_AdjustCELL(ufile,cell,icell)
-            ! Get the number of atoms, the box lenght and the number of steps.
-            !
-            ! Args:
-            !    ufile: ID of the input file
-            !    cell: The simulation box cell vector matrix.
-            !    icell: The inverse of the simulation box cell vector matrix.
-            
-            INTEGER, INTENT(IN) :: ufile
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: cell
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(OUT) :: icell
-
-            CHARACTER*30 dummy1,dummy2
-            INTEGER pos,ierr
-			
-			pos=FTELL(ufile)
-			
-			cell=0.0d0
-            ! discard the first line (number of atoms)
-            READ(ufile,*) dummy1
-            ! we assume an orthorombic box
-            READ(ufile,*) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
-            ! get the inverse of the cell
-            CALL inv3x3(cell,icell)
-            CALL FSEEK(ufile, pos, 0, ierr)
-         END SUBROUTINE xyz_AdjustCELL
-
-         SUBROUTINE xyz_GetLabels(filename,labels)
-            ! Get the atoms label
-            !
-            ! Args:
-            !    filename: The filename.
-            !    labels: The vector containing the atoms label
-
-            CHARACTER*70, INTENT(IN) :: filename
-            CHARACTER*4,ALLOCATABLE, DIMENSION(:),INTENT(OUT) :: labels
-
-            CHARACTER*1024 :: cmdbuffer
-            INTEGER natoms,i
-
-            ! open the file and read the atom number
-            OPEN(UNIT=11,FILE=filename,STATUS='OLD',ACTION='READ')
-            READ(11,*) natoms
-            ALLOCATE(labels(natoms))
-            READ(11,*) cmdbuffer
-            DO i=1,natoms
-               READ(11,*) cmdbuffer
-               labels(i)=trim(cmdbuffer)
-            ENDDO
-            CLOSE(UNIT=11)
-
-         END SUBROUTINE
-
-         SUBROUTINE xyz_GetSnap(mode,ufile,natoms,positions,endf)
+         SUBROUTINE xyz_read(mode,nptmode,convert,ufile,natoms,positions,labels,cell,icell,endf)
             ! Get the coordinates of all the atoms
             !
             ! Args:
@@ -123,37 +43,80 @@
             !    positions: The array containing the atoms coordinates.
             
             INTEGER, INTENT(IN) :: mode 
+            LOGICAL, INTENT(IN) :: nptmode
+            LOGICAL, INTENT(IN) :: convert
             INTEGER, INTENT(IN) :: ufile
-            INTEGER, INTENT(IN) :: natoms
-            DOUBLE PRECISION, DIMENSION(3,NAtoms), INTENT(OUT)  :: positions
-            LOGICAL, INTENT(OUT) :: endf
+            INTEGER, INTENT(OUT) :: natoms
+            DOUBLE PRECISION, DIMENSION(:,:), ALLOCATABLE, INTENT(INOUT)  :: positions
+            CHARACTER*4, DIMENSION(:), ALLOCATABLE, INTENT(INOUT) :: labels
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(INOUT) :: cell
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(INOUT) :: icell
+            INTEGER, INTENT(OUT) :: endf
 
-            CHARACTER*1024 dummy
-            INTEGER i,ierr
-            
-            endf = .false.
-            
+            CHARACTER*30 dummy1,dummy2
+            INTEGER i
+
             IF (mode.eq.0) THEN
                ! Discard this timesnapshot
-               DO i=1,NAtoms+2
-                  READ(ufile,*,IOSTAT=ierr) dummy
-                  IF(ierr<0) endf=.true.
-                  IF(endf) cycle
+               DO i=1,natoms+2
+                  READ(ufile,*,IOSTAT=endf) dummy1
+                  IF(endf<0) return
                END DO
             ELSE
                ! Get the snapshot
-               ! skip the header
-               READ(ufile,*,IOSTAT=ierr) dummy ! NAtoms
-               IF(ierr<0) endf=.true.
-               READ(ufile,*,IOSTAT=ierr) dummy ! Cell info
-               IF(ierr<0) endf=.true.
-               DO i=1,natoms ! label, x, y, z
-                  READ(ufile,*,IOSTAT=ierr) dummy,positions(1,i),positions(2,i),positions(3,i)
-                  IF(ierr<0) endf=.true.
-                  IF(endf) EXIT
-               END DO
-            ENDIF
+            
+               ! Get the atom number
+               READ(ufile,*,IOSTAT=endf) natoms 
+			      IF(endf<0) return
+			   
+		       ! Get the cell
+		       IF ((cell(1,1)==(0.0d0) .OR. cell(2,2)==(0.0d0) .OR. cell(3,3)==(0.0d0)).or.(nptmode)) THEN
+		          ! read the box size
+		          READ(ufile,*,IOSTAT=endf) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
+		          IF(endf<0) return
+		          ! convert the box if necessary
+		          IF(convert) cell=cell*bohr
+		          ! invert the cell
+		          CALL inv3x3(cell,icell) 
+               ENDIF
 
-         END SUBROUTINE
+               IF (.not.(ALLOCATED(labels))) ALLOCATE(labels(natoms))
+               IF (.not.(ALLOCATED(positions))) ALLOCATE(positions(3,natoms))
+               
+               DO i=1,natoms ! label, x, y, z
+                  READ(ufile,*,IOSTAT=endf) labels(i),positions(1,i),positions(2,i),positions(3,i)
+                  IF(endf<0) return
+               END DO
+               ! convert if necessary
+		       IF(convert) positions=positions*bohr
+            ENDIF
+            endf=0
+         END SUBROUTINE xyz_read
          
+         SUBROUTINE xyz_write(ufile,natoms,cell,ts,labels,positions,sh,sd,sa)
+            INTEGER, INTENT(IN) :: ufile
+            INTEGER, INTENT(IN) :: natoms
+            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
+            INTEGER, INTENT(IN) :: ts
+            CHARACTER*4, DIMENSION(natoms), INTENT(INOUT) :: labels
+            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
+            DOUBLE PRECISION, DIMENSION(natoms), INTENT(IN) :: sh, sd, sa
+            
+            INTEGER i
+
+            ! header
+            WRITE(ufile,"(I4)") natoms
+            WRITE(ufile,"(a,F11.7,a,F11.7,a,F11.7,a,I10)") &
+                 "# CELL(abc): ",cell(1,1)," ",cell(2,2)," ",cell(3,3)," Step: ",ts
+            ! body
+            DO i=1,natoms
+               WRITE(ufile,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", advance='no') &
+                    trim(labels(i)), " ", positions(1,i), " ", &
+                    positions(2,i), " ", positions(3,i)
+               WRITE(ufile,"(3(A1,ES20.9E4))", advance='no') " ", sh(i), &
+                       " ", sd(i), " ", sa(i)
+               WRITE(ufile,*)
+            ENDDO
+         END SUBROUTINE xyz_write
+
       END MODULE xyz
