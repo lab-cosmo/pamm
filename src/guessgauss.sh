@@ -8,7 +8,7 @@ gmx=gmm
 err=1e-5       # relative change of log-likelihood to bail out from GM optimization
 smooth=1e-5    # regularization of the GM covariance matrices
 seed=456738    # base of random number seeds
-maxtry=100     # number of attempts
+maxtry=250     # number of attempts
 v=-1.1
 w=2.9
 dAD=2.9
@@ -33,3 +33,22 @@ for ((j=1; j<=$maxtry; j++)); do
     cp $fo.$j $fo.best
   fi
 done
+((seed+=1121))
+$gmx -i $fin -n $gn -seed $seed -o $fo.maxmin -maxmin -ev $ev -err $err -s $smooth -rif $v,$w,$dAD
+loglike=$( head -1 $fo.maxmin | awk '{print $5}' )
+echo "    loglike/nsample: $loglike"
+if [ $( echo " $loglike > $logbest " | bc ) -eq 1 ]; then
+  echo "Found improved clusters"
+  logbest=$loglike
+  cp $fo.maxmin $fo.best
+fi
+
+((err/=10000))
+$gmx -i $fin -n $gn -gf $fo.best -o $fo.init -ev $ev -err $err -s $smooth -rif $v,$w,$dAD
+loglike=$( head -1 $fo.init | awk '{print $5}' )
+echo "    loglike/nsample: $loglike"
+if [ $( echo " $loglike > $logbest " | bc ) -eq 1 ]; then
+  echo "Last attempt improved the LogLike!"
+  logbest=$loglike
+  cp $fo.init $fo.best
+fi
