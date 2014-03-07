@@ -279,7 +279,7 @@
       ! define what is acceptor,donor and hydrogen
       ALLOCATE(masktypes(natoms))
       ! set to TYPE_NONE
-      masktypes=masktypes*TYPE_NONE
+      masktypes=TYPE_NONE
       DO i=1,natoms
          ! set the mask using BITWISE OR OPERATOR
          IF(testtype(labels(i),vtH)) masktypes(i)=IOR(masktypes(i),TYPE_H)
@@ -332,8 +332,8 @@
             IF(verbose) WRITE(*,*) "Step: ",ts
             CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
             IF(endf<0)EXIT
-
             IF(ptcm1)THEN
+               
                CALL write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
             ELSEIF(ptcm2)THEN
                CALL write_xyz(natoms,cell,icell,wcutoff,masktypes,positions)

@@ -78,6 +78,8 @@
 		          IF(convert) cell=cell*bohr
 		          ! invert the cell
 		          CALL inv3x3(cell,icell) 
+		       ELSE
+		           READ(ufile, '(A)') dummy1
                ENDIF
 
                IF (.not.(ALLOCATED(labels))) ALLOCATE(labels(natoms))
