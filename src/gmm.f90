@@ -46,6 +46,15 @@
       DOUBLE PRECISION bic         ! Bayesian Inference criteria
       DOUBLE PRECISION aic         ! Akaike Inference criteria
       DOUBLE PRECISION prif(3)     ! Reference point needed to find out the important gaussian
+      !! mean-shift mode parameters
+      CHARACTER*70 :: outputclusters  ! The output file containing the clusterization of the data
+      DOUBLE PRECISION twosig2        ! 2*sig^2
+      DOUBLE PRECISION errclusters    ! Similarity between means
+      DOUBLE PRECISION kernel,norm
+      DOUBLE PRECISION, DIMENSION(3,50) :: means
+      DOUBLE PRECISION, DIMENSION(3) :: meanold,meannew,diff
+      LOGICAL goclust
+      INTEGER npc
       INTEGER Nk       ! Number of gaussians in the mixture
       INTEGER delta    ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines   ! Number of lines of the input data file
@@ -60,6 +69,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: lpks
       ! Array containing the input data pints
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: vwadIclust
       ! Array containing the nk probalities for each of nsamples points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: pnk ! responsibility matrix
 
@@ -68,12 +78,14 @@
       INTEGER ccmd                  ! Index used to control the input parameters
       LOGICAL verbose ! flag for verbosity
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
-
+	  DOUBLE PRECISION vpar(5)
+	  
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
 
       !!!!!!! Iniatialze the parameters !!!!!!!
       filename="NULL"
       gaussianfile="NULL"
+      outputclusters="NULL"
       outputfile="gaussiansout.dat"
       ccmd=0 ! no parameters specified
       delta=1 ! read every point
@@ -81,12 +93,15 @@
       verbose = .false. ! no verbosity
       maxmin = .false. ! no maxmin
       errc=1.0e-05
+      errclusters=1.0e-04
       Nk=-1 ! number of Gaussians in the mixture. Initialized at -1
       seed=1357
       test=111
       prif(1)=-1.0d0
       prif(2)= 2.9d0
       prif(3)= 2.9d0
+      twosig2=-1.1d0
+      nsamples=-1
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
@@ -98,6 +113,8 @@
             ccmd = 2
          ELSEIF (cmdbuffer == "-o") THEN      ! output file
             ccmd = 3
+         ELSEIF (cmdbuffer == "-oclusters") THEN      ! output file clusters
+            ccmd = 12
          ELSEIF (cmdbuffer == "-ev") THEN     ! delta
             ccmd = 4
          ELSEIF (cmdbuffer == "-s") THEN      ! smoothing factor
@@ -110,6 +127,10 @@
             ccmd = 8
          ELSEIF (cmdbuffer == "-rif") THEN    ! point from wich calculate the distances to order
             ccmd = 9                          ! the gaussians in the output
+         ELSEIF (cmdbuffer == "-msmode") THEN    ! mean-shift mode
+            ccmd = 10  
+         ELSEIF (cmdbuffer == "-nsamples") THEN ! N samples
+            ccmd = 11
          ELSEIF (cmdbuffer == "-maxmin") THEN ! initialize using maxmin routine
             maxmin = .true.
          ELSEIF (cmdbuffer == "-h") THEN      ! help
@@ -131,6 +152,8 @@
                gaussianfile=trim(cmdbuffer)
             ELSEIF (ccmd == 3) THEN ! output file
                outputfile=trim(cmdbuffer)
+            ELSEIF (ccmd == 12) THEN ! output file
+               outputclusters=trim(cmdbuffer)
             ELSEIF (ccmd == 4) THEN ! delta
                READ(cmdbuffer,*) delta
             ELSEIF (ccmd == 5) THEN ! smoothing factor
@@ -150,6 +173,26 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) prif(par_count)
+            ELSEIF (ccmd == 10) THEN ! mean-shift sig,err1,err2
+               par_count = 1
+               commas(1) = 0
+               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
+                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
+                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vpar(par_count)
+                  par_count = par_count + 1
+               ENDDO
+               READ(cmdbuffer(commas(par_count)+1:),*) vpar(par_count)
+               IF(par_count.NE.3)THEN
+                  WRITE(*,*) ""
+                  WRITE(*,*) " Wrong usage. You need 3 parameters: sig,errc,eclust. "
+                  CALL helpmessage
+                  CALL EXIT(-1)
+               ENDIF
+               twosig2=2.0d0*vpar(1)*vpar(1)
+               errc=vpar(2)
+               errclusters=vpar(3)
+            ELSEIF (ccmd == 11) THEN
+               READ(cmdbuffer,*) nsamples
             ENDIF
          ENDIF
       ENDDO
@@ -158,7 +201,7 @@
       CALL SRAND(seed) ! initialize the random number generator
 
       ! Check the input parameters
-      IF (ccmd.EQ.0 .OR. Nk.LE.0 .OR. filename.EQ."NULL") THEN
+      IF (ccmd.EQ.0 .OR. filename.EQ."NULL") THEN
          ! ccmd==0 : no parameters inserted
          ! Nk<0 : no Nk insterted
          ! filename=="NULL" no input datas specified
@@ -171,18 +214,130 @@
       ! Get total number of data points in the file
       Nlines = GetNlines(filename)
       ! New number of points
+      IF(nsamples.NE.-1) delta=FLOOR(FLOAT(Nlines)/nsamples)+1
       nsamples = Nlines/delta
       counter=0
-      ALLOCATE(vwad(3,nsamples))
+      ALLOCATE(vwad(3,nsamples),vwadIclust(nsamples))
       OPEN(UNIT=12,FILE=filename,STATUS='OLD',ACTION='READ')
       DO i=1,Nlines
          IF(MODULO(i,delta)==0)THEN ! read a point every delta
             counter=counter+1 ! index for the real data set
             READ(12,*) vwad(1,counter),vwad(2,counter),vwad(3,counter)
+         ELSE
+            READ(12,*) kernel
          ENDIF
       ENDDO
       CLOSE(UNIT=12)
+      
+      IF(twosig2.NE.-1.1d0)THEN
+         Nk=0
+         kernel=0.0d0
+         vwadIclust=0
+         IF(outputclusters.NE."NULL") OPEN(UNIT=11,FILE=outputclusters,STATUS='REPLACE',ACTION='WRITE')
+         DO i=1,nsamples ! run over all points 1
+            meanold=vwad(:,i)
+            test=1e10
+            dummyi1=1 ! variable in wich store the cluster number
+            norm=0                  ! iteration
+            DO WHILE(test.GT.errc)     ! convergence criteria
+               meannew=0.0d0
+               norm=0.0d0
+               DO j=1,nsamples      ! sum over all atoms
+                  diff = vwad(:,j)-meanold
+                  kernel=dot_product(diff,diff)/twosig2
+                  IF (kernel .gt. 10) CYCLE  ! skips tiny contributions
+                  kernel=dexp( -kernel )
+                  meannew=meannew+(kernel*vwad(:,j))
+                  norm=norm+kernel
+               ENDDO                
+               meannew=meannew/norm
+               diff = meannew-meanold
+               test=dsqrt(dot_product(diff,diff))
+               meanold=meannew
+            ENDDO  ! close the iteration cycle    
+            goclust=.false.
+            DO k=1,Nk
+               diff = meannew-means(:,k)
+               IF (dsqrt(dot_product(diff,diff)).LT.errclusters) THEN
+                  goclust=.true.
+                  dummyi1=k
+                  EXIT
+               ENDIF
+            ENDDO
+            IF(.NOT.(goclust))THEN
+               Nk=Nk+1
+               means(:,Nk)=meannew
+               dummyi1=Nk
+               IF(verbose) WRITE(*,"(A9,I3,A2,ES18.11E2,A1,ES18.11E2,A1,ES18.11E2)") " Gaussian ",Nk,": ", & 
+                                                               meannew(1),  " ", meannew(2), " ", meannew(3)
+            ENDIF
+            IF(outputfile.NE."NULL")THEN 
+               WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", vwad(1,i)," ", vwad(2,i)," ", vwad(3,i)
+               WRITE(11,"(A1,I3)") " ", dummyi1
+            ENDIF
+            vwadIclust(i)=dummyi1
+         ENDDO ! close the run over all points 1
+         IF(outputclusters.NE."NULL") CLOSE(UNIT=11)
+         
+         !! covariance
+         ALLOCATE(clusters(Nk),lpks(Nk))
+         ! calculate the gaussians covariance from the data in the clusters
+         DO k=1,Nk 
+            meannew = 0.0d0
+            npc=0
+            clusters(k)%mean=means(:,k)
+            clusters(k)%cov = 0.0d0
+            DO i=1,nsamples
+               IF(vwadIclust(i).NE.k) CYCLE
+               meannew = meannew + vwad(:,i)
+               clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + vwad(1,i) * vwad(1,i)
+               clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + vwad(1,i) * vwad(2,i)
+               clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + vwad(1,i) * vwad(3,i)
+               clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + vwad(2,i) * vwad(2,i)
+               clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + vwad(2,i) * vwad(3,i)
+               clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + vwad(3,i) * vwad(3,i)
+               npc=npc+1
+            ENDDO
+            meannew = meannew/npc
+            clusters(k)%cov = clusters(k)%cov /npc
+            clusters(k)%cov(1,1) = clusters(k)%cov(1,1) - meannew(1)*meannew(1)
+            clusters(k)%cov(1,2) = clusters(k)%cov(1,2) - meannew(1)*meannew(2)
+            clusters(k)%cov(1,3) = clusters(k)%cov(1,3) - meannew(1)*meannew(3)
+            clusters(k)%cov(2,2) = clusters(k)%cov(2,2) - meannew(2)*meannew(2)
+            clusters(k)%cov(2,3) = clusters(k)%cov(2,3) - meannew(2)*meannew(3)
+            clusters(k)%cov(3,3) = clusters(k)%cov(3,3) - meannew(3)*meannew(3)
+            clusters(k)%cov(2,1) = clusters(k)%cov(1,2)
+            clusters(k)%cov(3,1) = clusters(k)%cov(1,3)
+            clusters(k)%cov(3,2) = clusters(k)%cov(2,3)
+            lpks(k)=LOG(FLOAT(npc)/nsamples)
+         ENDDO
+         ! write gaussians
+		 
+		 ! oreder gaussians from the closest to the reference point
+         CALL ordergaussians(Nk,clusters,lpks,prif)
 
+         OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
+         WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
+         WRITE(11,*) "# mean cov pk"
+         WRITE(11,*) Nk
+         ! Write out the gaussians
+         DO k=1,Nk      ! write mean
+            CALL writegausstofile(11,clusters(k),lpks(k))
+         ENDDO
+         CLOSE(UNIT=11)
+         DEALLOCATE(vwad,vwadIclust,clusters,lpks)
+         CALL EXIT(0)
+      ENDIF
+
+      ! Check the input parameters
+      IF (Nk.LE.0) THEN
+         ! Nk<0 : no Nk insterted
+         WRITE(*,*) ""
+         WRITE(*,*) " Wrong usage. Insert the number of gaussians need to describe the data!"
+         CALL helpmessage
+         CALL EXIT(-1)
+      ENDIF
+      
       ALLOCATE(pnk(Nk,nsamples))
       pnk=0.0d0 ! responsibility matrix initialized to zero
 
@@ -239,7 +394,7 @@
       ENDDO
       
       ! oreder gaussians from the closest to the reference point
-      CALL ordergaussians(Nk,clusters,prif)
+      CALL ordergaussians(Nk,clusters,lpks,prif)
 
       OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       WRITE(11,"(A13,I11,A17,F16.7,A6,F16.7,A6,F16.7)") "# n.samples: ", nsamples, &
@@ -265,6 +420,7 @@
             WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-seed seedrandom] "
             WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
             WRITE(*,*) "             [-gf gaussianfile] [-maxmin] [-rif vrif,wrif,dADrif]"
+            WRITE(*,*) "             [-msmode sig,errc,eclust] [-oclusters clustersfile] [-nsamples N] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
@@ -418,7 +574,7 @@
             CALL system(cmdbuffer)
          END FUNCTION
          
-         SUBROUTINE ordergaussians(ng,clusters,prif)
+         SUBROUTINE ordergaussians(ng,clusters,pks,prif)
             ! Order the gaussians from closest to prif
             !
             ! Args:
@@ -428,10 +584,11 @@
             
             INTEGER, INTENT(IN) :: ng
             TYPE(gauss_type), DIMENSION(ng), INTENT(INOUT) :: clusters
+            DOUBLE PRECISION, DIMENSION(ng), INTENT(INOUT) :: pks
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: prif
             
             TYPE(gauss_type) tmpgauss
-            DOUBLE PRECISION distances(ng),tmpdistance
+            DOUBLE PRECISION distances(ng),tmpdistance,tmppk
 			INTEGER j,i
 			LOGICAL :: swapped = .TRUE.
 			
@@ -448,6 +605,10 @@
                      tmpdistance=distances(i)
                      distances(i)=distances(i+1)
                      distances(i+1)=tmpdistance
+                     ! upgrade pks
+                     tmppk=pks(i)
+                     pks(i)=pks(i+1)
+                     pks(i+1)=tmppk
                      ! upgrade also the clusters
                      tmpgauss=clusters(i)
                      clusters(i)=clusters(i+1)

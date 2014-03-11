@@ -254,7 +254,7 @@
          clusters(k)%cov(2,1) = clusters(k)%cov(1,2)
          clusters(k)%cov(3,1) = clusters(k)%cov(1,3)
          clusters(k)%cov(3,2) = clusters(k)%cov(2,3)
-         pks(k)=npc/nsamples
+         pks(k)=FLOAT(npc)/nsamples
       ENDDO
       
       ! oreder gaussians from the closest to the reference point
