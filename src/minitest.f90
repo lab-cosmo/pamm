@@ -33,7 +33,6 @@
       ! system parameters
       INTEGER natoms
       DOUBLE PRECISION cell(3,3), icell(3,3), dummycell(3,3)
-      DOUBLE PRECISION box(3)
       DOUBLE PRECISION alpha, wcutoff
       INTEGER nsteps, startstep, delta
       ! gaussians
@@ -161,13 +160,10 @@
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
                   commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
-                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) box(par_count)
+                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) cell(par_count,par_count)
                   par_count = par_count + 1
                ENDDO
-               READ(cmdbuffer(commas(par_count)+1:),*) box(par_count)
-               cell(1,1)=box(1)
-               cell(2,2)=box(2)
-               cell(3,3)=box(3)
+               READ(cmdbuffer(commas(par_count)+1:),*) cell(par_count,par_count)
             ELSEIF (ccmd == 6) THEN ! numbers of atoms
                READ(cmdbuffer,*) natoms
             ELSEIF (ccmd == 7) THEN ! numbers of steps
@@ -232,7 +228,7 @@
          ENDIF
       ENDDO
       !!!!! END PARSER
-
+      
       IF (ptcm1 .and. ptcm2) THEN
          WRITE(*,*) ""
          WRITE(*,*) " Error: you have to chose! -P1 or -P2, not both!! "
@@ -272,10 +268,11 @@
          ENDIF
       ENDIF
       
+      CALL inv3x3(cell,icell) 
       OPEN(UNIT=11,FILE=filename)
       CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
       CLOSE(UNIT=11)
-
+      
       ! define what is acceptor,donor and hydrogen
       ALLOCATE(masktypes(natoms))
       ! set to TYPE_NONE

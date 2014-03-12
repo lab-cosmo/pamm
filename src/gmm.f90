@@ -229,7 +229,7 @@
       ENDDO
       CLOSE(UNIT=12)
       
-      IF(twosig2.NE.-1.1d0)THEN
+      IF(twosig2.NE.-1.1d0)THEN       
          Nk=0
          kernel=0.0d0
          vwadIclust=0
