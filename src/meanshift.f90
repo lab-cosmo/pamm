@@ -51,7 +51,7 @@
       ! Array of Gaussians containing the gaussians parameters
       DOUBLE PRECISION :: twosig2
       DOUBLE PRECISION, DIMENSION(3,50) :: means
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pks
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pks,minimas
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
       ! Array containing the input data pints
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad
@@ -65,7 +65,7 @@
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
 
       INTEGER i,j,k,counter,indexg ! Counters
-      DOUBLE PRECISION kernel,norm,test
+      DOUBLE PRECISION kernel,norm,test,dmmbest,dmm,prec
       DOUBLE PRECISION, DIMENSION(3) :: xold,xnew,diff
       
       !!!!!!! Iniatialze the parameters !!!!!!!
@@ -159,11 +159,12 @@
          nsamples = Nlines
          delta=1
       ELSE
-         delta=INT(Nlines/nsamples)
+         delta=FLOOR(FLOAT(Nlines)/nsamples)+1
+         nsamples= Nlines/delta
          !write(*,*) nsamples,delta
       ENDIF
       counter=0
-      ALLOCATE(vwad(3,nsamples),vwadIclust(nsamples))
+      ALLOCATE(vwad(3,nsamples),vwadIclust(nsamples),minimas(nsamples))
       OPEN(UNIT=12,FILE=filename,STATUS='OLD',ACTION='READ')
       DO i=1,Nlines
          IF(MODULO(i,delta)==0)THEN ! read a point every delta
@@ -178,6 +179,28 @@
       twosig2=2.0d0*sig*sig
       kernel=0.0d0
       vwadIclust=0
+      
+      dmmbest = 0.0d0
+      
+      minimas=0.0d0
+      xold = 0.0d0
+      xnew = 0.0d0
+      DO i=1,nsamples
+         prec=0.0d0
+         dmm = 100.0d0
+         DO j=1,nsamples
+            if(i==j) cycle
+            diff = vwad(:,j)-vwad(:,i)
+            prec=sum(diff**2)
+            IF(prec<dmm) dmm=prec
+         IF(dmm<dmmbest) EXIT
+         ENDDO
+         IF(dmm>dmmbest) dmmbest=dmm
+      ENDDO
+      
+      WRITE(*,*) nsamples, log(FLOAT(nsamples)) , dsqrt(dmmbest)	
+      CALL EXIT(0)
+      
       IF(outputfile.NE."NULL") OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       DO i=1,nsamples ! run over all points 1
          xold=vwad(:,i)

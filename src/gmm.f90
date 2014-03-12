@@ -62,6 +62,7 @@
       INTEGER seed     ! seed for the random number generator
       INTEGER best     ! index of the gaussian of interest
       LOGICAL maxmin ! flag for verbosity
+      LOGICAL msmode ! flag for verbosity
 
       ! Array of Gaussians containing the gaussians parameters
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
@@ -92,8 +93,8 @@
       smooth=0.0d0 ! no smoothing by default
       verbose = .false. ! no verbosity
       maxmin = .false. ! no maxmin
-      errc=1.0e-05
-      errclusters=1.0e-04
+      msmode = .false. ! no msmode
+      errc=1.0e-04
       Nk=-1 ! number of Gaussians in the mixture. Initialized at -1
       seed=1357
       test=111
@@ -128,7 +129,7 @@
          ELSEIF (cmdbuffer == "-rif") THEN    ! point from wich calculate the distances to order
             ccmd = 9                          ! the gaussians in the output
          ELSEIF (cmdbuffer == "-msmode") THEN    ! mean-shift mode
-            ccmd = 10  
+            msmode = .true.
          ELSEIF (cmdbuffer == "-nsamples") THEN ! N samples
             ccmd = 11
          ELSEIF (cmdbuffer == "-maxmin") THEN ! initialize using maxmin routine
@@ -173,24 +174,6 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) prif(par_count)
-            ELSEIF (ccmd == 10) THEN ! mean-shift sig,err1,err2
-               par_count = 1
-               commas(1) = 0
-               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
-                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
-                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vpar(par_count)
-                  par_count = par_count + 1
-               ENDDO
-               READ(cmdbuffer(commas(par_count)+1:),*) vpar(par_count)
-               IF(par_count.NE.3)THEN
-                  WRITE(*,*) ""
-                  WRITE(*,*) " Wrong usage. You need 3 parameters: sig,errc,eclust. "
-                  CALL helpmessage
-                  CALL EXIT(-1)
-               ENDIF
-               twosig2=2.0d0*vpar(1)*vpar(1)
-               errc=vpar(2)
-               errclusters=vpar(3)
             ELSEIF (ccmd == 11) THEN
                READ(cmdbuffer,*) nsamples
             ENDIF
@@ -229,7 +212,28 @@
       ENDDO
       CLOSE(UNIT=12)
       
-      IF(twosig2.NE.-1.1d0)THEN       
+      IF(msmode)THEN  
+         ! Estimate the sig for the gaussian kernel
+         twosig2 = 0.0d0
+         DO i=1,nsamples
+            norm=0.0d0
+            kernel = 100.0d0
+            DO j=1,nsamples
+               if(i==j) cycle
+               diff = vwad(:,j)-vwad(:,i)
+               norm=sum(diff**2)
+               IF(norm<kernel) kernel=norm
+               IF(kernel<twosig2) EXIT
+            ENDDO
+            IF(kernel>twosig2) twosig2=kernel
+         ENDDO
+         ! now twosig2 contain the max NN distance squared (dNN**2)
+         ! We chose sig as : sig=dNN/2
+         twosig2=twosig2/2
+         errclusters=dsqrt(twosig2/2)/10
+         
+         IF(verbose) write(*,"(A7,E12.5)") "Sigma: ", errclusters*10
+        ! CALL EXIT(0)
          Nk=0
          kernel=0.0d0
          vwadIclust=0
@@ -238,7 +242,6 @@
             meanold=vwad(:,i)
             test=1e10
             dummyi1=1 ! variable in wich store the cluster number
-            norm=0                  ! iteration
             DO WHILE(test.GT.errc)     ! convergence criteria
                meannew=0.0d0
                norm=0.0d0
@@ -420,7 +423,7 @@
             WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-seed seedrandom] "
             WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
             WRITE(*,*) "             [-gf gaussianfile] [-maxmin] [-rif vrif,wrif,dADrif]"
-            WRITE(*,*) "             [-msmode sig,errc,eclust] [-oclusters clustersfile] [-nsamples N] "
+            WRITE(*,*) "             [-msmode] [-oclusters clustersfile] [-nsamples N] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
