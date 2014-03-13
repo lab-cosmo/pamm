@@ -318,6 +318,7 @@
             clusters(k)%mean=means(:,k)
             clusters(k)%cov = 0.0d0
             DO i=1,nsamples
+               IF(MODULO(i,delta).NE.0) CYCLE 
                IF(vwadIclust(i).NE.k) CYCLE
                meannew = meannew + vwad(:,i)
                clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + vwad(1,i) * vwad(1,i)
