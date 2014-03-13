@@ -427,8 +427,8 @@
             WRITE(*,*) ""
             WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-seed seedrandom] "
             WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
-            WRITE(*,*) "             [-gf gaussianfile] [-maxmin] [-rif vrif,wrif,dADrif]"
-            WRITE(*,*) "             [-msmode] [-oclusters clustersfile] [-nsamples N] "
+            WRITE(*,*) "             [-gf gaussianfile] [-maxmin] [-rif vrif,wrif,dADrif] [-msmode] "
+            WRITE(*,*) "             [-oclusters clustersfile] [-err threshold] [-nsamples N] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
