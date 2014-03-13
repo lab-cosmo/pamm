@@ -59,6 +59,7 @@
       INTEGER delta    ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines   ! Number of lines of the input data file
       INTEGER nsamples ! Number of points used during the calculation
+      INTEGER nsamplesst ! Number of points used in the outer loop (and so in the output)
       INTEGER seed     ! seed for the random number generator
       INTEGER best     ! index of the gaussian of interest
       LOGICAL maxmin ! flag for verbosity
@@ -79,7 +80,7 @@
       INTEGER ccmd                  ! Index used to control the input parameters
       LOGICAL verbose ! flag for verbosity
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
-	  DOUBLE PRECISION vpar(5)
+	   DOUBLE PRECISION vpar(5)
 	  
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
 
@@ -95,7 +96,7 @@
       maxmin = .false. ! no maxmin
       msmode = .false. ! no msmode
       errc=1.0e-05
-      errclusters=1.0e-04
+      errclusters=-1.0d0
       Nk=-1 ! number of Gaussians in the mixture. Initialized at -1
       seed=1357
       test=111
@@ -104,6 +105,7 @@
       prif(3)= 2.9d0
       twosig2=-1.1d0
       nsamples=-1
+      nsamplesst=-1
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
@@ -180,7 +182,16 @@
             ELSEIF (ccmd == 10) THEN ! threshold to differentiate different clusters
                READ(cmdbuffer,*) errclusters
             ELSEIF (ccmd == 11) THEN
-               READ(cmdbuffer,*) nsamples
+               par_count = 1
+               commas(1) = 0
+               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
+                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
+                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vpar(par_count)
+                  par_count = par_count + 1
+               ENDDO
+               READ(cmdbuffer(commas(par_count)+1:),*) vpar(par_count)
+               nsamples=vpar(1)
+               nsamplesst=vpar(2)
             ENDIF
          ENDIF
       ENDDO
@@ -202,7 +213,7 @@
       ! Get total number of data points in the file
       Nlines = GetNlines(filename)
       ! New number of points
-      IF(nsamples.NE.-1) delta=FLOOR(FLOAT(Nlines)/nsamples)+1
+      IF(nsamples.NE.-1) delta=Nlines/nsamples
       nsamples = Nlines/delta
       counter=0
       ALLOCATE(vwad(3,nsamples),vwadIclust(nsamples))
@@ -235,15 +246,19 @@
          ! now twosig2 contain the max NN distance squared (dNN**2)
          ! We chose sig as : sig=dNN/2
          twosig2=twosig2/2
-         errclusters=errc*10
          
+         IF(errclusters.EQ.-1.0d0) errclusters=errc*10
          IF(verbose) write(*,"(A7,E12.5)") "Sigma: ", dsqrt(twosig2/2)
         ! CALL EXIT(0)
          Nk=0
          kernel=0.0d0
          vwadIclust=0
+         ! find out the new delta
+         delta=nsamples/nsamplesst
          IF(outputclusters.NE."NULL") OPEN(UNIT=11,FILE=outputclusters,STATUS='REPLACE',ACTION='WRITE')
+         counter=0
          DO i=1,nsamples ! run over all points 1
+            IF(MODULO(i,delta).NE.0) CYCLE 
             meanold=vwad(:,i)
             test=1e10
             dummyi1=1 ! variable in wich store the cluster number
@@ -269,6 +284,8 @@
                IF (dsqrt(dot_product(diff,diff)).LT.errclusters) THEN
                   goclust=.true.
                   dummyi1=k
+                  !WRITE(*,*) "Dice uguale : ",  dsqrt(dot_product(diff,diff)),"<" , errclusters
+                  !WRITE(*,*) ">> ",means(:,k)
                   EXIT
                ENDIF
             ENDDO
@@ -279,9 +296,14 @@
                IF(verbose) WRITE(*,"(A9,I3,A2,ES18.11E2,A1,ES18.11E2,A1,ES18.11E2)") " Gaussian ",Nk,": ", & 
                                                                meannew(1),  " ", meannew(2), " ", meannew(3)
             ENDIF
-            IF(outputfile.NE."NULL")THEN 
+            IF(outputclusters.NE."NULL")THEN 
                WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", vwad(1,i)," ", vwad(2,i)," ", vwad(3,i)
                WRITE(11,"(A1,I3)") " ", dummyi1
+               
+               counter=counter+1
+               IF(verbose)THEN
+                  IF(MODULO(counter,50)==0) WRITE(*,*) "@@ Evaluated" ,counter,"/",nsamplesst, " points"
+               ENDIF
             ENDIF
             vwadIclust(i)=dummyi1
          ENDDO ! close the run over all points 1
@@ -428,7 +450,7 @@
             WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-seed seedrandom] "
             WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
             WRITE(*,*) "             [-gf gaussianfile] [-maxmin] [-rif vrif,wrif,dADrif] [-msmode] "
-            WRITE(*,*) "             [-oclusters clustersfile] [-err threshold] [-nsamples N] "
+            WRITE(*,*) "             [-oclusters clustersfile] [-errc threshold] [-nsamples NTot,NStrided] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
