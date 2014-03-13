@@ -94,7 +94,8 @@
       verbose = .false. ! no verbosity
       maxmin = .false. ! no maxmin
       msmode = .false. ! no msmode
-      errc=1.0e-04
+      errc=1.0e-05
+      errclusters=1.0e-04
       Nk=-1 ! number of Gaussians in the mixture. Initialized at -1
       seed=1357
       test=111
@@ -130,6 +131,8 @@
             ccmd = 9                          ! the gaussians in the output
          ELSEIF (cmdbuffer == "-msmode") THEN    ! mean-shift mode
             msmode = .true.
+         ELSEIF (cmdbuffer == "-errc") THEN    ! threshold to differentiate different clusters
+            ccmd = 10
          ELSEIF (cmdbuffer == "-nsamples") THEN ! N samples
             ccmd = 11
          ELSEIF (cmdbuffer == "-maxmin") THEN ! initialize using maxmin routine
@@ -174,6 +177,8 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) prif(par_count)
+            ELSEIF (ccmd == 10) THEN ! threshold to differentiate different clusters
+               READ(cmdbuffer,*) errclusters
             ELSEIF (ccmd == 11) THEN
                READ(cmdbuffer,*) nsamples
             ENDIF
@@ -230,9 +235,9 @@
          ! now twosig2 contain the max NN distance squared (dNN**2)
          ! We chose sig as : sig=dNN/2
          twosig2=twosig2/2
-         errclusters=dsqrt(twosig2/2)/10
+         errclusters=errc*10
          
-         IF(verbose) write(*,"(A7,E12.5)") "Sigma: ", errclusters*10
+         IF(verbose) write(*,"(A7,E12.5)") "Sigma: ", dsqrt(twosig2/2)
         ! CALL EXIT(0)
          Nk=0
          kernel=0.0d0
