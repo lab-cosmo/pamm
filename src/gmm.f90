@@ -49,6 +49,8 @@
       !! mean-shift mode parameters
       CHARACTER*70 :: outputclusters  ! The output file containing the clusterization of the data
       DOUBLE PRECISION twosig2        ! 2*sig^2
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigmas
+      DOUBLE PRECISION :: tmpsig
       DOUBLE PRECISION errclusters    ! Similarity between means
       DOUBLE PRECISION kernel,norm
       DOUBLE PRECISION, DIMENSION(3,50) :: means
@@ -229,26 +231,48 @@
       CLOSE(UNIT=12)
       
       IF(msmode)THEN  
-         ! Estimate the sig for the gaussian kernel
-         twosig2 = 0.0d0
+         ! Estimation of the sigmas for the gaussian kernel
+         ALLOCATE(sigmas(nsamples))
+         sigmas=10000000.0d0
          DO i=1,nsamples
-            norm=0.0d0
-            kernel = 100.0d0
-            DO j=1,nsamples
-               if(i==j) cycle
+            DO j=1,i-1
                diff = vwad(:,j)-vwad(:,i)
-               norm=sum(diff**2)
-               IF(norm<kernel) kernel=norm
-               IF(kernel<twosig2) EXIT
+               tmpsig = sum(diff**2)
+               ! check if the case to upgrade sigmas
+               IF(tmpsig<sigmas(i)) sigmas(i)=tmpsig
+               IF(tmpsig<sigmas(j)) sigmas(j)=tmpsig
             ENDDO
-            IF(kernel>twosig2) twosig2=kernel
          ENDDO
+         
+         DO i=1,nsamples
+            !I want to save 2*sig^2 so choosing sig as sig=2*dNN
+            ! 2*sig^2 = 4*dNN^2
+            sigmas(i)=4.0d0*sigmas(i)
+         ENDDO
+         
+! ******************
+         ! Estimate the sig for the gaussian kernel
+         !twosig2 = 0.0d0
+         !DO i=1,nsamples
+          !  norm=0.0d0
+         !   kernel = 100.0d0
+        !    DO j=1,nsamples
+       !        if(i==j) cycle
+               !diff = vwad(:,j)-vwad(:,i)
+              ! norm=sum(diff**2)
+             !  IF(norm<kernel) kernel=norm
+            !   IF(kernel<twosig2) EXIT
+           ! ENDDO
+          !  IF(kernel>twosig2) twosig2=kernel
+         !ENDDO
          ! now twosig2 contain the max NN distance squared (dNN**2)
          ! We chose sig as : sig=dNN/2
-         twosig2=twosig2/2
+        ! twosig2=twosig2/2
+!********************
+
          
          IF(errclusters.EQ.-1.0d0) errclusters=errc*10
-         IF(verbose) write(*,"(A7,E12.5)") "Sigma: ", dsqrt(twosig2/2)
+         !IF(verbose) write(*,"(A7,E12.5)") "Sigma: ", dsqrt(twosig2/2)
         ! CALL EXIT(0)
          Nk=0
          kernel=0.0d0
@@ -265,11 +289,11 @@
             DO WHILE(test.GT.errc)     ! convergence criteria
                meannew=0.0d0
                norm=0.0d0
-               DO j=1,nsamples      ! sum over all atoms
+               DO j=1,nsamples         ! sum over all atoms
                   diff = vwad(:,j)-meanold
-                  kernel=dot_product(diff,diff)/twosig2
+                  kernel=dot_product(diff,diff)/sigmas(j)
                   IF (kernel .gt. 10) CYCLE  ! skips tiny contributions
-                  kernel=dexp( -kernel )
+                  kernel=dexp(-kernel)
                   meannew=meannew+(kernel*vwad(:,j))
                   norm=norm+kernel
                ENDDO                
@@ -348,7 +372,8 @@
          CALL ordergaussians(Nk,clusters,lpks,prif)
 
          OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
-         WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
+         !WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
+         WRITE(11,*) "# Mean-Shift output"
          WRITE(11,*) "# mean cov pk"
          WRITE(11,*) Nk
          ! Write out the gaussians
@@ -356,7 +381,7 @@
             CALL writegausstofile(11,clusters(k),lpks(k))
          ENDDO
          CLOSE(UNIT=11)
-         DEALLOCATE(vwad,vwadIclust,clusters,lpks)
+         DEALLOCATE(vwad,vwadIclust,clusters,lpks,sigmas)
          CALL EXIT(0)
       ENDIF
 
