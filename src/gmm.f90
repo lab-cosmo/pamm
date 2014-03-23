@@ -62,7 +62,7 @@
       INTEGER Nlines   ! Number of lines of the input data file
       INTEGER nsamples ! Number of points used during the calculation
       INTEGER nminmax
-      DOUBLE PRECISION :: dij, dmax, dmin
+      DOUBLE PRECISION :: dij, dmax, dmin, mstwosig2
       INTEGER imin,jmax
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dminij,weights
       INTEGER seed     ! seed for the random number generator
@@ -242,6 +242,7 @@
 
          ALLOCATE(Ymm(3,nminmax),weights(nminmax),twosig2s(nminmax))
          ALLOCATE(dminij(nsamples))
+         IF(verbose) write(*,*) "Selecting ", nminmax, " points using MINMAX" 
          ! choose randomly the first point
          Ymm(:,1)=vwad(:,int(RAND()*nminmax))
          dminij = 1d99
@@ -256,6 +257,7 @@
                ENDIF
             ENDDO
             Ymm(:,i) = vwad(:, jmax)
+            IF(verbose) write(*,*) i, dsqrt(dmax)
          ENDDO
          IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
          
@@ -271,15 +273,15 @@
             twosig2s(i)=2.0d0*dminij(i)/4.0d0
          ENDDO
          
-         DO i=1,nminmax
-           
-         ENDDO
          
          IF(verbose) WRITE(*,*) "Dmax: ", dsqrt(dmax)         
          ! define sigma with dmax :
-         twosig2 = 2.0d0*dmax/4.0d0!4.0d0
+         mstwosig2 = 2.0d0*sum(dminij(1:nminmax))/(4.0d0*nminmax)
+         IF(verbose) WRITE(*,*) "Sigma MS: ", dsqrt(0.5d0*mstwosig2)         
+         
          
          weights=0.0d0
+         IF(verbose) write(*,*) "Computing Voronoi weights of minmax references"
          ! Vornoi weights :
          DO j=1,nsamples
             dmin = dot_product( Ymm(:,1) - vwad(:,j) , Ymm(:,1) - vwad(:,j) )
@@ -291,10 +293,10 @@
                   imin=i
                ENDIF
             ENDDO
-            weights(imin)=weights(imin)+1
+            weights(imin)=weights(imin)+1            
          ENDDO
          DO i=1,nminmax
-            write(*,*) "testme ", Ymm(:,i), weights(i)         
+            write(*,*) "testme ", Ymm(:,i), weights(i), dsqrt(twosig2s(i)/2.0d0)
          ENDDO 
          
    ! IF(outputclusters.NE."NULL") CLOSE(UNIT=11)
@@ -337,10 +339,12 @@
                norm=0.0d0
                DO j=1,nminmax         ! sum over all atoms
                   diff = Ymm(:,j)-meanold
-                  kernel=dot_product(diff,diff)/twosig2s(j)
+                  kernel=dot_product(diff,diff)/(twosig2s(j)+mstwosig2)
                   IF (kernel .gt. 10) CYCLE  ! skips tiny contributions
-                  kernel=dexp(-kernel)*weights(j)
-                  meannew=meannew+(kernel*Ymm(:,j))
+                   ! this is the weight, proportional to \int dx K_mssigma(x-xbar) K_si(x-xi)
+                  kernel=dexp(-kernel)*weights(j)/dsqrt(twosig2s(j)+mstwosig2) 
+                  
+                  meannew=meannew+kernel*(twosig2s(j)*meanold+mstwosig2*Ymm(:,j))/(twosig2s(j)+mstwosig2)
                   norm=norm+kernel
                ENDDO                
                meannew=meannew/norm
