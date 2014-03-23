@@ -65,6 +65,7 @@
       DOUBLE PRECISION :: dij, dmax, dmin, mstwosig2
       INTEGER imin,jmax
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dminij,weights
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: iminij
       INTEGER seed     ! seed for the random number generator
       INTEGER best     ! index of the gaussian of interest
       LOGICAL maxmin ! flag for verbosity
@@ -241,16 +242,20 @@
          ENDIF
 
          ALLOCATE(Ymm(3,nminmax),weights(nminmax),twosig2s(nminmax))
-         ALLOCATE(dminij(nsamples))
+         ALLOCATE(dminij(nsamples), iminij(nsamples))
          IF(verbose) write(*,*) "Selecting ", nminmax, " points using MINMAX" 
          ! choose randomly the first point
-         Ymm(:,1)=vwad(:,int(RAND()*nminmax))
-         dminij = 1d99
+         Ymm(:,1)=vwad(:,int(RAND()*nsamples))
+         dminij = 1.0d99
+         iminij = 1
          DO i=2,nminmax  ! set Y
             dmax = 0.0d0
             DO j=1,nsamples
                dij = dot_product( Ymm(:,i-1) - vwad(:,j) , Ymm(:,i-1) - vwad(:,j) )
-               dminij(j) = min(dminij(j), dij)
+               if  (dminij(j)>dij) then
+                 dminij(j) = dij
+                 iminij(j) = i-1 ! also keeps track of the Voronoi attribution
+               endif
                IF (dminij(j) > dmax) THEN
                   dmax = dminij(j)
                   jmax = j
@@ -259,6 +264,15 @@
             Ymm(:,i) = vwad(:, jmax)
             IF(verbose) write(*,*) i, dsqrt(dmax)
          ENDDO
+         ! finishes Voronoi attribution
+         DO j=1,nsamples
+            dij = dot_product( Ymm(:,nminmax) - vwad(:,j) , Ymm(:,nminmax) - vwad(:,j) )
+            if  (dminij(j)>dij) then
+              dminij(j) = dij
+              iminij(j) = nminmax ! also keeps track of the Voronoi attribution
+            endif
+         ENDDO
+         
          IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
          
          dmax = 0.0d0         
@@ -270,30 +284,32 @@
               IF (dij<dminij(i)) dminij(i)=dij                            
             ENDDO
             if (dmax < dminij(i)) dmax=dminij(i)
-            twosig2s(i)=2.0d0*dminij(i)/4.0d0
+            twosig2s(i)=2.0d0*dminij(i)
          ENDDO
          
          
          IF(verbose) WRITE(*,*) "Dmax: ", dsqrt(dmax)         
          ! define sigma with dmax :
-         mstwosig2 = 2.0d0*sum(dminij(1:nminmax))/(4.0d0*nminmax)
-         IF(verbose) WRITE(*,*) "Sigma MS: ", dsqrt(0.5d0*mstwosig2)         
+         mstwosig2 = 2.0d0*sum(dminij(1:nminmax))*4.0/nminmax
          
+         IF(verbose) WRITE(*,*) "Sigma MS: ", dsqrt(0.5d0*mstwosig2)         
+         !mstwosig2 = 2.0d0*1.00**2
          
          weights=0.0d0
          IF(verbose) write(*,*) "Computing Voronoi weights of minmax references"
          ! Vornoi weights :
          DO j=1,nsamples
-            dmin = dot_product( Ymm(:,1) - vwad(:,j) , Ymm(:,1) - vwad(:,j) )
-            imin=1
-            DO i=2,nminmax
-               dij = dot_product( Ymm(:,i) - vwad(:,j) , Ymm(:,i) - vwad(:,j) )           
-               IF (dij.LT.dmin) THEN
-                  dmin=dij
-                  imin=i
-               ENDIF
-            ENDDO
-            weights(imin)=weights(imin)+1            
+!~             dmin = dot_product( Ymm(:,1) - vwad(:,j) , Ymm(:,1) - vwad(:,j) )
+!~             imin=1
+!~             DO i=2,nminmax
+!~                dij = dot_product( Ymm(:,i) - vwad(:,j) , Ymm(:,i) - vwad(:,j) )           
+!~                IF (dij.LT.dmin) THEN
+!~                   dmin=dij
+!~                   imin=i
+!~                ENDIF
+!~             ENDDO
+!~             write(*,*) "chk", imin, iminij(j)
+            weights(iminij(j))=weights(iminij(j))+1            
          ENDDO
          DO i=1,nminmax
             write(*,*) "testme ", Ymm(:,i), weights(i), dsqrt(twosig2s(i)/2.0d0)
@@ -351,7 +367,9 @@
                diff = meannew-meanold
                test=dsqrt(dot_product(diff,diff))
                meanold=meannew
+               !write(*,*) "MS iteration, ", meannew, test, norm
             ENDDO  ! close the iteration cycle    
+            
             goclust=.false.
             DO k=1,Nk
                diff = meannew-means(:,k)
@@ -370,6 +388,7 @@
                IF(verbose) WRITE(*,"(A9,I3,A2,ES18.11E2,A1,ES18.11E2,A1,ES18.11E2)") " Gaussian ",Nk,": ", & 
                                                                meannew(1),  " ", meannew(2), " ", meannew(3)
             ENDIF
+            write(*,*) "cluster identified as ", dummyi1
             IF(outputclusters.NE."NULL")THEN 
                WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", Ymm(1,i)," ", Ymm(2,i)," ", Ymm(3,i)
                WRITE(11,"(A1,I3,A1,ES15.4E4)") " ", dummyi1, " ", weights(i)
