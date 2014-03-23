@@ -49,7 +49,7 @@
       !! mean-shift mode parameters
       CHARACTER*70 :: outputclusters  ! The output file containing the clusterization of the data
       DOUBLE PRECISION twosig2        ! 2*sig^2
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigmas
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: twosig2s
       DOUBLE PRECISION :: tmpsig
       DOUBLE PRECISION errclusters    ! Similarity between means
       DOUBLE PRECISION kernel,norm
@@ -61,7 +61,10 @@
       INTEGER delta    ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines   ! Number of lines of the input data file
       INTEGER nsamples ! Number of points used during the calculation
-      INTEGER nsamplesst ! Number of points used in the outer loop (and so in the output)
+      INTEGER nminmax
+      DOUBLE PRECISION :: dij, dmax, dmin
+      INTEGER imin,jmax
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dminij,weights
       INTEGER seed     ! seed for the random number generator
       INTEGER best     ! index of the gaussian of interest
       LOGICAL maxmin ! flag for verbosity
@@ -72,7 +75,7 @@
       ! Array containing the logarithm of the fractions (Pk) for each gaussian
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: lpks
       ! Array containing the input data pints
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad , Ymm
       INTEGER, ALLOCATABLE, DIMENSION(:) :: vwadIclust
       ! Array containing the nk probalities for each of nsamples points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: pnk ! responsibility matrix
@@ -107,7 +110,7 @@
       prif(3)= 2.9d0
       twosig2=-1.1d0
       nsamples=-1
-      nsamplesst=-1
+      nminmax=-1
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
@@ -139,6 +142,8 @@
             ccmd = 10
          ELSEIF (cmdbuffer == "-nsamples") THEN ! N samples
             ccmd = 11
+         ELSEIF (cmdbuffer == "-nminmax") THEN ! N samples
+            ccmd = 13
          ELSEIF (cmdbuffer == "-maxmin") THEN ! initialize using maxmin routine
             maxmin = .true.
          ELSEIF (cmdbuffer == "-h") THEN      ! help
@@ -184,16 +189,9 @@
             ELSEIF (ccmd == 10) THEN ! threshold to differentiate different clusters
                READ(cmdbuffer,*) errclusters
             ELSEIF (ccmd == 11) THEN
-               par_count = 1
-               commas(1) = 0
-               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
-                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
-                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vpar(par_count)
-                  par_count = par_count + 1
-               ENDDO
-               READ(cmdbuffer(commas(par_count)+1:),*) vpar(par_count)
-               nsamples=vpar(1)
-               nsamplesst=vpar(2)
+               READ(cmdbuffer,*) nsamples
+            ELSEIF (ccmd == 13) THEN
+               READ(cmdbuffer,*) nminmax
             ENDIF
          ENDIF
       ENDDO
@@ -215,8 +213,12 @@
       ! Get total number of data points in the file
       Nlines = GetNlines(filename)
       ! New number of points
-      IF(nsamples.NE.-1) delta=Nlines/nsamples
+      
+      IF(nsamples.NE.-1) delta=Nlines/nsamples    
       nsamples = Nlines/delta
+      
+     IF(verbose) WRITE(*,*) "NSamples: " , nsamples
+     
       counter=0
       ALLOCATE(vwad(3,nsamples),vwadIclust(nsamples))
       OPEN(UNIT=12,FILE=filename,STATUS='OLD',ACTION='READ')
@@ -228,28 +230,75 @@
             READ(12,*) kernel
          ENDIF
       ENDDO
-      CLOSE(UNIT=12)
-      
+      CLOSE(UNIT=12)       
+                 
       IF(msmode)THEN  
-         ! Estimation of the sigmas for the gaussian kernel
-         ALLOCATE(sigmas(nsamples))
-         sigmas=10000000.0d0
-         DO i=1,nsamples
-            DO j=1,i-1
-               diff = vwad(:,j)-vwad(:,i)
-               tmpsig = sum(diff**2)
-               ! check if the case to upgrade sigmas
-               IF(tmpsig<sigmas(i)) sigmas(i)=tmpsig
-               IF(tmpsig<sigmas(j)) sigmas(j)=tmpsig
+         IF (nminmax.EQ.-1) THEN
+            WRITE(*,*) ""
+            WRITE(*,*) " Wrong usage. Insert -nminmax!"
+            CALL helpmessage
+            CALL EXIT(-1)
+         ENDIF
+
+         ALLOCATE(Ymm(3,nminmax),weights(nminmax),twosig2s(nminmax))
+         ALLOCATE(dminij(nsamples))
+         ! choose randomly the first point
+         Ymm(:,1)=vwad(:,int(RAND()*nminmax))
+         dminij = 1d99
+         DO i=2,nminmax  ! set Y
+            dmax = 0.0d0
+            DO j=1,nsamples
+               dij = dot_product( Ymm(:,i-1) - vwad(:,j) , Ymm(:,i-1) - vwad(:,j) )
+               dminij(j) = min(dminij(j), dij)
+               IF (dminij(j) > dmax) THEN
+                  dmax = dminij(j)
+                  jmax = j
+               ENDIF
             ENDDO
+            Ymm(:,i) = vwad(:, jmax)
+         ENDDO
+         IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
+         
+         dmax = 0.0d0         
+         DO i=1,nminmax  ! set Y
+            dminij(i) = 1.0d10
+            DO j=1,nminmax  ! set Y
+              if (i==j) cycle            
+              dij = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
+              IF (dij<dminij(i)) dminij(i)=dij                            
+            ENDDO
+            if (dmax < dminij(i)) dmax=dminij(i)
+            twosig2s(i)=2.0d0*dminij(i)/4.0d0
          ENDDO
          
-         DO i=1,nsamples
-            !I want to save 2*sig^2 so choosing sig as sig=2*dNN
-            ! 2*sig^2 = 4*dNN^2
-            sigmas(i)=4.0d0*sigmas(i)
+         DO i=1,nminmax
+           
          ENDDO
          
+         IF(verbose) WRITE(*,*) "Dmax: ", dsqrt(dmax)         
+         ! define sigma with dmax :
+         twosig2 = 2.0d0*dmax/4.0d0!4.0d0
+         
+         weights=0.0d0
+         ! Vornoi weights :
+         DO j=1,nsamples
+            dmin = dot_product( Ymm(:,1) - vwad(:,j) , Ymm(:,1) - vwad(:,j) )
+            imin=1
+            DO i=2,nminmax
+               dij = dot_product( Ymm(:,i) - vwad(:,j) , Ymm(:,i) - vwad(:,j) )           
+               IF (dij.LT.dmin) THEN
+                  dmin=dij
+                  imin=i
+               ENDIF
+            ENDDO
+            weights(imin)=weights(imin)+1
+         ENDDO
+         DO i=1,nminmax
+            write(*,*) "testme ", Ymm(:,i), weights(i)         
+         ENDDO 
+         
+   ! IF(outputclusters.NE."NULL") CLOSE(UNIT=11)
+   ! CALL EXIT(0)
 ! ******************
          ! Estimate the sig for the gaussian kernel
          !twosig2 = 0.0d0
@@ -277,24 +326,21 @@
          Nk=0
          kernel=0.0d0
          vwadIclust=0
-         ! find out the new delta
-         delta=nsamples/nsamplesst
          IF(outputclusters.NE."NULL") OPEN(UNIT=11,FILE=outputclusters,STATUS='REPLACE',ACTION='WRITE')
          counter=0
-         DO i=1,nsamples ! run over all points 1
-            IF(MODULO(i,delta).NE.0) CYCLE 
-            meanold=vwad(:,i)
+         DO i=1,nminmax ! run over all points 1
+            meanold=Ymm(:,i)
             test=1e10
             dummyi1=1 ! variable in wich store the cluster number
             DO WHILE(test.GT.errc)     ! convergence criteria
                meannew=0.0d0
                norm=0.0d0
-               DO j=1,nsamples         ! sum over all atoms
-                  diff = vwad(:,j)-meanold
-                  kernel=dot_product(diff,diff)/sigmas(j)
+               DO j=1,nminmax         ! sum over all atoms
+                  diff = Ymm(:,j)-meanold
+                  kernel=dot_product(diff,diff)/twosig2s(j)
                   IF (kernel .gt. 10) CYCLE  ! skips tiny contributions
-                  kernel=dexp(-kernel)
-                  meannew=meannew+(kernel*vwad(:,j))
+                  kernel=dexp(-kernel)*weights(j)
+                  meannew=meannew+(kernel*Ymm(:,j))
                   norm=norm+kernel
                ENDDO                
                meannew=meannew/norm
@@ -321,12 +367,12 @@
                                                                meannew(1),  " ", meannew(2), " ", meannew(3)
             ENDIF
             IF(outputclusters.NE."NULL")THEN 
-               WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", vwad(1,i)," ", vwad(2,i)," ", vwad(3,i)
-               WRITE(11,"(A1,I3)") " ", dummyi1
+               WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", Ymm(1,i)," ", Ymm(2,i)," ", Ymm(3,i)
+               WRITE(11,"(A1,I3,A1,ES15.4E4)") " ", dummyi1, " ", weights(i)
                
                counter=counter+1
                IF(verbose)THEN
-                  IF(MODULO(counter,50)==0) WRITE(*,*) "@@ Evaluated" ,counter,"/",nsamplesst, " points"
+                  IF(MODULO(counter,3000)==0) WRITE(*,*) "@@ Evaluated" ,counter,"/",nminmax, " points"
                ENDIF
             ENDIF
             vwadIclust(i)=dummyi1
@@ -341,17 +387,16 @@
             npc=0
             clusters(k)%mean=means(:,k)
             clusters(k)%cov = 0.0d0
-            DO i=1,nsamples
-               IF(MODULO(i,delta).NE.0) CYCLE 
+            DO i=1,nminmax
                IF(vwadIclust(i).NE.k) CYCLE
-               meannew = meannew + vwad(:,i)
-               clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + vwad(1,i) * vwad(1,i)
-               clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + vwad(1,i) * vwad(2,i)
-               clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + vwad(1,i) * vwad(3,i)
-               clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + vwad(2,i) * vwad(2,i)
-               clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + vwad(2,i) * vwad(3,i)
-               clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + vwad(3,i) * vwad(3,i)
-               npc=npc+1
+               meannew = meannew + weights(i)*Ymm(:,i)
+               clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + weights(i)*Ymm(1,i) * Ymm(1,i)
+               clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + weights(i)*Ymm(1,i) * Ymm(2,i)
+               clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + weights(i)*Ymm(1,i) * Ymm(3,i)
+               clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + weights(i)*Ymm(2,i) * Ymm(2,i)
+               clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + weights(i)*Ymm(2,i) * Ymm(3,i)
+               clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + weights(i)*Ymm(3,i) * Ymm(3,i)
+               npc=npc+weights(i)
             ENDDO
             meannew = meannew/npc
             clusters(k)%cov = clusters(k)%cov /npc
@@ -381,7 +426,7 @@
             CALL writegausstofile(11,clusters(k),lpks(k))
          ENDDO
          CLOSE(UNIT=11)
-         DEALLOCATE(vwad,vwadIclust,clusters,lpks,sigmas)
+         DEALLOCATE(vwad,vwadIclust,clusters,lpks,Ymm,dminij,twosig2s)
          CALL EXIT(0)
       ENDIF
 
@@ -476,7 +521,8 @@
             WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-seed seedrandom] "
             WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
             WRITE(*,*) "             [-gf gaussianfile] [-maxmin] [-rif vrif,wrif,dADrif] [-msmode] "
-            WRITE(*,*) "             [-oclusters clustersfile] [-errc threshold] [-nsamples NTot,NStrided] "
+            WRITE(*,*) "             [-oclusters clustersfile] [-errc threshold] [-nsamples NTot] "
+            WRITE(*,*) "             [-nminmax Nminmax]"
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 

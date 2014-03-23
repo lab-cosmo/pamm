@@ -8,7 +8,7 @@ gmx=gmm
 err=1e-5       # relative change of log-likelihood to bail out from GM optimization
 smooth=1e-5    # regularization of the GM covariance matrices
 seed=456738    # base of random number seeds
-maxtry=250     # number of attempts
+#maxtry=250     # number of attempts
 v=-1.1
 w=2.9
 dAD=2.9
@@ -17,6 +17,7 @@ dAD=2.9
 read -p "Input file name ( nu mu dad format): " fin
 read -p "Stride when reading input data: " ev
 read -p "Number of Gaussian clusters: " gn
+read -p "Number of random attempts: " maxtry
 read -p "Output files prefix: " fo
 ##############
 
@@ -34,6 +35,7 @@ for ((j=1; j<=$maxtry; j++)); do
   fi
 done
 ((seed+=1121))
+echo "Maxmin trial."
 $gmx -i $fin -n $gn -seed $seed -o $fo.maxmin -maxmin -ev $ev -err $err -s $smooth -rif $v,$w,$dAD
 loglike=$( head -1 $fo.maxmin | awk '{print $5}' )
 echo "    loglike/nsample: $loglike"
@@ -43,8 +45,8 @@ if [ $( echo " $loglike > $logbest " | bc ) -eq 1 ]; then
   cp $fo.maxmin $fo.best
 fi
 
-((err/=10000))
-$gmx -i $fin -n $gn -gf $fo.best -o $fo.init -ev $ev -err $err -s $smooth -rif $v,$w,$dAD
+echo "Redo startimg from the best trial, but using error."
+$gmx -i $fin -n $gn -gf $fo.best -o $fo.init -ev $ev -err 0.0000000001 -s $smooth -rif $v,$w,$dAD
 loglike=$( head -1 $fo.init | awk '{print $5}' )
 echo "    loglike/nsample: $loglike"
 if [ $( echo " $loglike > $logbest " | bc ) -eq 1 ]; then
