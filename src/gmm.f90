@@ -283,14 +283,19 @@
             twosig2s(iminij(j))=twosig2s(iminij(j))+ &
               dot_product(vwad(:,j)-Ymm(:,iminij(j)),vwad(:,j)-Ymm(:,iminij(j)))
          ENDDO
+         
+         mstwosig2=sum(twosig2s)/nsamples
+         
          DO j=1,nminmax
             if (weights(j)==1) then
-              weights(j)=0
-              twosig2s(j)=1
+              twosig2s(j)=mstwosig2
             else
-              twosig2s(j)=twosig2s(j)*4.0*2.0/(weights(j)-1)            
+              twosig2s(j)=twosig2s(j)/(weights(j)-1)            
             endif
+            ! applies heuristic to set adaptive variances
+            twosig2s(j)=2.0*twosig2s(j)/(weights(j) *0.02**2 )**(2.0/3.0d0)
          ENDDO         
+         
 !         IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
          
 !~          dmax = 0.0d0         
@@ -354,6 +359,7 @@
             pgrad = 0.0d0               
             norm = 0.0d0
             pnew = 0.0d0  
+            dstep = 0.0 
             DO j=1,nminmax         ! sum over all atoms
                diff = Ymm(:,j)-meanold
                kernel=dot_product(diff,diff)/(twosig2s(j))                  
@@ -363,15 +369,17 @@
                pgrad = pgrad + diff
                pnew = pnew + kernel
                norm = norm+weights(j)
+               dstep = dstep+weights(j)*twosig2s(j)
             enddo
             pold = pnew/norm
-            pgrad = pgrad/norm
-
+            pgrad = pgrad/norm            
+            dstep = dsqrt(dstep/norm)
             
             pnew = 0.0d0
             test=1e10
             dummyi1=1 ! variable in wich store the cluster number
-            dstep = dsqrt(mstwosig2)                        
+            
+            write(*,*) Ymm(:,i), pold               
             DO WHILE(test.GT.errc)
                !write(*,*) meanold, pold, dsqrt(dot_product(pgrad,pgrad)), dstep
                meannew = meanold + dstep*pgrad/dsqrt(dot_product(pgrad,pgrad))
@@ -402,8 +410,8 @@
                endif
                !write(*,*) "MS iteration, ", meannew, test, norm
             ENDDO  ! close the iteration cycle      
-            write(*,*) Ymm(:,i)
-            write(*,*) meannew             
+            
+            write(*,*) meannew, pnew             
                
 !~             DO WHILE(test.GT.errc)     ! convergence criteria
 !~                meannew=0.0d0
