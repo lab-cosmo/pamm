@@ -55,6 +55,8 @@
       DOUBLE PRECISION kernel,norm
       DOUBLE PRECISION, DIMENSION(3,50) :: means
       DOUBLE PRECISION, DIMENSION(3) :: meanold,meannew,diff
+      DOUBLE PRECISION :: pgrad(3), dstep, pold, pnew, mstepback
+      
       LOGICAL goclust
       INTEGER npc
       INTEGER Nk       ! Number of gaussians in the mixture
@@ -64,7 +66,7 @@
       INTEGER nminmax
       DOUBLE PRECISION :: dij, dmax, dmin, mstwosig2
       INTEGER imin,jmax
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dminij,weights
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dminij, weights
       INTEGER, ALLOCATABLE, DIMENSION(:) :: iminij
       INTEGER seed     ! seed for the random number generator
       INTEGER best     ! index of the gaussian of interest
@@ -273,6 +275,12 @@
             endif
          ENDDO
          
+         weights=0.0d0
+         ! Vornoi weights :
+         DO j=1,nsamples
+            weights(iminij(j))=weights(iminij(j))+1            
+         ENDDO
+                  
          IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
          
          dmax = 0.0d0         
@@ -284,33 +292,18 @@
               IF (dij<dminij(i)) dminij(i)=dij                            
             ENDDO
             if (dmax < dminij(i)) dmax=dminij(i)
-            twosig2s(i)=2.0d0*dminij(i)
+            twosig2s(i)=2.0d0*dminij(i)*(4.0/5.0/weights(i))**(2.0d0/7.0d0)
          ENDDO
          
          
          IF(verbose) WRITE(*,*) "Dmax: ", dsqrt(dmax)         
          ! define sigma with dmax :
-         mstwosig2 = 2.0d0*sum(dminij(1:nminmax))*4.0/nminmax
+         mstwosig2 = 2.0d0*sum(dminij(1:nminmax))/nminmax/2.0d0
+         twosig2s = twosig2s + mstwosig2
          
          IF(verbose) WRITE(*,*) "Sigma MS: ", dsqrt(0.5d0*mstwosig2)         
          !mstwosig2 = 2.0d0*1.00**2
          
-         weights=0.0d0
-         IF(verbose) write(*,*) "Computing Voronoi weights of minmax references"
-         ! Vornoi weights :
-         DO j=1,nsamples
-!~             dmin = dot_product( Ymm(:,1) - vwad(:,j) , Ymm(:,1) - vwad(:,j) )
-!~             imin=1
-!~             DO i=2,nminmax
-!~                dij = dot_product( Ymm(:,i) - vwad(:,j) , Ymm(:,i) - vwad(:,j) )           
-!~                IF (dij.LT.dmin) THEN
-!~                   dmin=dij
-!~                   imin=i
-!~                ENDIF
-!~             ENDDO
-!~             write(*,*) "chk", imin, iminij(j)
-            weights(iminij(j))=weights(iminij(j))+1            
-         ENDDO
          DO i=1,nminmax
             write(*,*) "testme ", Ymm(:,i), weights(i), dsqrt(twosig2s(i)/2.0d0)
          ENDDO 
@@ -348,27 +341,79 @@
          counter=0
          DO i=1,nminmax ! run over all points 1
             meanold=Ymm(:,i)
+            pgrad = 0.0d0               
+            norm = 0.0d0
+            pnew = 0.0d0  
+            DO j=1,nminmax         ! sum over all atoms
+               diff = Ymm(:,j)-meanold
+               kernel=dot_product(diff,diff)/(twosig2s(j))                  
+               diff = diff * 2.0 / twosig2s(j)
+               kernel=dexp(-kernel)*weights(j)/dsqrt(twosig2s(j))
+               diff = diff*kernel
+               pgrad = pgrad + diff
+               pnew = pnew + kernel
+               norm = norm+weights(j)
+            enddo
+            pold = pnew/norm
+            pgrad = pgrad/norm
+
+            
+            pnew = 0.0d0
             test=1e10
             dummyi1=1 ! variable in wich store the cluster number
-            DO WHILE(test.GT.errc)     ! convergence criteria
-               meannew=0.0d0
-               norm=0.0d0
+            dstep = dsqrt(mstwosig2)                        
+            DO WHILE(test.GT.errc)
+               !write(*,*) meanold, pold, dsqrt(dot_product(pgrad,pgrad)), dstep
+               meannew = meanold + dstep*pgrad/dsqrt(dot_product(pgrad,pgrad))
+               ! norm is computed once and for all
+               pgrad = 0.0d0               
+               pnew = 0.0d0               
                DO j=1,nminmax         ! sum over all atoms
-                  diff = Ymm(:,j)-meanold
-                  kernel=dot_product(diff,diff)/(twosig2s(j)+mstwosig2)
-                  IF (kernel .gt. 10) CYCLE  ! skips tiny contributions
-                   ! this is the weight, proportional to \int dx K_mssigma(x-xbar) K_si(x-xi)
-                  kernel=dexp(-kernel)*weights(j)/dsqrt(twosig2s(j)+mstwosig2) 
+                  diff = Ymm(:,j)-meannew
+                  kernel=dot_product(diff,diff)/(twosig2s(j))                  
                   
-                  meannew=meannew+kernel*(twosig2s(j)*meanold+mstwosig2*Ymm(:,j))/(twosig2s(j)+mstwosig2)
-                  norm=norm+kernel
-               ENDDO                
-               meannew=meannew/norm
-               diff = meannew-meanold
-               test=dsqrt(dot_product(diff,diff))
-               meanold=meannew
+                  if (kernel .gt. 20) cycle
+                  kernel=dexp(-kernel)*weights(j)/dsqrt(twosig2s(j))                                    
+                  pgrad = pgrad + diff * 2.0 * kernel / twosig2s(j) 
+                  pnew = pnew + kernel                  
+               enddo
+               pgrad = pgrad/norm
+               pnew = pnew/norm
+
+               if (pnew<pold) then
+                  dstep=dstep*0.5
+                  test=1e10                  
+               else                     
+                  diff = meannew-meanold
+                  test=dsqrt(dot_product(diff,diff))
+                  meanold=meannew
+                  pold=pnew
+                  dstep = dstep*1.1
+               endif
                !write(*,*) "MS iteration, ", meannew, test, norm
-            ENDDO  ! close the iteration cycle    
+            ENDDO  ! close the iteration cycle      
+            write(*,*) Ymm(:,i)
+            write(*,*) meannew             
+               
+!~             DO WHILE(test.GT.errc)     ! convergence criteria
+!~                meannew=0.0d0
+!~                norm=0.0d0
+!~                DO j=1,nminmax         ! sum over all atoms
+!~                   diff = Ymm(:,j)-meanold
+!~                   kernel=dot_product(diff,diff)/(twosig2s(j)+mstwosig2)
+!~                   IF (kernel .gt. 10) CYCLE  ! skips tiny contributions
+!~                    ! this is the weight, proportional to \int dx K_mssigma(x-xbar) K_si(x-xi)
+!~                   kernel=dexp(-kernel)*weights(j)/dsqrt(twosig2s(j)+mstwosig2) 
+!~                   
+!~                   meannew=meannew+kernel*(twosig2s(j)*meanold+mstwosig2*Ymm(:,j))/(twosig2s(j)+mstwosig2)
+!~                   norm=norm+kernel
+!~                ENDDO                
+!~                meannew=meannew/norm
+!~                diff = meannew-meanold
+!~                test=dsqrt(dot_product(diff,diff))
+!~                meanold=meannew
+!~                !write(*,*) "MS iteration, ", meannew, test, norm
+!~             ENDDO  ! close the iteration cycle    
             
             goclust=.false.
             DO k=1,Nk
