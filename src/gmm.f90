@@ -88,7 +88,8 @@
       INTEGER ccmd                  ! Index used to control the input parameters
       LOGICAL verbose ! flag for verbosity
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
-	   DOUBLE PRECISION vpar(5)
+	  DOUBLE PRECISION vpar(5)
+	  DOUBLE PRECISION dummyr1,re
 	  
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
 
@@ -114,6 +115,7 @@
       twosig2=-1.1d0
       nsamples=-1
       nminmax=-1
+      re=0.01
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
@@ -147,6 +149,8 @@
             ccmd = 11
          ELSEIF (cmdbuffer == "-nminmax") THEN ! N samples
             ccmd = 13
+         ELSEIF (cmdbuffer == "-rele") THEN ! N samples
+            ccmd = 14
          ELSEIF (cmdbuffer == "-maxmin") THEN ! initialize using maxmin routine
             maxmin = .true.
          ELSEIF (cmdbuffer == "-h") THEN      ! help
@@ -195,6 +199,8 @@
                READ(cmdbuffer,*) nsamples
             ELSEIF (ccmd == 13) THEN
                READ(cmdbuffer,*) nminmax
+            ELSEIF (ccmd == 14) THEN ! stop criteria
+               READ(cmdbuffer,*) re
             ENDIF
          ENDIF
       ENDDO
@@ -284,8 +290,19 @@
               dot_product(vwad(:,j)-Ymm(:,iminij(j)),vwad(:,j)-Ymm(:,iminij(j)))
          ENDDO
          
-         mstwosig2=sum(twosig2s)/nsamples
-         
+         !mstwosig2=sum(twosig2s)/nsamples
+
+         dmax = 0.0d0         
+         DO i=1,nminmax  ! set Y
+            dminij(i) = 1.0d10
+            DO j=1,nminmax  ! set Y
+              if (i==j) cycle            
+              dij = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
+              IF (dij<dminij(i)) dminij(i)=dij                            
+            ENDDO
+            if (dmax < dminij(i)) dmax=dminij(i)
+         ENDDO
+
          DO j=1,nminmax
             !if (weights(j)==1) then
             !  twosig2s(j)=mstwosig2
@@ -294,7 +311,10 @@
             !endif
             ! applies heuristic to set adaptive variances
             !twosig2s(j)=2.0*twosig2s(j)/(weights(j) *0.02 **2 )**(2.0/3.0d0)
-            twosig2s(j)=2.0*mstwosig2/(weights(j) *0.02 **2 )**(2.0/3.0d0)
+            !!
+            !twosig2s(j)=2.0*mstwosig2/(weights(j) *0.02 **2 )**(2.0/3.0d0)
+            dummyr1=(weights(j) *re **2 )**(2.0/3.0d0)
+            twosig2s(j)=2.0* (dminij(j)*MAX(1.0d0,dummyr1)) / dummyr1
          ENDDO         
          
 !         IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
@@ -609,7 +629,7 @@
             WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
             WRITE(*,*) "             [-gf gaussianfile] [-maxmin] [-rif vrif,wrif,dADrif] [-msmode] "
             WRITE(*,*) "             [-oclusters clustersfile] [-errc threshold] [-nsamples NTot] "
-            WRITE(*,*) "             [-nminmax Nminmax]"
+            WRITE(*,*) "             [-nminmax Nminmax] [-rele err] "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
