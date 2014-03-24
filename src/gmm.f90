@@ -276,33 +276,43 @@
          ENDDO
          
          weights=0.0d0
-         ! Vornoi weights :
+         twosig2s=0.0d0
+         ! Voronoi weights and variances
          DO j=1,nsamples
             weights(iminij(j))=weights(iminij(j))+1            
+            twosig2s(iminij(j))=twosig2s(iminij(j))+ &
+              dot_product(vwad(:,j)-Ymm(:,iminij(j)),vwad(:,j)-Ymm(:,iminij(j)))
          ENDDO
-                  
-         IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
+         DO j=1,nminmax
+            if (weights(j)==1) then
+              weights(j)=0
+              twosig2s(j)=1
+            else
+              twosig2s(j)=twosig2s(j)*4.0*2.0/(weights(j)-1)            
+            endif
+         ENDDO         
+!         IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
          
-         dmax = 0.0d0         
-         DO i=1,nminmax  ! set Y
-            dminij(i) = 1.0d10
-            DO j=1,nminmax  ! set Y
-              if (i==j) cycle            
-              dij = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
-              IF (dij<dminij(i)) dminij(i)=dij                            
-            ENDDO
-            if (dmax < dminij(i)) dmax=dminij(i)
-            twosig2s(i)=2.0d0*dminij(i)*(4.0/5.0/weights(i))**(2.0d0/7.0d0)
-         ENDDO
-         
-         
-         IF(verbose) WRITE(*,*) "Dmax: ", dsqrt(dmax)         
-         ! define sigma with dmax :
-         mstwosig2 = 2.0d0*sum(dminij(1:nminmax))/nminmax/2.0d0
-         twosig2s = twosig2s + mstwosig2
-         
-         IF(verbose) WRITE(*,*) "Sigma MS: ", dsqrt(0.5d0*mstwosig2)         
-         !mstwosig2 = 2.0d0*1.00**2
+!~          dmax = 0.0d0         
+!~          DO i=1,nminmax  ! set Y
+!~             dminij(i) = 1.0d10
+!~             DO j=1,nminmax  ! set Y
+!~               if (i==j) cycle            
+!~               dij = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
+!~               IF (dij<dminij(i)) dminij(i)=dij                            
+!~             ENDDO
+!~             if (dmax < dminij(i)) dmax=dminij(i)
+!~             twosig2s(i)=2.0d0*dminij(i)*(4.0/5.0/weights(i))**(2.0d0/7.0d0)
+!~          ENDDO
+!~          
+!~          
+!~          IF(verbose) WRITE(*,*) "Dmax: ", dsqrt(dmax)         
+!~          ! define sigma with dmax :
+!~          mstwosig2 = 2.0d0*sum(dminij(1:nminmax))/nminmax/2.0d0
+!~          twosig2s = twosig2s + mstwosig2
+!~          
+!~          IF(verbose) WRITE(*,*) "Sigma MS: ", dsqrt(0.5d0*mstwosig2)         
+!~          !mstwosig2 = 2.0d0*1.00**2
          
          DO i=1,nminmax
             write(*,*) "testme ", Ymm(:,i), weights(i), dsqrt(twosig2s(i)/2.0d0)
