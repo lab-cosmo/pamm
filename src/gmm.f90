@@ -287,13 +287,14 @@
          mstwosig2=sum(twosig2s)/nsamples
          
          DO j=1,nminmax
-            if (weights(j)==1) then
-              twosig2s(j)=mstwosig2
-            else
-              twosig2s(j)=twosig2s(j)/(weights(j)-1)            
-            endif
+            !if (weights(j)==1) then
+            !  twosig2s(j)=mstwosig2
+            !else
+            !  twosig2s(j)=twosig2s(j)/(weights(j)-1)            
+            !endif
             ! applies heuristic to set adaptive variances
-            twosig2s(j)=2.0*twosig2s(j)/(weights(j) *0.02**2 )**(2.0/3.0d0)
+            !twosig2s(j)=2.0*twosig2s(j)/(weights(j) *0.02 **2 )**(2.0/3.0d0)
+            twosig2s(j)=2.0*mstwosig2/(weights(j) *0.02 **2 )**(2.0/3.0d0)
          ENDDO         
          
 !         IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
