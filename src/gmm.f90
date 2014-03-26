@@ -55,7 +55,7 @@
       DOUBLE PRECISION kernel,norm
       DOUBLE PRECISION, DIMENSION(3,50) :: means
       DOUBLE PRECISION, DIMENSION(3) :: meanold,meannew,diff
-      DOUBLE PRECISION :: pgrad(3), dstep, pold, pnew, mstepback
+      DOUBLE PRECISION :: pgrad(3), dstep, pold, pnew, meanv
       
       LOGICAL goclust
       INTEGER npc
@@ -285,14 +285,13 @@
          twosig2s=0.0d0
          ! Voronoi weights and variances
          DO j=1,nsamples
-            weights(iminij(j))=weights(iminij(j))+1            
-            twosig2s(iminij(j))=twosig2s(iminij(j))+ &
-              dot_product(vwad(:,j)-Ymm(:,iminij(j)),vwad(:,j)-Ymm(:,iminij(j)))
+            weights(iminij(j))=weights(iminij(j))+1 
          ENDDO
          
          !mstwosig2=sum(twosig2s)/nsamples
 
-         dmax = 0.0d0         
+         dmax = 0.0d0 
+         meanv = 0.0d0
          DO i=1,nminmax  ! set Y
             dminij(i) = 1.0d10
             DO j=1,nminmax  ! set Y
@@ -301,7 +300,9 @@
               IF (dij<dminij(i)) dminij(i)=dij                            
             ENDDO
             if (dmax < dminij(i)) dmax=dminij(i)
+            meanv = meanv + dminij(i)**(3.0d0/2.0d0)
          ENDDO
+         meanv = meanv/nminmax
 
          DO j=1,nminmax
             !if (weights(j)==1) then
@@ -313,8 +314,8 @@
             !twosig2s(j)=2.0*twosig2s(j)/(weights(j) *0.02 **2 )**(2.0/3.0d0)
             !!
             !twosig2s(j)=2.0*mstwosig2/(weights(j) *0.02 **2 )**(2.0/3.0d0)
-            dummyr1=(weights(j) *re **2 )**(2.0/3.0d0)
-            twosig2s(j)=2.0* (dminij(j)*MAX(1.0d0,dummyr1)) / dummyr1
+            dummyr1=(meanv/(weights(j) *re**2 ))**(1.0/3.0d0)
+            twosig2s(j)=2.0* MAX(0.5d0*dsqrt(dminij(j)),dummyr1)**2
          ENDDO         
          
 !         IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
@@ -341,7 +342,7 @@
 !~          !mstwosig2 = 2.0d0*1.00**2
          
          DO i=1,nminmax
-            write(*,*) "testme ", Ymm(:,i), weights(i), dsqrt(twosig2s(i)/2.0d0)
+            write(*,*) "testme ", Ymm(:,i), weights(i), dsqrt(twosig2s(i)/2.0d0), 0.5*dsqrt(dminij(i))
          ENDDO 
          
    ! IF(outputclusters.NE."NULL") CLOSE(UNIT=11)
