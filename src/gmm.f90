@@ -35,43 +35,28 @@
          USE gaussmix
       IMPLICIT NONE
 
-      CHARACTER*70 :: filename     ! The input data file containing v,w and rad
-      CHARACTER*70 :: gaussianfile ! The input file containing the initial gaussians
-      CHARACTER*70 :: outputfile   ! The output file containing the calculated gaussians
-      DOUBLE PRECISION smooth      ! Smoothing Factor for the covariance matrix
-      DOUBLE PRECISION errc        ! Convergence criterias
-      DOUBLE PRECISION test        ! Test to check the convergence of the likelihood
-      DOUBLE PRECISION loglike     ! Actual logLikelihood
-      DOUBLE PRECISION oldloglike  ! Previous logLikelihood
-      DOUBLE PRECISION bic         ! Bayesian Inference criteria
-      DOUBLE PRECISION aic         ! Akaike Inference criteria
-      DOUBLE PRECISION prif(3)     ! Reference point needed to find out the important gaussian
-      !! mean-shift mode parameters
-      CHARACTER*70 :: outputclusters  ! The output file containing the clusterization of the data
-      DOUBLE PRECISION twosig2        ! 2*sig^2
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: twosig2s
-      DOUBLE PRECISION :: tmpsig
-      DOUBLE PRECISION errclusters    ! Similarity between means
-      DOUBLE PRECISION kernel,norm
-      DOUBLE PRECISION, DIMENSION(3,50) :: means
-      DOUBLE PRECISION, DIMENSION(3) :: meanold,meannew,diff
-      DOUBLE PRECISION :: pgrad(3), dstep, pold, pnew, meanv
+      CHARACTER*256 :: filename                               ! The input data file containing v,w and rad
+      CHARACTER*256 :: outputfile                             ! The output file containing the calculated gaussians
+      DOUBLE PRECISION :: prif(3)                             ! Reference point needed to find out the important gaussian
+      DOUBLE PRECISION twosig2                                ! 2*sig^2
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distij ! similarity matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: means               ! temporary vector to stor the centers of the gaussians
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: meansidx          ! vector to store the points corrispondig the gaussians centers
+      DOUBLE PRECISION, DIMENSION(3) :: diff                  ! temp vector used to store distances
       
-      LOGICAL goclust
-      INTEGER npc
-      INTEGER Nk       ! Number of gaussians in the mixture
-      INTEGER delta    ! Number of data to skeep (for a faster calculation)
-      INTEGER Nlines   ! Number of lines of the input data file
-      INTEGER nsamples ! Number of points used during the calculation
-      INTEGER nminmax
-      DOUBLE PRECISION :: dij, dmax, dmin, mstwosig2
+      LOGICAL goclust                                         ! variable used to chek if a cluster i new or not during quick shift
+      INTEGER npc                                             ! number of point in a cluster. Used to define the gaussians covariances
+      INTEGER Nk                                              ! Number of gaussians in the mixture
+      INTEGER delta                                           ! Number of data to skeep (for a faster calculation)
+      INTEGER Nlines                                          ! Number of lines of the input data file
+      INTEGER nsamples                                        ! Total number points
+      INTEGER nminmax                                         ! Number of samples extracted using minmax
+      DOUBLE PRECISION :: dij, dmax, dmin
       INTEGER imin,jmax
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dminij, weights
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dminij, weights, probnmm
       INTEGER, ALLOCATABLE, DIMENSION(:) :: iminij
       INTEGER seed     ! seed for the random number generator
-      INTEGER best     ! index of the gaussian of interest
-      LOGICAL maxmin ! flag for verbosity
-      LOGICAL msmode ! flag for verbosity
+      LOGICAL kernelmode
 
       ! Array of Gaussians containing the gaussians parameters
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
@@ -79,7 +64,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: lpks
       ! Array containing the input data pints
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad , Ymm
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: vwadIclust
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: YmmIclust
       ! Array containing the nk probalities for each of nsamples points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: pnk ! responsibility matrix
 
@@ -89,33 +74,29 @@
       LOGICAL verbose ! flag for verbosity
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
 	  DOUBLE PRECISION vpar(5)
-	  DOUBLE PRECISION dummyr1,re
+	  DOUBLE PRECISION dummyr1,tau,meannew(3)
+	  LOGICAL testtree
+	  INTEGER idxtemp,idx
 	  
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
-
+      
+      
       !!!!!!! Iniatialze the parameters !!!!!!!
       filename="NULL"
-      gaussianfile="NULL"
-      outputclusters="NULL"
-      outputfile="gaussiansout.dat"
+      outputfile="out"
       ccmd=0 ! no parameters specified
       delta=1 ! read every point
-      smooth=0.0d0 ! no smoothing by default
-      verbose = .false. ! no verbosity
-      maxmin = .false. ! no maxmin
-      msmode = .false. ! no msmode
-      errc=1.0e-05
-      errclusters=-1.0d0
-      Nk=-1 ! number of Gaussians in the mixture. Initialized at -1
-      seed=1357
-      test=111
-      prif(1)=-1.0d0
+      Nk=0 ! number of gaussians
+      nsamples=-1         ! total number of points
+      nminmax=-1          ! number of samples extracted with minmax
+      seed=1357           ! seed for the random number generator
+      tau=0.7d0           ! quick shift cut-off
+      prif(1)=-1.0d0      ! point from wich order the gaussians in the output
       prif(2)= 2.9d0
       prif(3)= 2.9d0
-      twosig2=-1.1d0
-      nsamples=-1
-      nminmax=-1
-      re=0.01
+      kernelmode=.false.  ! no gaussian kernel during the density estimation
+      twosig2=-1.1d0      ! 2*sig^2 (for the gaussian kernel)
+      verbose = .false.   ! no verbosity
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
@@ -123,43 +104,29 @@
          CALL GETARG(i, cmdbuffer)
          IF (cmdbuffer == "-i") THEN          ! data file (v,w,rad)
             ccmd = 1
-         ELSEIF (cmdbuffer == "-gf") THEN     ! file containing intial gaussian parmeters
-            ccmd = 2
          ELSEIF (cmdbuffer == "-o") THEN      ! output file
-            ccmd = 3
-         ELSEIF (cmdbuffer == "-oclusters") THEN      ! output file clusters
-            ccmd = 12
+            ccmd = 2
          ELSEIF (cmdbuffer == "-ev") THEN     ! delta
-            ccmd = 4
-         ELSEIF (cmdbuffer == "-s") THEN      ! smoothing factor
-            ccmd = 5
-         ELSEIF (cmdbuffer == "-n") THEN      ! Nk
-            ccmd = 6
-         ELSEIF (cmdbuffer == "-err") THEN    ! convergence error in the likelihood
-            ccmd = 7
+            ccmd = 3
          ELSEIF (cmdbuffer == "-seed") THEN   ! seed for the random number genarator
-            ccmd = 8
+            ccmd = 4
+         ELSEIF (cmdbuffer == "-tau") THEN    ! threshold to differentiate different clusters
+            ccmd = 5
+         ELSEIF (cmdbuffer == "-nsamples") THEN ! N samples (total)
+            ccmd = 6
+         ELSEIF (cmdbuffer == "-nminmax") THEN ! N samples extracted with minmax 
+            ccmd = 7
          ELSEIF (cmdbuffer == "-rif") THEN    ! point from wich calculate the distances to order
-            ccmd = 9                          ! the gaussians in the output
-         ELSEIF (cmdbuffer == "-msmode") THEN    ! mean-shift mode
-            msmode = .true.
-         ELSEIF (cmdbuffer == "-errc") THEN    ! threshold to differentiate different clusters
-            ccmd = 10
-         ELSEIF (cmdbuffer == "-nsamples") THEN ! N samples
-            ccmd = 11
-         ELSEIF (cmdbuffer == "-nminmax") THEN ! N samples
-            ccmd = 13
-         ELSEIF (cmdbuffer == "-rele") THEN ! N samples
-            ccmd = 14
-         ELSEIF (cmdbuffer == "-maxmin") THEN ! initialize using maxmin routine
-            maxmin = .true.
-         ELSEIF (cmdbuffer == "-h") THEN      ! help
+            ccmd = 8                          ! the gaussians in the output
+         ELSEIF (cmdbuffer == "-kernel") THEN ! Apply a kernel to defines the points' probality
+            kernelmode = .true.
+         ELSEIF (cmdbuffer == "-v") THEN      ! verbosity flag
+            verbose = .true.
+         ELSEIF (cmdbuffer == "-h") THEN      ! help flag
             WRITE(*,*) ""
-            WRITE(*,*) " GMM (Gaussian-Mixture Model)"
+            WRITE(*,*) " Quick Shift Gaussian-Mixture "
             CALL helpmessage
             CALL EXIT(-1)
-         ELSEIF (cmdbuffer == "-v") THEN      ! flag for verbose standard output
-            verbose = .true.
          ELSE
             IF (ccmd == 0) THEN
                WRITE(*,*) ""
@@ -168,23 +135,19 @@
                CALL EXIT(-1)
             ELSEIF (ccmd == 1) THEN ! input data file
                filename=trim(cmdbuffer)
-            ELSEIF (ccmd == 2) THEN ! initial gaussians parameters file
-               gaussianfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 3) THEN ! output file
+            ELSEIF (ccmd == 2) THEN ! output file
                outputfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 12) THEN ! output file
-               outputclusters=trim(cmdbuffer)
-            ELSEIF (ccmd == 4) THEN ! delta
+            ELSEIF (ccmd == 3) THEN ! delta
                READ(cmdbuffer,*) delta
-            ELSEIF (ccmd == 5) THEN ! smoothing factor
-               READ(cmdbuffer,*) smooth
-            ELSEIF (ccmd == 6) THEN ! number of gaussians
-               READ(cmdbuffer,*) Nk
-            ELSEIF (ccmd == 7) THEN ! stop criteria
-               READ(cmdbuffer,*) errc
-            ELSEIF (ccmd == 8) THEN ! read the seed
+            ELSEIF (ccmd == 4) THEN ! read the seed
                READ(cmdbuffer,*) seed
-            ELSEIF (ccmd == 9) THEN ! vrif,wrif,dADrif
+            ELSEIF (ccmd == 5) THEN ! cut-off for quick-shift
+               READ(cmdbuffer,*) tau
+            ELSEIF (ccmd == 6) THEN
+               READ(cmdbuffer,*) nsamples
+            ELSEIF (ccmd == 7) THEN
+               READ(cmdbuffer,*) nminmax
+            ELSEIF (ccmd == 8) THEN ! vrif,wrif,dADrif
                par_count = 1
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
@@ -193,14 +156,6 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) prif(par_count)
-            ELSEIF (ccmd == 10) THEN ! threshold to differentiate different clusters
-               READ(cmdbuffer,*) errclusters
-            ELSEIF (ccmd == 11) THEN
-               READ(cmdbuffer,*) nsamples
-            ELSEIF (ccmd == 13) THEN
-               READ(cmdbuffer,*) nminmax
-            ELSEIF (ccmd == 14) THEN ! stop criteria
-               READ(cmdbuffer,*) re
             ENDIF
          ENDIF
       ENDDO
@@ -211,7 +166,6 @@
       ! Check the input parameters
       IF (ccmd.EQ.0 .OR. filename.EQ."NULL") THEN
          ! ccmd==0 : no parameters inserted
-         ! Nk<0 : no Nk insterted
          ! filename=="NULL" no input datas specified
          WRITE(*,*) ""
          WRITE(*,*) " Wrong usage. Insert the right parameters!"
@@ -221,403 +175,201 @@
 
       ! Get total number of data points in the file
       Nlines = GetNlines(filename)
-      ! New number of points
       
+      ! if the user don't want to use the total number of points
+      ! in the file the -flag nsamples can be used
       IF(nsamples.NE.-1) delta=Nlines/nsamples    
+      ! adjust nsamples
       nsamples = Nlines/delta
+      IF(verbose) WRITE(*,*) "NSamples: " , nsamples
       
-     IF(verbose) WRITE(*,*) "NSamples: " , nsamples
-     
+      ! Read the points from the input file    
       counter=0
-      ALLOCATE(vwad(3,nsamples),vwadIclust(nsamples))
+      ALLOCATE(vwad(3,nsamples))
       OPEN(UNIT=12,FILE=filename,STATUS='OLD',ACTION='READ')
       DO i=1,Nlines
          IF(MODULO(i,delta)==0)THEN ! read a point every delta
-            counter=counter+1 ! index for the real data set
+            counter=counter+1       ! index for the real data set
             READ(12,*) vwad(1,counter),vwad(2,counter),vwad(3,counter)
          ELSE
-            READ(12,*) kernel
+            READ(12,*) dummyr1      ! discard the line
          ENDIF
       ENDDO
       CLOSE(UNIT=12)       
-                 
-      IF(msmode)THEN  
-         IF (nminmax.EQ.-1) THEN
-            WRITE(*,*) ""
-            WRITE(*,*) " Wrong usage. Insert -nminmax!"
-            CALL helpmessage
-            CALL EXIT(-1)
-         ENDIF
-
-         ALLOCATE(Ymm(3,nminmax),weights(nminmax),twosig2s(nminmax))
-         ALLOCATE(dminij(nsamples), iminij(nsamples))
-         IF(verbose) write(*,*) "Selecting ", nminmax, " points using MINMAX" 
-         ! choose randomly the first point
-         Ymm(:,1)=vwad(:,int(RAND()*nsamples))
-         dminij = 1.0d99
-         iminij = 1
-         DO i=2,nminmax  ! set Y
-            dmax = 0.0d0
-            DO j=1,nsamples
-               dij = dot_product( Ymm(:,i-1) - vwad(:,j) , Ymm(:,i-1) - vwad(:,j) )
-               if  (dminij(j)>dij) then
-                 dminij(j) = dij
-                 iminij(j) = i-1 ! also keeps track of the Voronoi attribution
-               endif
-               IF (dminij(j) > dmax) THEN
-                  dmax = dminij(j)
-                  jmax = j
-               ENDIF
-            ENDDO
-            Ymm(:,i) = vwad(:, jmax)
-            IF(verbose) write(*,*) i, dsqrt(dmax)
-         ENDDO
-         ! finishes Voronoi attribution
-         DO j=1,nsamples
-            dij = dot_product( Ymm(:,nminmax) - vwad(:,j) , Ymm(:,nminmax) - vwad(:,j) )
-            if  (dminij(j)>dij) then
-              dminij(j) = dij
-              iminij(j) = nminmax ! also keeps track of the Voronoi attribution
-            endif
-         ENDDO
-         
-         weights=0.0d0
-         twosig2s=0.0d0
-         ! Voronoi weights and variances
-         DO j=1,nsamples
-            weights(iminij(j))=weights(iminij(j))+1 
-         ENDDO
-         
-         !mstwosig2=sum(twosig2s)/nsamples
-
-         dmax = 0.0d0 
-         meanv = 0.0d0
-         DO i=1,nminmax  ! set Y
-            dminij(i) = 1.0d10
-            DO j=1,nminmax  ! set Y
-              if (i==j) cycle            
-              dij = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
-              IF (dij<dminij(i)) dminij(i)=dij                            
-            ENDDO
-            if (dmax < dminij(i)) dmax=dminij(i)
-            meanv = meanv + dminij(i)**(3.0d0/2.0d0)
-         ENDDO
-         meanv = meanv/nminmax
-
-         DO j=1,nminmax
-            !if (weights(j)==1) then
-            !  twosig2s(j)=mstwosig2
-            !else
-            !  twosig2s(j)=twosig2s(j)/(weights(j)-1)            
-            !endif
-            ! applies heuristic to set adaptive variances
-            !twosig2s(j)=2.0*twosig2s(j)/(weights(j) *0.02 **2 )**(2.0/3.0d0)
-            !!
-            !twosig2s(j)=2.0*mstwosig2/(weights(j) *0.02 **2 )**(2.0/3.0d0)
-            dummyr1=(meanv/(weights(j) *re**2 ))**(1.0/3.0d0)
-            twosig2s(j)=2.0* MAX(0.5d0*dsqrt(dminij(j)),dummyr1)**2
-         ENDDO         
-         
-!         IF(verbose) WRITE(*,*) "Dmax-1: ", dsqrt(dmax)
-         
-!~          dmax = 0.0d0         
-!~          DO i=1,nminmax  ! set Y
-!~             dminij(i) = 1.0d10
-!~             DO j=1,nminmax  ! set Y
-!~               if (i==j) cycle            
-!~               dij = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
-!~               IF (dij<dminij(i)) dminij(i)=dij                            
-!~             ENDDO
-!~             if (dmax < dminij(i)) dmax=dminij(i)
-!~             twosig2s(i)=2.0d0*dminij(i)*(4.0/5.0/weights(i))**(2.0d0/7.0d0)
-!~          ENDDO
-!~          
-!~          
-!~          IF(verbose) WRITE(*,*) "Dmax: ", dsqrt(dmax)         
-!~          ! define sigma with dmax :
-!~          mstwosig2 = 2.0d0*sum(dminij(1:nminmax))/nminmax/2.0d0
-!~          twosig2s = twosig2s + mstwosig2
-!~          
-!~          IF(verbose) WRITE(*,*) "Sigma MS: ", dsqrt(0.5d0*mstwosig2)         
-!~          !mstwosig2 = 2.0d0*1.00**2
-         
-         DO i=1,nminmax
-            write(*,*) "testme ", Ymm(:,i), weights(i), dsqrt(twosig2s(i)/2.0d0), 0.5*dsqrt(dminij(i))
-         ENDDO 
-         
-   ! IF(outputclusters.NE."NULL") CLOSE(UNIT=11)
-   ! CALL EXIT(0)
-! ******************
-         ! Estimate the sig for the gaussian kernel
-         !twosig2 = 0.0d0
-         !DO i=1,nsamples
-          !  norm=0.0d0
-         !   kernel = 100.0d0
-        !    DO j=1,nsamples
-       !        if(i==j) cycle
-               !diff = vwad(:,j)-vwad(:,i)
-              ! norm=sum(diff**2)
-             !  IF(norm<kernel) kernel=norm
-            !   IF(kernel<twosig2) EXIT
-           ! ENDDO
-          !  IF(kernel>twosig2) twosig2=kernel
-         !ENDDO
-         ! now twosig2 contain the max NN distance squared (dNN**2)
-         ! We chose sig as : sig=dNN/2
-        ! twosig2=twosig2/2
-!********************
-
-         
-         IF(errclusters.EQ.-1.0d0) errclusters=errc*10
-         !IF(verbose) write(*,"(A7,E12.5)") "Sigma: ", dsqrt(twosig2/2)
-        ! CALL EXIT(0)
-         Nk=0
-         kernel=0.0d0
-         vwadIclust=0
-         IF(outputclusters.NE."NULL") OPEN(UNIT=11,FILE=outputclusters,STATUS='REPLACE',ACTION='WRITE')
-         counter=0
-         DO i=1,nminmax ! run over all points 1
-            meanold=Ymm(:,i)
-            pgrad = 0.0d0               
-            norm = 0.0d0
-            pnew = 0.0d0  
-            dstep = 0.0 
-            DO j=1,nminmax         ! sum over all atoms
-               diff = Ymm(:,j)-meanold
-               kernel=dot_product(diff,diff)/(twosig2s(j))                  
-               diff = diff * 2.0 / twosig2s(j)
-               kernel=dexp(-kernel)*weights(j)/dsqrt(twosig2s(j))
-               diff = diff*kernel
-               pgrad = pgrad + diff
-               pnew = pnew + kernel
-               norm = norm+weights(j)
-               dstep = dstep+weights(j)*twosig2s(j)
-            enddo
-            pold = pnew/norm
-            pgrad = pgrad/norm            
-            dstep = dsqrt(dstep/norm)
-            
-            pnew = 0.0d0
-            test=1e10
-            dummyi1=1 ! variable in wich store the cluster number
-            
-            write(*,*) Ymm(:,i), pold               
-            DO WHILE(test.GT.errc)
-               !write(*,*) meanold, pold, dsqrt(dot_product(pgrad,pgrad)), dstep
-               meannew = meanold + dstep*pgrad/dsqrt(dot_product(pgrad,pgrad))
-               ! norm is computed once and for all
-               pgrad = 0.0d0               
-               pnew = 0.0d0               
-               DO j=1,nminmax         ! sum over all atoms
-                  diff = Ymm(:,j)-meannew
-                  kernel=dot_product(diff,diff)/(twosig2s(j))                  
-                  
-                  if (kernel .gt. 20) cycle
-                  kernel=dexp(-kernel)*weights(j)/dsqrt(twosig2s(j))                                    
-                  pgrad = pgrad + diff * 2.0 * kernel / twosig2s(j) 
-                  pnew = pnew + kernel                  
-               enddo
-               pgrad = pgrad/norm
-               pnew = pnew/norm
-
-               if (pnew<pold) then
-                  dstep=dstep*0.5
-                  test=1e10                  
-               else                     
-                  diff = meannew-meanold
-                  test=dsqrt(dot_product(diff,diff))
-                  meanold=meannew
-                  pold=pnew
-                  dstep = dstep*1.1
-               endif
-               !write(*,*) "MS iteration, ", meannew, test, norm
-            ENDDO  ! close the iteration cycle      
-            
-            write(*,*) meannew, pnew             
-               
-!~             DO WHILE(test.GT.errc)     ! convergence criteria
-!~                meannew=0.0d0
-!~                norm=0.0d0
-!~                DO j=1,nminmax         ! sum over all atoms
-!~                   diff = Ymm(:,j)-meanold
-!~                   kernel=dot_product(diff,diff)/(twosig2s(j)+mstwosig2)
-!~                   IF (kernel .gt. 10) CYCLE  ! skips tiny contributions
-!~                    ! this is the weight, proportional to \int dx K_mssigma(x-xbar) K_si(x-xi)
-!~                   kernel=dexp(-kernel)*weights(j)/dsqrt(twosig2s(j)+mstwosig2) 
-!~                   
-!~                   meannew=meannew+kernel*(twosig2s(j)*meanold+mstwosig2*Ymm(:,j))/(twosig2s(j)+mstwosig2)
-!~                   norm=norm+kernel
-!~                ENDDO                
-!~                meannew=meannew/norm
-!~                diff = meannew-meanold
-!~                test=dsqrt(dot_product(diff,diff))
-!~                meanold=meannew
-!~                !write(*,*) "MS iteration, ", meannew, test, norm
-!~             ENDDO  ! close the iteration cycle    
-            
-            goclust=.false.
-            DO k=1,Nk
-               diff = meannew-means(:,k)
-               IF (dsqrt(dot_product(diff,diff)).LT.errclusters) THEN
-                  goclust=.true.
-                  dummyi1=k
-                  !WRITE(*,*) "Dice uguale : ",  dsqrt(dot_product(diff,diff)),"<" , errclusters
-                  !WRITE(*,*) ">> ",means(:,k)
-                  EXIT
-               ENDIF
-            ENDDO
-            IF(.NOT.(goclust))THEN
-               Nk=Nk+1
-               means(:,Nk)=meannew
-               dummyi1=Nk
-               IF(verbose) WRITE(*,"(A9,I3,A2,ES18.11E2,A1,ES18.11E2,A1,ES18.11E2)") " Gaussian ",Nk,": ", & 
-                                                               meannew(1),  " ", meannew(2), " ", meannew(3)
-            ENDIF
-            write(*,*) "cluster identified as ", dummyi1
-            IF(outputclusters.NE."NULL")THEN 
-               WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", Ymm(1,i)," ", Ymm(2,i)," ", Ymm(3,i)
-               WRITE(11,"(A1,I3,A1,ES15.4E4)") " ", dummyi1, " ", weights(i)
-               
-               counter=counter+1
-               IF(verbose)THEN
-                  IF(MODULO(counter,3000)==0) WRITE(*,*) "@@ Evaluated" ,counter,"/",nminmax, " points"
-               ENDIF
-            ENDIF
-            vwadIclust(i)=dummyi1
-         ENDDO ! close the run over all points 1
-         IF(outputclusters.NE."NULL") CLOSE(UNIT=11)
-         
-         !! covariance
-         ALLOCATE(clusters(Nk),lpks(Nk))
-         ! calculate the gaussians covariance from the data in the clusters
-         DO k=1,Nk 
-            meannew = 0.0d0
-            npc=0
-            clusters(k)%mean=means(:,k)
-            clusters(k)%cov = 0.0d0
-            DO i=1,nminmax
-               IF(vwadIclust(i).NE.k) CYCLE
-               meannew = meannew + weights(i)*Ymm(:,i)
-               clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + weights(i)*Ymm(1,i) * Ymm(1,i)
-               clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + weights(i)*Ymm(1,i) * Ymm(2,i)
-               clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + weights(i)*Ymm(1,i) * Ymm(3,i)
-               clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + weights(i)*Ymm(2,i) * Ymm(2,i)
-               clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + weights(i)*Ymm(2,i) * Ymm(3,i)
-               clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + weights(i)*Ymm(3,i) * Ymm(3,i)
-               npc=npc+weights(i)
-            ENDDO
-            meannew = meannew/npc
-            clusters(k)%cov = clusters(k)%cov /npc
-            clusters(k)%cov(1,1) = clusters(k)%cov(1,1) - meannew(1)*meannew(1)
-            clusters(k)%cov(1,2) = clusters(k)%cov(1,2) - meannew(1)*meannew(2)
-            clusters(k)%cov(1,3) = clusters(k)%cov(1,3) - meannew(1)*meannew(3)
-            clusters(k)%cov(2,2) = clusters(k)%cov(2,2) - meannew(2)*meannew(2)
-            clusters(k)%cov(2,3) = clusters(k)%cov(2,3) - meannew(2)*meannew(3)
-            clusters(k)%cov(3,3) = clusters(k)%cov(3,3) - meannew(3)*meannew(3)
-            clusters(k)%cov(2,1) = clusters(k)%cov(1,2)
-            clusters(k)%cov(3,1) = clusters(k)%cov(1,3)
-            clusters(k)%cov(3,2) = clusters(k)%cov(2,3)
-            lpks(k)=LOG(FLOAT(npc)/nsamples)
-         ENDDO
-         ! write gaussians
-		 
-		 ! oreder gaussians from the closest to the reference point
-         CALL ordergaussians(Nk,clusters,lpks,prif)
-
-         OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
-         !WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
-         WRITE(11,*) "# Mean-Shift output"
-         WRITE(11,*) "# mean cov pk"
-         WRITE(11,*) Nk
-         ! Write out the gaussians
-         DO k=1,Nk      ! write mean
-            CALL writegausstofile(11,clusters(k),lpks(k))
-         ENDDO
-         CLOSE(UNIT=11)
-         DEALLOCATE(vwad,vwadIclust,clusters,lpks,Ymm,dminij,twosig2s)
-         CALL EXIT(0)
-      ENDIF
-
-      ! Check the input parameters
-      IF (Nk.LE.0) THEN
-         ! Nk<0 : no Nk insterted
-         WRITE(*,*) ""
-         WRITE(*,*) " Wrong usage. Insert the number of gaussians need to describe the data!"
-         CALL helpmessage
-         CALL EXIT(-1)
-      ENDIF
+     
+      ! If not specified, the number samples (voronoi polyhedras)
+      ! are set to the square of the total number of points
+      IF (nminmax.EQ.-1) nminmax=sqrt(float(nsamples))
       
-      ALLOCATE(pnk(Nk,nsamples))
-      pnk=0.0d0 ! responsibility matrix initialized to zero
-
-      ! Initializes Gaussians
-      ALLOCATE(clusters(Nk), lpks(Nk)) ! Allocate the arrays with Nk specified by the user
-      ! Generate from scractch the gaussians parameters
-      CALL generatefromscratch(maxmin,nsamples,vwad,Nk,clusters,lpks)
-
-      IF (gaussianfile.ne."NULL") THEN
-         ! initializes Gaussians from file
-         OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
-         ! Skip the two header lines
-         READ(12,*) cmdbuffer
-         READ(12,*) cmdbuffer
-         ! Read the number of gaussian from the file
-         READ(12,*) dummyi1 ! use a dummy variables to check the equivalence with the input parameters
-         ! Actually Nk=-1 or a value specified by the user with the command line
-         IF(Nk.ne.dummyi1)THEN
-            WRITE(0,*) "Number of Gaussians on command line does not match init.", &
-                       "Will read what I can."
-         ENDIF
-         ! Nk=dummyi1  -> read all the gaussian from the file
-         ! Nk<dummyi1  -> read only Nk from the file
-         ! Nk>dummyi1  -> read all the gaussain from the file a the rest gaussians are
-         !                generated from scratch
-         DO i=1,min(Nk,dummyi1)
-            CALL readgaussfromfile(12,clusters(i),lpks(i))
+      ALLOCATE(dminij(nsamples),iminij(nsamples))
+      ALLOCATE(Ymm(3,nminmax),YmmIclust(nminmax),weights(nminmax))
+      ALLOCATE(distij(nminmax,nminmax),probnmm(nminmax))
+      ALLOCATE(means(3,nminmax),meansidx(nminmax))
+      
+      ! Extract the samples (centers of the voronoi polyhedras)
+      ! Start MINMAX
+      IF(verbose) write(*,*) "Selecting ", nminmax, " points using MINMAX"
+      ! choose randomly the first point 
+      Ymm(:,1)=vwad(:,int(RAND()*nsamples))
+      dminij = 1.0d99
+      iminij = 1
+      DO i=2,nminmax
+         dmax = 0.0d0
+         DO j=1,nsamples
+            dij = dot_product( Ymm(:,i-1) - vwad(:,j) , Ymm(:,i-1) - vwad(:,j) )
+            IF (dminij(j)>dij) THEN
+               dminij(j) = dij
+               iminij(j) = i-1 ! also keeps track of the Voronoi attribution
+            ENDIF
+            IF (dminij(j) > dmax) THEN
+               dmax = dminij(j)
+               jmax = j
+            ENDIF
          ENDDO
-         CLOSE(UNIT=12)
-      ENDIF
-
-      i=0
-      ! Initialize loglike
-      loglike=-1e-40
-      DO WHILE(test>errc) ! convergence criteria
-         i=i+1
-         IF(verbose) WRITE(*,*) "Iteration N. ",i
-         ! expectation step
-         oldloglike=loglike
-         CALL estep(Nk,nsamples,vwad,clusters,lpks,pnk,loglike)
-         ! test the convergence
-         test=abs((loglike-oldloglike)/loglike)
-         ! maximization step
-         CALL mstep(Nk,nsamples,vwad,clusters,lpks,pnk,smooth)
-         ! Calculate BIC and AIC
-         bic=-2*loglike+(10*Nk-1)*dlog(dfloat(nsamples))
-         aic=-2*loglike+2*(10*Nk-1)
-         IF(verbose)THEN
-            WRITE(*,*) " LogLikelihood: ", loglike
-            WRITE(*,*) " Error: ", test
-            WRITE(*,*) " BIC: ", bic
-            WRITE(*,*) " AIC: ", aic
-         ENDIF
+         Ymm(:,i) = vwad(:, jmax)
+         IF(verbose .AND. (modulo(i,1000).EQ.0)) write(*,*) i,"/",nminmax
       ENDDO
       
-      ! oreder gaussians from the closest to the reference point
-      CALL ordergaussians(Nk,clusters,lpks,prif)
-
-      OPEN(UNIT=11,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
-      WRITE(11,"(A13,I11,A17,F16.7,A6,F16.7,A6,F16.7)") "# n.samples: ", nsamples, &
-                                                         " loglikelihood: ", loglike/nsamples, " bic: ", &
-                                                         bic/nsamples, " aic: ", aic/nsamples
-      WRITE(11,*) "# mean cov pk"
-      WRITE(11,*) Nk
-      ! Write out the gaussians
-      DO k=1,Nk      ! write mean
-         CALL writegausstofile(11,clusters(k),lpks(k))
+      ! finishes Voronoi attribution
+      DO j=1,nsamples
+         dij = dot_product( Ymm(:,nminmax) - vwad(:,j) , Ymm(:,nminmax) - vwad(:,j) )
+         IF  (dminij(j)>dij) THEN
+            dminij(j) = dij
+            iminij(j) = nminmax
+         ENDIF
       ENDDO
-      CLOSE(UNIT=11)
-
-      DEALLOCATE(clusters,lpks,vwad,pnk)
+      ! Voronoi weights and variances
+      weights=0.0d0
+      DO j=1,nsamples
+         weights(iminij(j))=weights(iminij(j))+1 
+      ENDDO
+      
+      ! Density estimation for quick shift
+      probnmm=weights/nsamples
+      
+      ! Define tau from the data ... TODO
+      
+      dmax=0.0d0 
+      twosig2=0.0d0
+      DO i=1,nminmax-1
+         dminij(i) = 1.0d10
+         DO j=2,nminmax
+            dij = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
+            distij(i,j) = dij
+            distij(j,i) = dij
+            IF (dij<dminij(i)) dminij(i)=dij                            
+         ENDDO
+         IF (dmax < dminij(i)) dmax=dminij(i)
+         twosig2=twosig2+dminij(i)
+      ENDDO
+      ! set sig=dNN/2
+      twosig2=0.5d0*twosig2/nminmax
+      
+      write(*,*) "Avarage dNN: ", dsqrt(twosig2*2)
+	
+	  OPEN(UNIT=11,FILE="c-"//trim(outputfile)//".dat",STATUS='REPLACE',ACTION='WRITE')
+	  
+	  means=0.0d0
+	  ! Start quick shift
+	  DO i=1,nminmax
+	     YmmIclust(i)=i
+	     idx=0
+	     DO WHILE(idx.NE.YmmIclust(i))
+	     ! serch the closest neighbour inside tau with higher Pj
+	        idx=YmmIclust(i)
+	        dmin=1.0d10
+	        DO j=1,nminmax
+	           IF(idx.EQ.j)CYCLE
+	           IF(probnmm(j)>probnmm(idx))THEN
+	              IF((distij(idx,j).LT.dmin) .AND. (distij(idx,j).LT.tau))THEN
+	                 dmin=distij(idx,j)
+	                 YmmIclust(i)=j
+	              ENDIF
+	           ENDIF 
+	        ENDDO
+	     ENDDO
+	     
+	     ! check the gaussians
+	     goclust=.false.
+	     DO k=1,Nk
+	        IF (meansidx(k)==YmmIclust(i)) THEN
+	           goclust=.true.
+	           YmmIclust(i)=k
+	           EXIT
+	        ENDIF
+	     ENDDO
+	     IF(.NOT.(goclust))THEN
+	        ! A new gaussian has been found
+	        Nk=Nk+1
+	        meansidx(Nk)=YmmIclust(i)
+	        means(:,Nk)=Ymm(:,YmmIclust(i))
+	        YmmIclust(i)=Nk
+	        WRITE(*,*) "Cluster ", Nk , means(:,Nk)
+	     ENDIF
+	     
+	     ! write out the clusters
+	     WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", Ymm(1,i)," ", Ymm(2,i)," ", Ymm(3,i)
+	     WRITE(11,"(A1,I4,A1,ES15.4E4)") " ", YmmIclust(i) , " ", probnmm(i)
+	  ENDDO
+	  
+	  CLOSE(UNIT=11)
+	  
+	  !! covariance
+	  ALLOCATE(clusters(Nk),lpks(Nk))
+	  ! calculate the gaussians covariance from the data in the clusters
+	  DO k=1,Nk
+	     meannew = 0.0d0
+	     npc=0
+	     clusters(k)%mean=means(:,k)
+	     clusters(k)%cov = 0.0d0
+	     DO i=1,nminmax
+	        IF(YmmIclust(i).NE.k) CYCLE
+	        meannew = meannew + weights(i)*Ymm(:,i)
+	        clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + weights(i)*Ymm(1,i) * Ymm(1,i)
+	        clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + weights(i)*Ymm(1,i) * Ymm(2,i)
+	        clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + weights(i)*Ymm(1,i) * Ymm(3,i)
+	        clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + weights(i)*Ymm(2,i) * Ymm(2,i)
+	        clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + weights(i)*Ymm(2,i) * Ymm(3,i)
+	        clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + weights(i)*Ymm(3,i) * Ymm(3,i)
+	        npc=npc+weights(i)
+	     ENDDO
+	     meannew = meannew/npc
+	     clusters(k)%cov = clusters(k)%cov /npc
+	     clusters(k)%cov(1,1) = clusters(k)%cov(1,1) - meannew(1)*meannew(1)
+	     clusters(k)%cov(1,2) = clusters(k)%cov(1,2) - meannew(1)*meannew(2)
+	     clusters(k)%cov(1,3) = clusters(k)%cov(1,3) - meannew(1)*meannew(3)
+	     clusters(k)%cov(2,2) = clusters(k)%cov(2,2) - meannew(2)*meannew(2)
+	     clusters(k)%cov(2,3) = clusters(k)%cov(2,3) - meannew(2)*meannew(3)
+	     clusters(k)%cov(3,3) = clusters(k)%cov(3,3) - meannew(3)*meannew(3)
+	     clusters(k)%cov(2,1) = clusters(k)%cov(1,2)
+	     clusters(k)%cov(3,1) = clusters(k)%cov(1,3)
+	     clusters(k)%cov(3,2) = clusters(k)%cov(2,3)
+	     lpks(k)=LOG(FLOAT(npc)/nsamples)
+	  ENDDO
+	  ! write gaussians
+	  
+	  ! oreder gaussians from the closest to the reference point
+	  CALL ordergaussians(Nk,clusters,lpks,prif)
+	  
+	  OPEN(UNIT=11,FILE="g-"//trim(outputfile)//".dat",STATUS='REPLACE',ACTION='WRITE')
+	  !WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
+	  WRITE(11,"(A31)",ADVANCE="NO") "# Quick Shift GM output. Ntot: "
+	  WRITE(11,"(I12,A12,I11)") nsamples," , NVoroni: ",nminmax
+	  WRITE(11,*) "# mean cov pk"
+	  WRITE(11,*) Nk
+	  DO k=1,Nk
+	     CALL writegausstofile(11,clusters(k),lpks(k))
+	  ENDDO
+	  
+	  CLOSE(UNIT=11)
+	  DEALLOCATE(vwad,YmmIclust,clusters,lpks,Ymm,dminij,distij,probnmm)
+	  DEALLOCATE(means,meansidx)
+	  CALL EXIT(0)
+	  ! end of the main programs
+ 
+ 
+ 
+      ! functions and subroutines !!!!!!!!!!!!!!!!!!!!
 
       CONTAINS
 
@@ -626,11 +378,28 @@
             !
 
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: gmm [-h] [-v] -i filename -n gaussians number [-seed seedrandom] "
-            WRITE(*,*) "             [-o outputfile] [-ev delta] [-err error] [-s smoothing_factor] "
-            WRITE(*,*) "             [-gf gaussianfile] [-maxmin] [-rif vrif,wrif,dADrif] [-msmode] "
-            WRITE(*,*) "             [-oclusters clustersfile] [-errc threshold] [-nsamples NTot] "
-            WRITE(*,*) "             [-nminmax Nminmax] [-rele err] "
+            WRITE(*,*) " USAGE: gmm [-h] -i filename [-o output] [-seed seedrandom] "
+            WRITE(*,*) "            [-tau tau] [-ev delta] [-nsamples NTot] [-nminmax Nminmax] "
+            WRITE(*,*) "            [-rif v,w,R] [-v] "
+            WRITE(*,*) ""
+            WRITE(*,*) " Clusterize the data and define the mixture of gaussians from that. "
+            WRITE(*,*) " It is mandatory to specify the file containg the data. "
+            WRITE(*,*) " For the other options a default is defined.  "
+            WRITE(*,*) ""
+            WRITE(*,*) "   -h                : Print this message "
+            WRITE(*,*) "   -i inputfile      : File containin the input data "
+            WRITE(*,*) "   -o output         : Name for the output. This will produce : "
+            WRITE(*,*) ""
+            WRITE(*,*) "                            c-output.dat (clusterized data) "
+            WRITE(*,*) "                            g-output.dat (gaussians) "
+            WRITE(*,*) ""
+            WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator "
+            WRITE(*,*) "   -tau tau          : Quick shift cutoff "
+            WRITE(*,*) "   -ev delta         : Stride reading data frome the file "
+            WRITE(*,*) "   -nsamples ntot    : Number of points to read from the input file "
+            WRITE(*,*) "   -nminmax nvoroni  : Number of Voronoi polyhedra "
+            WRITE(*,*) "   -rif v,w,R        : Point from wich order the gaussians "
+            WRITE(*,*) "   -v                : Verobose mode "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
