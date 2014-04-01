@@ -28,7 +28,7 @@
          USE hbmixture
       IMPLICIT NONE
 
-      CHARACTER*70 :: filename, gaussianfile, outputfile
+      CHARACTER*1024 :: filename, gaussianfile, outputfile
       CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
       INTEGER natoms
@@ -50,7 +50,7 @@
       ! counters
       INTEGER i,ts,k
 
-      LOGICAL verbose,convert,ptcm1,ptcm2,nptm
+      LOGICAL verbose,convert,ptcm,nptm
       INTEGER errdef
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
@@ -78,15 +78,13 @@
       ccmd=0
       cell=0.0d0
       nsteps=-1
-      natoms=-1
       delta=1
       startstep=1
       alpha=1.0d0
       wcutoff=5.0d0
       convert = .false.
       verbose = .false.
-      ptcm1 = .false.
-      ptcm2 = .false.
+      ptcm = .false.
       nptm = .false.
       endf = 0
       errdef=0
@@ -106,8 +104,6 @@
             ccmd = 4
          ELSEIF (cmdbuffer == "-l") THEN ! box lenght
             ccmd = 5
-         ELSEIF (cmdbuffer == "-na") THEN ! number of atoms
-            ccmd = 6
          ELSEIF (cmdbuffer == "-ns") THEN ! number of stpes
             ccmd = 7
          ELSEIF (cmdbuffer == "-ss") THEN ! starting step
@@ -137,10 +133,8 @@
             convert = .true.
          ELSEIF (cmdbuffer == "-v") THEN ! flag for verbose standard output
             verbose = .true.
-         ELSEIF (cmdbuffer == "-P1") THEN ! PTC mode
-            ptcm1 = .true.
-         ELSEIF (cmdbuffer == "-P2") THEN ! Perimetric coordinates mode
-            ptcm2 = .true.
+         ELSEIF (cmdbuffer == "-P") THEN ! PTC mode
+            ptcm = .true.
          ELSE
             IF (ccmd == 0) THEN
                WRITE(*,*) ""
@@ -229,13 +223,6 @@
       ENDDO
       !!!!! END PARSER
       
-      IF (ptcm1 .and. ptcm2) THEN
-         WRITE(*,*) ""
-         WRITE(*,*) " Error: you have to chose! -P1 or -P2, not both!! "
-         CALL helpmessage
-         CALL EXIT(-1)
-      ENDIF
-
       ! Mandatory parameters
       IF (filename.EQ."NULL") THEN
          WRITE(*,*) ""
@@ -251,7 +238,7 @@
          CALL EXIT(-1)
       ENDIF
 
-      IF (.NOT.ptcm1 .and. .NOT.ptcm2) THEN
+      IF (.NOT.ptcm) THEN
          ! Mandatory parameters
          IF ((gaussianfile.EQ."NULL").OR.(Nk.EQ.-1)) THEN
             WRITE(*,*) ""
@@ -284,7 +271,7 @@
          IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
       ENDDO
 
-      IF (.NOT.ptcm1 .and. .NOT.ptcm2) THEN
+      IF (.NOT.ptcm) THEN
          ! HB-mixture mode
          ! Read gaussian parameters from the gaussian file
          OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
@@ -329,11 +316,8 @@
             IF(verbose) WRITE(*,*) "Step: ",ts
             CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
             IF(endf<0)EXIT
-            IF(ptcm1)THEN
-               
-               CALL write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
-            ELSEIF(ptcm2)THEN
-               CALL write_xyz(natoms,cell,icell,wcutoff,masktypes,positions)
+            IF(ptcm)THEN 
+               CALL write_vwdj(natoms,cell,icell,wcutoff,masktypes,positions)
             ELSE
                !!!!!!! HBMIXTURE HERE! !!!!!!!
                CALL hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
@@ -364,7 +348,7 @@
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
       CLOSE(UNIT=11)
-      IF (.NOT.ptcm1) THEN
+      IF (.NOT.ptcm) THEN
          DEALLOCATE(clusters,pks)
          DEALLOCATE(spa, sph, spd, sa, sh, sd, vghb)
          CLOSE(UNIT=7)
@@ -374,12 +358,37 @@
 
          SUBROUTINE helpmessage
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: minitest [-P1/-P2] -i filename [-o outputfile] [-l lx,ly,lz] "
-            WRITE(*,*) "                   -ta acc1,acc2,... -td don1,don2,... -th hyd1,hyd2,... "
-            WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] [-ghb ghb1,ghb2,..]"
+            WRITE(*,*) " SYNTAX: minitest [-h] [-P] -i filename [-o outputfile] [-l lx,ly,lz] "
+            WRITE(*,*) "                   -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
+            WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] [-ghb 1,2,..]"
             WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] [-ev delta] "
-            WRITE(*,*) "                  [-na Natoms] [-ns total_steps] [-ss starting_step]"
-            WRITE(*,*) "                  [-npt] [-c] [-v] [-h] "
+            WRITE(*,*) "                  [-ns total_steps] [-ss starting_step] [-npt] [-c] [-v] "
+            WRITE(*,*) ""
+            WRITE(*,*) " Description ... Two modalities :  "
+            WRITE(*,*) ""
+            WRITE(*,*) " 1. Extract v,w,R and the reciprocal of the volume elemement from the data."
+            WRITE(*,*) "    This is the pre-processing mode. "
+            WRITE(*,*) " 2. Analyze the hydrogen bond patterns using a gaussian mixture model "
+            WRITE(*,*) ""
+            WRITE(*,*) "   -h                   : Print this message "
+            WRITE(*,*) "   -P                   : Pre-processing mode "
+            WRITE(*,*) "   -i  Input_file       : File containin the input data (XYZ format)"
+            WRITE(*,*) "   -o  Output_file      : Output file. "
+            WRITE(*,*) "   -l  lx,ly,lz         : Box lenghts (orthorombic box) "
+            WRITE(*,*) "   -ta A1,A2,...        : Namelist of acceptors "
+            WRITE(*,*) "   -ta D1,D2,...        : Namelist of donors "
+            WRITE(*,*) "   -ta H1,H2,...        : Namelist of hydrogens "
+            WRITE(*,*) "   -gn Ngaussians       : Quick shift cutoff "
+            WRITE(*,*) "   -gf Gaussians_file   : Stride reading data frome the file "
+            WRITE(*,*) "   -gh 1,2,...          : Index of the gaussians that describe the HB "
+            WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the gaussians "
+            WRITE(*,*) "   -ct cutoff           : Apply a distance cut-off during the calculation "
+            WRITE(*,*) "   -ev delta            : Stride while reading data from the file "
+            WRITE(*,*) "   -ns total_steps      : Apply a distance cut-off during the calculation "
+            WRITE(*,*) "   -ss starting_step    : Step from wich to start reading the data "
+            WRITE(*,*) "   -npt                 : NPT mode "
+            WRITE(*,*) "   -c                   : Convert from atomic units (Bohr) to Angstrom "
+            WRITE(*,*) "   -v                   : Verobose mode "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
@@ -405,7 +414,7 @@
 
          END SUBROUTINE readgaussfromfile
 
-         SUBROUTINE write_vwd(natoms,cell,icell,wcutoff,masktypes,positions)
+         SUBROUTINE write_vwdj(natoms,cell,icell,wcutoff,masktypes,positions)
             ! Calculate the probabilities
             ! ...
             ! Args:
@@ -438,12 +447,14 @@
                      vwd(1)=rdh-rah
                      ! Calculate the distance donor-acceptor
                      CALL separation(cell,icell,positions(:,id),positions(:,ia),vwd(3))
-                     WRITE(*,*) " ",vwd(1)," ",vwd(2)," ",vwd(3)
+                     ! write out : v,w,R  and 1/J = 1/((w*w-v*v)R)
+                     WRITE(*,"(3(A1,F12.8))",ADVANCE = "NO")  " ",vwd(1)," ",vwd(2)," ",vwd(3)
+                     WRITE(*,"(A1,ES18.7E4)") " ",1.0d0/((vwd(2)*vwd(2)-vwd(1)*vwd(1))*vwd(3))
                      !write(*,*) ia,id,ih," ",rah,rdh,rad
                   ENDDO
                ENDDO
             ENDDO
-         END SUBROUTINE write_vwd
+         END SUBROUTINE write_vwdj
 
          SUBROUTINE write_xyz(natoms,cell,icell,cutoff,masktypes,positions)
             ! Calculate the probabilities

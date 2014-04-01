@@ -38,25 +38,20 @@
       CHARACTER*256 :: filename                               ! The input data file containing v,w and rad
       CHARACTER*256 :: outputfile                             ! The output file containing the calculated gaussians
       DOUBLE PRECISION :: prif(3)                             ! Reference point needed to find out the important gaussian
-      DOUBLE PRECISION twosig2                                ! 2*sig^2
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distij ! similarity matrix
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: means               ! temporary vector to stor the centers of the gaussians
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: meansidx          ! vector to store the points corrispondig the gaussians centers
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
       DOUBLE PRECISION, DIMENSION(3) :: diff                  ! temp vector used to store distances
       
-      LOGICAL goclust                                         ! variable used to chek if a cluster i new or not during quick shift
       INTEGER npc                                             ! number of point in a cluster. Used to define the gaussians covariances
       INTEGER Nk                                              ! Number of gaussians in the mixture
       INTEGER delta                                           ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines                                          ! Number of lines of the input data file
       INTEGER nsamples                                        ! Total number points
       INTEGER nminmax                                         ! Number of samples extracted using minmax
-      DOUBLE PRECISION :: dij, dmax, dmin
-      INTEGER imin,jmax
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dminij, weights, probnmm
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: iminij
+      DOUBLE PRECISION :: dij,dmin
+      INTEGER jmax
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: weights,iminij,pnlist,nlist
       INTEGER seed     ! seed for the random number generator
-      LOGICAL kernelmode
 
       ! Array of Gaussians containing the gaussians parameters
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
@@ -64,7 +59,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: lpks
       ! Array containing the input data pints
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad , Ymm
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: YmmIclust
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot,qspath
       ! Array containing the nk probalities for each of nsamples points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: pnk ! responsibility matrix
 
@@ -74,9 +69,7 @@
       LOGICAL verbose ! flag for verbosity
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
 	  DOUBLE PRECISION vpar(5)
-	  DOUBLE PRECISION dummyr1,tau,meannew(3)
-	  LOGICAL testtree
-	  INTEGER idxtemp,idx
+	  DOUBLE PRECISION dummyr1,tau,meannew(3), tau2
 	  
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
       
@@ -90,12 +83,10 @@
       nsamples=-1         ! total number of points
       nminmax=-1          ! number of samples extracted with minmax
       seed=1357           ! seed for the random number generator
-      tau=0.7d0           ! quick shift cut-off
+      tau=-1              ! quick shift cut-off
       prif(1)=-1.0d0      ! point from wich order the gaussians in the output
       prif(2)= 2.9d0
       prif(3)= 2.9d0
-      kernelmode=.false.  ! no gaussian kernel during the density estimation
-      twosig2=-1.1d0      ! 2*sig^2 (for the gaussian kernel)
       verbose = .false.   ! no verbosity
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -118,8 +109,6 @@
             ccmd = 7
          ELSEIF (cmdbuffer == "-rif") THEN    ! point from wich calculate the distances to order
             ccmd = 8                          ! the gaussians in the output
-         ELSEIF (cmdbuffer == "-kernel") THEN ! Apply a kernel to defines the points' probality
-            kernelmode = .true.
          ELSEIF (cmdbuffer == "-v") THEN      ! verbosity flag
             verbose = .true.
          ELSEIF (cmdbuffer == "-h") THEN      ! help flag
@@ -160,7 +149,7 @@
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
+      
       CALL SRAND(seed) ! initialize the random number generator
 
       ! Check the input parameters
@@ -172,7 +161,7 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-
+      
       ! Get total number of data points in the file
       Nlines = GetNlines(filename)
       
@@ -185,12 +174,12 @@
       
       ! Read the points from the input file    
       counter=0
-      ALLOCATE(vwad(3,nsamples))
+      ALLOCATE(vwad(3,nsamples),wj(nsamples))
       OPEN(UNIT=12,FILE=filename,STATUS='OLD',ACTION='READ')
       DO i=1,Nlines
          IF(MODULO(i,delta)==0)THEN ! read a point every delta
             counter=counter+1       ! index for the real data set
-            READ(12,*) vwad(1,counter),vwad(2,counter),vwad(3,counter)
+            READ(12,*) vwad(1,counter),vwad(2,counter),vwad(3,counter),wj(counter)
          ELSE
             READ(12,*) dummyr1      ! discard the line
          ENDIF
@@ -201,118 +190,107 @@
       ! are set to the square of the total number of points
       IF (nminmax.EQ.-1) nminmax=sqrt(float(nsamples))
       
-      ALLOCATE(dminij(nsamples),iminij(nsamples))
-      ALLOCATE(Ymm(3,nminmax),YmmIclust(nminmax),weights(nminmax))
-      ALLOCATE(distij(nminmax,nminmax),probnmm(nminmax))
-      ALLOCATE(means(3,nminmax),meansidx(nminmax))
+      ALLOCATE(iminij(nsamples),qspath(nminmax))
+      ALLOCATE(Ymm(3,nminmax),idxroot(nminmax),weights(nminmax),sigma2(nminmax))
+      ALLOCATE(pnlist(nminmax+1),nlist(nsamples))
+      ALLOCATE(distmm(nminmax,nminmax),probnmm(nminmax))
       
-      ! Extract the samples (centers of the voronoi polyhedras)
-      ! Start MINMAX
+      ! Extract nminmax points on which the kernel density estimation is to be
+      ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
+      ! of the sampling points.
       IF(verbose) write(*,*) "Selecting ", nminmax, " points using MINMAX"
-      ! choose randomly the first point 
-      Ymm(:,1)=vwad(:,int(RAND()*nsamples))
-      dminij = 1.0d99
-      iminij = 1
-      DO i=2,nminmax
-         dmax = 0.0d0
-         DO j=1,nsamples
-            dij = dot_product( Ymm(:,i-1) - vwad(:,j) , Ymm(:,i-1) - vwad(:,j) )
-            IF (dminij(j)>dij) THEN
-               dminij(j) = dij
-               iminij(j) = i-1 ! also keeps track of the Voronoi attribution
-            ENDIF
-            IF (dminij(j) > dmax) THEN
-               dmax = dminij(j)
-               jmax = j
-            ENDIF
+      CALL getvoronoi(nsamples,nminmax,vwad,Ymm,weights,iminij)
+  
+      ! Generate the neighbour list
+      IF(verbose) write(*,*) "Generating neighbour list"      
+      CALL getnlist(nsamples,nminmax,weights,iminij, pnlist,nlist)
+      
+      ! Definition of the similarity matrix between Voronoi centers
+      distmm=0.0d0
+      sigma2=1e10 ! adaptive sigma of the kernel density estimator
+      IF(verbose) write(*,*) "Computing similarity matrix"      
+      DO i=1,nminmax
+         DO j=1,i-1
+            ! distance between two voronoi centers
+            distmm(i,j) = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
+            if (distmm(i,j) < sigma2(i)) sigma2(i) = distmm(i,j)
+            ! the symmetrical one
+            distmm(j,i) = distmm(i,j)
+            if (distmm(i,j) < sigma2(j)) sigma2(j) = distmm(i,j)
          ENDDO
-         Ymm(:,i) = vwad(:, jmax)
-         IF(verbose .AND. (modulo(i,1000).EQ.0)) write(*,*) i,"/",nminmax
       ENDDO
       
-      ! finishes Voronoi attribution
-      DO j=1,nsamples
-         dij = dot_product( Ymm(:,nminmax) - vwad(:,j) , Ymm(:,nminmax) - vwad(:,j) )
-         IF  (dminij(j)>dij) THEN
-            dminij(j) = dij
-            iminij(j) = nminmax
-         ENDIF
-      ENDDO
-      ! Voronoi weights and variances
-      weights=0.0d0
-      DO j=1,nsamples
-         weights(iminij(j))=weights(iminij(j))+1 
-      ENDDO
+      IF(tau.EQ.-1)THEN
+         tau2=9.0d0*SUM(sigma2)/nminmax
+         tau=dsqrt(tau2)
+      ENDIF
+      tau2=tau*tau ! we always work with squared distances.... 
       
-      ! Density estimation for quick shift
-      probnmm=weights/nsamples
-      
-      ! Define tau from the data ... TODO
-      
-      dmax=0.0d0 
-      twosig2=0.0d0
-      DO i=1,nminmax-1
-         dminij(i) = 1.0d10
-         DO j=2,nminmax
-            dij = dot_product( Ymm(:,i) - Ymm(:,j) , Ymm(:,i) - Ymm(:,j) )
-            distij(i,j) = dij
-            distij(j,i) = dij
-            IF (dij<dminij(i)) dminij(i)=dij                            
+      IF(verbose) write(*,*) "Computing kernel density on reference points."
+      IF(verbose) write(*,*) "Tau : ", tau            
+      ! computes the KDE on the Voronoi centers using the neighbour list    
+      probnmm = 0.0d0
+      DO i=1,nminmax
+         DO j=1,nminmax
+                 
+            ! check if the polyhedra are too far away
+            IF (distmm(i,j)/sigma2(j)>25.0d0) CYCLE
+            
+            ! cycle just inside the polyhedra thanx to the neighbour list
+            DO k=pnlist(j)+1,pnlist(j+1)
+               probnmm(i)=probnmm(i)+ wj(nlist(k))* &
+                          fkernel(sigma2(j),Ymm(:,i),vwad(:,nlist(k)))             
+            ENDDO                      
          ENDDO
-         IF (dmax < dminij(i)) dmax=dminij(i)
-         twosig2=twosig2+dminij(i)
-      ENDDO
-      ! set sig=dNN/2
-      twosig2=0.5d0*twosig2/nminmax
-      
-      write(*,*) "Avarage dNN: ", dsqrt(twosig2*2)
-	
-	  OPEN(UNIT=11,FILE="c-"//trim(outputfile)//".dat",STATUS='REPLACE',ACTION='WRITE')
+      ENDDO 
 	  
-	  means=0.0d0
+	  IF(verbose) write(*,*) "Running quick shift"            
+	  
+	  idxroot=0
 	  ! Start quick shift
 	  DO i=1,nminmax
-	     YmmIclust(i)=i
-	     idx=0
-	     DO WHILE(idx.NE.YmmIclust(i))
-	     ! serch the closest neighbour inside tau with higher Pj
-	        idx=YmmIclust(i)
-	        dmin=1.0d10
-	        DO j=1,nminmax
-	           IF(idx.EQ.j)CYCLE
-	           IF(probnmm(j)>probnmm(idx))THEN
-	              IF((distij(idx,j).LT.dmin) .AND. (distij(idx,j).LT.tau))THEN
-	                 dmin=distij(idx,j)
-	                 YmmIclust(i)=j
-	              ENDIF
-	           ENDIF 
-	        ENDDO
+	     IF(idxroot(i).NE.0) CYCLE
+	     !idxroot(i)=i
+	     qspath=0
+	     qspath(1)=i
+	     counter=1
+	     DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
+	        idxroot(qspath(counter))= & 
+	            GethigherNN(nminmax,qspath(counter),tau2,probnmm,distmm)
+            IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
+            counter=counter+1
+            qspath(counter)=idxroot(qspath(counter-1))
 	     ENDDO
-	     
-	     ! check the gaussians
-	     goclust=.false.
+	     DO j=1,counter
+	        idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
+	     ENDDO     
+	  ENDDO
+	  
+	  IF(verbose) write(*,*) "Writing out"
+	  qspath=0
+	  qspath(1)=idxroot(1)
+	  Nk=1
+	  OPEN(UNIT=11,FILE="c-"//trim(outputfile)//".dat",STATUS='REPLACE',ACTION='WRITE')
+	  DO i=1,nminmax
+	     ! write out the clusters
+	     dummyi1=0
 	     DO k=1,Nk
-	        IF (meansidx(k)==YmmIclust(i)) THEN
-	           goclust=.true.
-	           YmmIclust(i)=k
+	        IF(idxroot(i).EQ.qspath(k))THEN
+	           dummyi1=k
 	           EXIT
 	        ENDIF
 	     ENDDO
-	     IF(.NOT.(goclust))THEN
-	        ! A new gaussian has been found
+	     IF(dummyi1.EQ.0)THEN
 	        Nk=Nk+1
-	        meansidx(Nk)=YmmIclust(i)
-	        means(:,Nk)=Ymm(:,YmmIclust(i))
-	        YmmIclust(i)=Nk
-	        WRITE(*,*) "Cluster ", Nk , means(:,Nk)
+	        qspath(Nk)=idxroot(i)
+	        dummyi1=Nk
 	     ENDIF
-	     
-	     ! write out the clusters
 	     WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", Ymm(1,i)," ", Ymm(2,i)," ", Ymm(3,i)
-	     WRITE(11,"(A1,I4,A1,ES15.4E4)") " ", YmmIclust(i) , " ", probnmm(i)
+	     WRITE(11,"(A1,I4,A1,ES15.4E4)") " ", dummyi1 , " ", probnmm(i)
 	  ENDDO
-	  
 	  CLOSE(UNIT=11)
+	  
+	  ! now qspath contains the indexes of Nk gaussians
 	  
 	  !! covariance
 	  ALLOCATE(clusters(Nk),lpks(Nk))
@@ -320,10 +298,10 @@
 	  DO k=1,Nk
 	     meannew = 0.0d0
 	     npc=0
-	     clusters(k)%mean=means(:,k)
+	     clusters(k)%mean=Ymm(:,qspath(k))
 	     clusters(k)%cov = 0.0d0
 	     DO i=1,nminmax
-	        IF(YmmIclust(i).NE.k) CYCLE
+	        IF(idxroot(i).NE.qspath(k)) CYCLE
 	        meannew = meannew + weights(i)*Ymm(:,i)
 	        clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + weights(i)*Ymm(1,i) * Ymm(1,i)
 	        clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + weights(i)*Ymm(1,i) * Ymm(2,i)
@@ -354,7 +332,8 @@
 	  OPEN(UNIT=11,FILE="g-"//trim(outputfile)//".dat",STATUS='REPLACE',ACTION='WRITE')
 	  !WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
 	  WRITE(11,"(A31)",ADVANCE="NO") "# Quick Shift GM output. Ntot: "
-	  WRITE(11,"(I12,A12,I11)") nsamples," , NVoroni: ",nminmax
+	  WRITE(11,"(I12,A12,I11)",ADVANCE="NO") nsamples," , NVoroni: ",nminmax
+	  WRITE(11,"(A8,ES15.4E4)") " , Tau: ", tau
 	  WRITE(11,*) "# mean cov pk"
 	  WRITE(11,*) Nk
 	  DO k=1,Nk
@@ -362,8 +341,8 @@
 	  ENDDO
 	  
 	  CLOSE(UNIT=11)
-	  DEALLOCATE(vwad,YmmIclust,clusters,lpks,Ymm,dminij,distij,probnmm)
-	  DEALLOCATE(means,meansidx)
+	  DEALLOCATE(vwad,idxroot,clusters,lpks,Ymm,distmm,probnmm)
+	  DEALLOCATE(pnlist,nlist,sigma2,wj,qspath)
 	  CALL EXIT(0)
 	  ! end of the main programs
  
@@ -382,12 +361,12 @@
             WRITE(*,*) "            [-tau tau] [-ev delta] [-nsamples NTot] [-nminmax Nminmax] "
             WRITE(*,*) "            [-rif v,w,R] [-v] "
             WRITE(*,*) ""
-            WRITE(*,*) " Clusterize the data and define the mixture of gaussians from that. "
+            WRITE(*,*) " Clusterize the data and define a mixture of gaussians describing them. "
             WRITE(*,*) " It is mandatory to specify the file containg the data. "
             WRITE(*,*) " For the other options a default is defined.  "
             WRITE(*,*) ""
             WRITE(*,*) "   -h                : Print this message "
-            WRITE(*,*) "   -i inputfile      : File containin the input data "
+            WRITE(*,*) "   -i inputfile      : File containin the input data (XYZ format) "
             WRITE(*,*) "   -o output         : Name for the output. This will produce : "
             WRITE(*,*) ""
             WRITE(*,*) "                            c-output.dat (clusterized data) "
@@ -403,132 +382,160 @@
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
-         SUBROUTINE readgaussfromfile(fileid,gaussp,lpk)
-            ! Read a line from the file and get the paramters for the related gaussian
+         SUBROUTINE getvoronoi(nsamples,nminmax,vwad,Ymm,weights,iminij)
+            ! Select nminmax points from nsamples using minmax and
+            ! the voronoi polyhedra around them.
             !
             ! Args:
-            !    fileid: the file containing the gaussians parameters
-            !    gaussp: type_gaussian container in wich we store the gaussian parameters
-            !    lpk: logarithm of the Pk associated to the gaussian
-
-            INTEGER, INTENT(IN) :: fileid
-            TYPE(gauss_type) , INTENT(INOUT) :: gaussp
-            DOUBLE PRECISION, INTENT(INOUT) :: lpk
-
-            READ(fileid,*) gaussp%mean(1), gaussp%mean(2), gaussp%mean(3), &
-                           gaussp%cov(1,1), gaussp%cov(2,1), gaussp%cov(3,1), &
-                           gaussp%cov(1,2), gaussp%cov(2,2), gaussp%cov(3,2), &
-                           gaussp%cov(1,3), gaussp%cov(2,3), gaussp%cov(3,3), &
-                           lpk
-            lpk=log(lpk)
-            CALL gauss_prepare(gaussp)
-
-         END SUBROUTINE readgaussfromfile
-         
-         SUBROUTINE writegausstofile(fileid,gaussp,lpk)
-            ! Read a line from the file and get the paramters for the related gaussian
-            !
-            ! Args:
-            !    fileid: the file containing the gaussians parameters
-            !    gaussp: type_gaussian container in wich we store the gaussian parameters
-            !    lpk: logarithm of the Pk associated to the gaussian
-
-            INTEGER, INTENT(IN) :: fileid
-            TYPE(gauss_type) , INTENT(INOUT) :: gaussp
-            DOUBLE PRECISION, INTENT(INOUT) :: lpk
-            
-            WRITE(fileid,*) gaussp%mean(1)," ",gaussp%mean(2)," ",gaussp%mean(3)," ", &
-                            ! write covariance matrix
-                            gaussp%cov(1,1)," ",gaussp%cov(1,2)," ",gaussp%cov(1,3)," ", &
-                            gaussp%cov(2,1)," ",gaussp%cov(2,2)," ",gaussp%cov(2,3)," ", &
-                            gaussp%cov(3,1)," ",gaussp%cov(3,2)," ",gaussp%cov(3,3)," ", &
-                            ! write Pk of the gaussian
-                            dexp(lpk)
-
-         END SUBROUTINE writegausstofile
-
-         SUBROUTINE generatefromscratch(maxmin,nsamples,vwda,ng,clusters,lpks)
-            ! Iniatialize from scratch. Guess starting values for
-            ! the gaussians parameters.
-            !
-            ! Args:
-            !    maxmin: logical to decide to if maxmin or not
-            !    ng: number of gaussians to generate
-            !    nsamples: number of points
+            !    nsamples: total points number
+            !    nminmax: number of voronoi polyhedra
             !    vwda: array containing the data
-            !    rangevwd: array containing the extreme values in the input data set
-            !    pnk: responsibility matrix
-            !    loglike: logarithm of the likelihood
-            !    clusters: array containing gaussians parameters
-            !    lpks: array containing the logarithm of the Pk for each gaussian
+            !    Ymm: array that will contain the voronoi centers
+            !    weights: array cotaing the number of points inside each voroni polyhedra
+            !    iminij: array containg to wich polyhedra every point belong to.
 
-            LOGICAL, INTENT(IN) :: maxmin
-            INTEGER, INTENT(IN) :: ng
             INTEGER, INTENT(IN) :: nsamples
-            DOUBLE PRECISION, DIMENSION(3,nsamples), INTENT(IN) :: vwda
-            TYPE(gauss_type), DIMENSION(ng), INTENT(INOUT) :: clusters
-            DOUBLE PRECISION, DIMENSION(ng), INTENT(INOUT) :: lpks
+            INTEGER, INTENT(IN) :: nminmax
+            DOUBLE PRECISION, DIMENSION(3,nsamples), INTENT(IN) :: vwad
+            DOUBLE PRECISION, DIMENSION(3,nminmax), INTENT(OUT) :: Ymm
+            INTEGER, DIMENSION(nminmax), INTENT(OUT) :: weights
+            INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
 
-            INTEGER i,j,jmax
-            DOUBLE PRECISION :: cov(3,3), m(3)
-            ! maxmin
+            INTEGER i,j
+            DOUBLE PRECISION :: diff(3)
             DOUBLE PRECISION :: dminij(nsamples), dij, dmax
-
-            ! gets initial covariance as the covariance of the whole data set
-            cov = 0.0
-            m = 0.0
-            do i=1,nsamples
-              m = m + vwda(:,i)
-              cov(1,1) = cov(1,1) + vwda(1,i) * vwda(1,i)
-              cov(1,2) = cov(1,2) + vwda(1,i) * vwda(2,i)
-              cov(1,3) = cov(1,3) + vwda(1,i) * vwda(3,i)
-              cov(2,2) = cov(2,2) + vwda(2,i) * vwda(2,i)
-              cov(2,3) = cov(2,3) + vwda(2,i) * vwda(3,i)
-              cov(3,3) = cov(3,3) + vwda(3,i) * vwda(3,i)
-            enddo
-            m = m/nsamples
-            cov = cov/nsamples
-            cov(1,1) = cov(1,1) - m(1)*m(1)
-            cov(1,2) = cov(1,2) - m(1)*m(2)
-            cov(1,3) = cov(1,3) - m(1)*m(3)
-            cov(2,2) = cov(2,2) - m(2)*m(2)
-            cov(2,3) = cov(2,3) - m(2)*m(3)
-            cov(3,3) = cov(3,3) - m(3)*m(3)
-            cov(2,1) = cov(1,2)
-            cov(3,1) = cov(1,3)
-            cov(3,2) = cov(2,3)
-
-            ! initializes the means randomly
-            DO i=1,ng
-              clusters(i)%mean = vwda(:,int(RAND()*nsamples))
-            ENDDO
-
-            IF(maxmin)THEN
-               ! initializes the means with minmax
-               clusters(1)%mean = vwda(:,int(RAND()*nsamples))
-               dminij = 1d99
-               DO i=2,ng
-                  dmax = 0.0
-                  DO j=1,nsamples
-                     dij = dot_product( clusters(i-1)%mean - vwda(:,j) , &
-                                        clusters(i-1)%mean - vwda(:,j) )
-                     dminij(j) = min(dminij(j), dij)
-                     IF (dminij(j) > dmax) THEN
-                        dmax = dminij(j)
-                        jmax = j
-                     ENDIF
-                  ENDDO
-                  clusters(i)%mean = vwda(:, jmax)
+            
+            iminij=0
+            Ymm=0.0d0
+            weights=0
+            ! choose randomly the first point 
+            Ymm(:,1)=vwad(:,int(RAND()*nsamples))
+            dminij = 1.0d99
+            iminij = 1
+            DO i=2,nminmax
+               dmax = 0.0d0
+               DO j=1,nsamples
+                  dij = dot_product( Ymm(:,i-1) - vwad(:,j) , &
+                                     Ymm(:,i-1) - vwad(:,j) )
+                  IF (dminij(j)>dij) THEN
+                     dminij(j) = dij
+                     iminij(j) = i-1 ! also keeps track of the Voronoi attribution
+                  ENDIF
+                  IF (dminij(j) > dmax) THEN
+                     dmax = dminij(j)
+                     jmax = j
+                  ENDIF
                ENDDO
-            ENDIF
-
-            ! initializes the covariance matrix of all the clusters
-            DO i=1,ng
-               clusters(i)%cov = cov
-               lpks(i)=dlog(1.0d0/ng)
-               CALL gauss_prepare(clusters(i))
+               Ymm(:,i) = vwad(:, jmax)
+               IF(verbose .AND. (modulo(i,1000).EQ.0)) &
+                  write(*,*) i,"/",nminmax
             ENDDO
-         END SUBROUTINE generatefromscratch
+      
+            ! finishes Voronoi attribution
+            DO j=1,nsamples
+               dij = dot_product( Ymm(:,nminmax) - vwad(:,j) , &
+                                  Ymm(:,nminmax) - vwad(:,j) )
+               IF (dminij(j)>dij) THEN
+                  dminij(j) = dij
+                  iminij(j) = nminmax
+               ENDIF
+            ENDDO
+            
+            ! Voronoi weights
+            weights=0.0d0
+            DO j=1,nsamples
+               weights(iminij(j))=weights(iminij(j))+1 
+            ENDDO           
+         END SUBROUTINE getvoronoi
+         
+         SUBROUTINE getnlist(nsamples,nminmax,weights,iminij, pnlist,nlist)
+            ! Build a neighbours list: for every voronoi center keep track of his
+            ! neighboroud that correspond to all the points inside the voronoi
+            ! polyhedra.
+            !
+            ! Args:
+            !    nsamples: total points number
+            !    nminmax: number of voronoi polyhedra
+            !    weights: array cotaing the number of points inside each voroni polyhedra
+            !    iminij: array containg to wich polyhedra every point belong to
+            !    pnlist: pointer to neighbours list
+            !    nlist: neighbours list
+            
+            INTEGER, INTENT(IN) :: nsamples
+            INTEGER, INTENT(IN) :: nminmax
+            INTEGER, DIMENSION(nminmax), INTENT(IN) :: weights
+            INTEGER, DIMENSION(nsamples), INTENT(IN) :: iminij
+            INTEGER, DIMENSION(nminmax+1), INTENT(OUT) :: pnlist
+            INTEGER, DIMENSION(nsamples), INTENT(OUT) :: nlist
+
+            INTEGER i,j
+            INTEGER :: tmpnidx(nminmax)
+            DOUBLE PRECISION :: dij, dmax
+            
+            pnlist=0
+            nlist=0
+            tmpnidx=0
+            
+            ! pointer to the neighbourlist
+            pnlist(1)=0
+            DO i=1,nminmax
+               pnlist(i+1)=pnlist(i)+weights(i)
+               tmpnidx(i)=pnlist(i)+1  ! temporary array to use while filling up the neighbour list            
+            ENDDO 
+
+            DO j=1,nsamples
+               i=iminij(j) ! this is the Voronoi center the sample j belongs to
+               nlist(tmpnidx(i))=j ! adds j to the neighbour list
+               tmpnidx(i)=tmpnidx(i)+1 ! advances the pointer
+            ENDDO
+         END SUBROUTINE getnlist
+
+         INTEGER FUNCTION GethigherNN(nminmax,idx,tau,probnmm,distmm)
+            ! Return the index of the closest point higher in P
+            !
+            ! Args:
+            !    nminmax: number of voronoi polyhedra
+            !    idx: current point
+            !    tau: cut-off in the jump
+            !    probnmm: density estimations
+            !    distmm: distances matrix
+            
+            INTEGER, INTENT(IN) :: nminmax
+            INTEGER, INTENT(IN) :: idx
+            DOUBLE PRECISION, INTENT(IN) :: tau
+            DOUBLE PRECISION, DIMENSION(nminmax), INTENT(IN) :: probnmm
+            DOUBLE PRECISION, DIMENSION(nminmax,nminmax), INTENT(IN) :: distmm
+            
+            INTEGER j
+            DOUBLE PRECISION dmin
+            
+            dmin=1.0d10
+            GethigherNN=idx
+	        DO j=1,nminmax
+	           IF(probnmm(j)>probnmm(idx))THEN
+	              IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.tau))THEN
+	                 dmin=distmm(idx,j)
+	                 GethigherNN=j
+	              ENDIF
+	           ENDIF 
+	        ENDDO
+	        !write(*,*) "jump distance", dmin
+         END FUNCTION GethigherNN
+         
+		 DOUBLE PRECISION FUNCTION fkernel(sig2,vc,vp)
+            ! Calculate the (non-normalized) gaussian kernel
+            !
+            ! Args:
+            !    sig2: sig**2
+            !    vc: voronoi center's vector
+            !    vp: point's vector
+            
+            DOUBLE PRECISION, INTENT(IN) :: sig2
+            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: vc
+            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: vp
+            
+            fkernel=dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
+         END FUNCTION fkernel
 
          INTEGER FUNCTION GetNlines(filein)
             ! Get the number of lines from the file.
@@ -598,5 +605,49 @@
                IF (.NOT. swapped) EXIT	   
             ENDDO         
          END SUBROUTINE ordergaussians
+         
+         SUBROUTINE readgaussfromfile(fileid,gaussp,lpk)
+            ! Read a line from the file and get the paramters for the related gaussian
+            !
+            ! Args:
+            !    fileid: the file containing the gaussians parameters
+            !    gaussp: type_gaussian container in wich we store the gaussian parameters
+            !    lpk: logarithm of the Pk associated to the gaussian
+
+            INTEGER, INTENT(IN) :: fileid
+            TYPE(gauss_type) , INTENT(INOUT) :: gaussp
+            DOUBLE PRECISION, INTENT(INOUT) :: lpk
+
+            READ(fileid,*) gaussp%mean(1), gaussp%mean(2), gaussp%mean(3), &
+                           gaussp%cov(1,1), gaussp%cov(2,1), gaussp%cov(3,1), &
+                           gaussp%cov(1,2), gaussp%cov(2,2), gaussp%cov(3,2), &
+                           gaussp%cov(1,3), gaussp%cov(2,3), gaussp%cov(3,3), &
+                           lpk
+            lpk=log(lpk)
+            CALL gauss_prepare(gaussp)
+
+         END SUBROUTINE readgaussfromfile
+         
+         SUBROUTINE writegausstofile(fileid,gaussp,lpk)
+            ! Read a line from the file and get the paramters for the related gaussian
+            !
+            ! Args:
+            !    fileid: the file containing the gaussians parameters
+            !    gaussp: type_gaussian container in wich we store the gaussian parameters
+            !    lpk: logarithm of the Pk associated to the gaussian
+
+            INTEGER, INTENT(IN) :: fileid
+            TYPE(gauss_type) , INTENT(INOUT) :: gaussp
+            DOUBLE PRECISION, INTENT(INOUT) :: lpk
+            
+            WRITE(fileid,*) gaussp%mean(1)," ",gaussp%mean(2)," ",gaussp%mean(3)," ", &
+                            ! write covariance matrix
+                            gaussp%cov(1,1)," ",gaussp%cov(1,2)," ",gaussp%cov(1,3)," ", &
+                            gaussp%cov(2,1)," ",gaussp%cov(2,2)," ",gaussp%cov(2,3)," ", &
+                            gaussp%cov(3,1)," ",gaussp%cov(3,2)," ",gaussp%cov(3,3)," ", &
+                            ! write Pk of the gaussian
+                            dexp(lpk)
+
+         END SUBROUTINE writegausstofile
 
       END PROGRAM gmm
