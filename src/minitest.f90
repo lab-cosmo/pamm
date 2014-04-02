@@ -317,6 +317,7 @@
             CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
             IF(endf<0)EXIT
             IF(ptcm)THEN 
+               !! Pre-processing mode: calculate and write to the stout v,w,R and 1/J
                CALL write_vwdj(natoms,cell,icell,wcutoff,masktypes,positions)
             ELSE
                !!!!!!! HBMIXTURE HERE! !!!!!!!

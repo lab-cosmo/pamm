@@ -50,7 +50,7 @@
       DOUBLE PRECISION :: dij,dmin
       INTEGER jmax
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: weights,iminij,pnlist,nlist
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi,iminij,pnlist,nlist
       INTEGER seed     ! seed for the random number generator
 
       ! Array of Gaussians containing the gaussians parameters
@@ -59,6 +59,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: lpks
       ! Array containing the input data pints
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: vwad , Ymm
+      ! quick shift, roots and path to reach the root (used to speedup the calculation)
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot,qspath
       ! Array containing the nk probalities for each of nsamples points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: pnk ! responsibility matrix
@@ -190,20 +191,20 @@
       ! are set to the square of the total number of points
       IF (nminmax.EQ.-1) nminmax=sqrt(float(nsamples))
       
-      ALLOCATE(iminij(nsamples),qspath(nminmax))
-      ALLOCATE(Ymm(3,nminmax),idxroot(nminmax),weights(nminmax),sigma2(nminmax))
-      ALLOCATE(pnlist(nminmax+1),nlist(nsamples))
-      ALLOCATE(distmm(nminmax,nminmax),probnmm(nminmax))
+	  ALLOCATE(iminij(nsamples))
+	  ALLOCATE(pnlist(nminmax+1),nlist(nsamples))
+	  ALLOCATE(Ymm(3,nminmax),npvoronoi(nminmax),probnmm(nminmax),sigma2(nminmax))
+	  ALLOCATE(idxroot(nminmax),qspath(nminmax),distmm(nminmax,nminmax))
       
       ! Extract nminmax points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
       ! of the sampling points.
       IF(verbose) write(*,*) "Selecting ", nminmax, " points using MINMAX"
-      CALL getvoronoi(nsamples,nminmax,vwad,Ymm,weights,iminij)
+      CALL getvoronoi(nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
   
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"      
-      CALL getnlist(nsamples,nminmax,weights,iminij, pnlist,nlist)
+      CALL getnlist(nsamples,nminmax,npvoronoi,iminij, pnlist,nlist)
       
       ! Definition of the similarity matrix between Voronoi centers
       distmm=0.0d0
@@ -302,27 +303,27 @@
 	     clusters(k)%cov = 0.0d0
 	     DO i=1,nminmax
 	        IF(idxroot(i).NE.qspath(k)) CYCLE
-	        meannew = meannew + weights(i)*Ymm(:,i)
-	        clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + weights(i)*Ymm(1,i) * Ymm(1,i)
-	        clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + weights(i)*Ymm(1,i) * Ymm(2,i)
-	        clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + weights(i)*Ymm(1,i) * Ymm(3,i)
-	        clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + weights(i)*Ymm(2,i) * Ymm(2,i)
-	        clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + weights(i)*Ymm(2,i) * Ymm(3,i)
-	        clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + weights(i)*Ymm(3,i) * Ymm(3,i)
-	        npc=npc+weights(i)
+	        meannew = meannew + probnmm(i)*Ymm(:,i)
+	        clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + probnmm(i)*Ymm(1,i) * Ymm(1,i)
+	        clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + probnmm(i)*Ymm(1,i) * Ymm(2,i)
+	        clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + probnmm(i)*Ymm(1,i) * Ymm(3,i)
+	        clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + probnmm(i)*Ymm(2,i) * Ymm(2,i)
+	        clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + probnmm(i)*Ymm(2,i) * Ymm(3,i)
+	        clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + probnmm(i)*Ymm(3,i) * Ymm(3,i)
+	        npc=npc+1
 	     ENDDO
 	     meannew = meannew/npc
 	     clusters(k)%cov = clusters(k)%cov /npc
-	     clusters(k)%cov(1,1) = clusters(k)%cov(1,1) - meannew(1)*meannew(1)
-	     clusters(k)%cov(1,2) = clusters(k)%cov(1,2) - meannew(1)*meannew(2)
-	     clusters(k)%cov(1,3) = clusters(k)%cov(1,3) - meannew(1)*meannew(3)
-	     clusters(k)%cov(2,2) = clusters(k)%cov(2,2) - meannew(2)*meannew(2)
-	     clusters(k)%cov(2,3) = clusters(k)%cov(2,3) - meannew(2)*meannew(3)
-	     clusters(k)%cov(3,3) = clusters(k)%cov(3,3) - meannew(3)*meannew(3)
+	     clusters(k)%cov(1,1) = clusters(k)%cov(1,1) - probnmm(1)*probnmm(1)
+	     clusters(k)%cov(1,2) = clusters(k)%cov(1,2) - probnmm(1)*probnmm(2)
+	     clusters(k)%cov(1,3) = clusters(k)%cov(1,3) - probnmm(1)*probnmm(3)
+	     clusters(k)%cov(2,2) = clusters(k)%cov(2,2) - probnmm(2)*probnmm(2)
+	     clusters(k)%cov(2,3) = clusters(k)%cov(2,3) - probnmm(2)*probnmm(3)
+	     clusters(k)%cov(3,3) = clusters(k)%cov(3,3) - probnmm(3)*probnmm(3)
 	     clusters(k)%cov(2,1) = clusters(k)%cov(1,2)
 	     clusters(k)%cov(3,1) = clusters(k)%cov(1,3)
 	     clusters(k)%cov(3,2) = clusters(k)%cov(2,3)
-	     lpks(k)=LOG(FLOAT(npc)/nsamples)
+	     lpks(k)=LOG(FLOAT(npc)/nminmax)
 	  ENDDO
 	  ! write gaussians
 	  
@@ -341,8 +342,13 @@
 	  ENDDO
 	  
 	  CLOSE(UNIT=11)
-	  DEALLOCATE(vwad,idxroot,clusters,lpks,Ymm,distmm,probnmm)
-	  DEALLOCATE(pnlist,nlist,sigma2,wj,qspath)
+	  
+	  DEALLOCATE(clusters,lpks)
+	  DEALLOCATE(vwad,wj)
+	  DEALLOCATE(idxroot,qspath,distmm)
+	  DEALLOCATE(pnlist,nlist,iminij)
+	  DEALLOCATE(Ymm,npvoronoi,probnmm,sigma2)
+      
 	  CALL EXIT(0)
 	  ! end of the main programs
  
@@ -382,7 +388,7 @@
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
-         SUBROUTINE getvoronoi(nsamples,nminmax,vwad,Ymm,weights,iminij)
+         SUBROUTINE getvoronoi(nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
             ! Select nminmax points from nsamples using minmax and
             ! the voronoi polyhedra around them.
             !
@@ -391,14 +397,14 @@
             !    nminmax: number of voronoi polyhedra
             !    vwda: array containing the data
             !    Ymm: array that will contain the voronoi centers
-            !    weights: array cotaing the number of points inside each voroni polyhedra
+            !    npvoronoi: array cotaing the number of points inside each voroni polyhedra
             !    iminij: array containg to wich polyhedra every point belong to.
 
             INTEGER, INTENT(IN) :: nsamples
             INTEGER, INTENT(IN) :: nminmax
             DOUBLE PRECISION, DIMENSION(3,nsamples), INTENT(IN) :: vwad
             DOUBLE PRECISION, DIMENSION(3,nminmax), INTENT(OUT) :: Ymm
-            INTEGER, DIMENSION(nminmax), INTENT(OUT) :: weights
+            INTEGER, DIMENSION(nminmax), INTENT(OUT) :: npvoronoi
             INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
 
             INTEGER i,j
@@ -407,7 +413,7 @@
             
             iminij=0
             Ymm=0.0d0
-            weights=0
+            npvoronoi=0
             ! choose randomly the first point 
             Ymm(:,1)=vwad(:,int(RAND()*nsamples))
             dminij = 1.0d99
@@ -441,14 +447,14 @@
                ENDIF
             ENDDO
             
-            ! Voronoi weights
-            weights=0.0d0
+            ! Number of points in each voronoi polyhedra
+            npvoronoi=0.0d0
             DO j=1,nsamples
-               weights(iminij(j))=weights(iminij(j))+1 
+               npvoronoi(iminij(j))=npvoronoi(iminij(j))+1 
             ENDDO           
          END SUBROUTINE getvoronoi
          
-         SUBROUTINE getnlist(nsamples,nminmax,weights,iminij, pnlist,nlist)
+         SUBROUTINE getnlist(nsamples,nminmax,npvoronoi,iminij, pnlist,nlist)
             ! Build a neighbours list: for every voronoi center keep track of his
             ! neighboroud that correspond to all the points inside the voronoi
             ! polyhedra.
@@ -463,7 +469,7 @@
             
             INTEGER, INTENT(IN) :: nsamples
             INTEGER, INTENT(IN) :: nminmax
-            INTEGER, DIMENSION(nminmax), INTENT(IN) :: weights
+            INTEGER, DIMENSION(nminmax), INTENT(IN) :: npvoronoi
             INTEGER, DIMENSION(nsamples), INTENT(IN) :: iminij
             INTEGER, DIMENSION(nminmax+1), INTENT(OUT) :: pnlist
             INTEGER, DIMENSION(nsamples), INTENT(OUT) :: nlist
@@ -479,7 +485,7 @@
             ! pointer to the neighbourlist
             pnlist(1)=0
             DO i=1,nminmax
-               pnlist(i+1)=pnlist(i)+weights(i)
+               pnlist(i+1)=pnlist(i)+npvoronoi(i)
                tmpnidx(i)=pnlist(i)+1  ! temporary array to use while filling up the neighbour list            
             ENDDO 
 

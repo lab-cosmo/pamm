@@ -263,7 +263,9 @@
                      DO k=1,Nk
                         ! calculate the k probability for the point (v,w,rad)
                         ! and apply a smoothing elvating to alpha
-                        pnk(k) = (gauss_eval(clusters(k), vwd)*pks(k))**alpha
+                        ! and take care about the 1/J weight!
+                        pnk(k) = ( gauss_eval(clusters(k), vwd)*pks(k)/ &
+                                   ((vwd(2)*vwd(2)-vwd(1)*vwd(1))*vwd(3)) )**alpha
                         ! calculate the mixture weight
                         pnormpk = pnormpk+pnk(k)
                      ENDDO
