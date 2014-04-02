@@ -271,7 +271,7 @@
 	  qspath=0
 	  qspath(1)=idxroot(1)
 	  Nk=1
-	  OPEN(UNIT=11,FILE="c-"//trim(outputfile)//".dat",STATUS='REPLACE',ACTION='WRITE')
+	  OPEN(UNIT=11,FILE=trim(outputfile)//".clusters",STATUS='REPLACE',ACTION='WRITE')
 	  DO i=1,nminmax
 	     ! write out the clusters
 	     dummyi1=0
@@ -330,7 +330,7 @@
 	  ! oreder gaussians from the closest to the reference point
 	  CALL ordergaussians(Nk,clusters,lpks,prif)
 	  
-	  OPEN(UNIT=11,FILE="g-"//trim(outputfile)//".dat",STATUS='REPLACE',ACTION='WRITE')
+	  OPEN(UNIT=11,FILE=trim(outputfile)//".gauss",STATUS='REPLACE',ACTION='WRITE')
 	  !WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
 	  WRITE(11,"(A31)",ADVANCE="NO") "# Quick Shift GM output. Ntot: "
 	  WRITE(11,"(I12,A12,I11)",ADVANCE="NO") nsamples," , NVoroni: ",nminmax
