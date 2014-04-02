@@ -31,7 +31,7 @@
 !    helpmessage: Banner containing the help message
 !    ordergaussians: Order gaussians
 
-      PROGRAM getgauss
+      PROGRAM getmodel
          USE hbmixture 
       IMPLICIT NONE
 
@@ -656,4 +656,4 @@
 
          END SUBROUTINE writegausstofile
 
-      END PROGRAM getgauss
+      END PROGRAM getmodel

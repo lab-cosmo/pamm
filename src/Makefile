@@ -19,19 +19,19 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-.PHONY: all
+.PHONY: all clean
 
 FFLAGS=-g -O3
 MODULES=hbmixture.f90 xyz.f90 gaussmix.f90
 OBJECTS=$(MODULES:.f90=.o)
 
-all: hbanalysis getgauss
+all: hbanalysis getmodel
 
-minitest: $(OBJECTS) hbanalysis.o
+hbanalysis: $(OBJECTS) hbanalysis.o
 	gfortran $(FFLAGS) -o hbanalysis $(OBJECTS) hbanalysis.o 
 
-gmm: $(OBJECTS) getgauss.o
-	gfortran $(FFLAGS) -o getgauss $(OBJECTS) getgauss.o
+getmodel: $(OBJECTS) getmodel.o
+	gfortran $(FFLAGS) -o getmodel $(OBJECTS) getmodel.o
 	
 %.o: %.f90
 	gfortran $(FFLAGS) -c $<
