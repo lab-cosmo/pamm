@@ -1,5 +1,5 @@
-! This file contain the main program for the Gaussian Mixture Model
-! clustering. Starting from a set of 3D data points it will return the
+! This file contain the main program for the Quick-Shift/Gaussian Mixture
+! clustering. Starting from a set of n-D data points it will return the
 ! Nk gaussians better describing the clusters.
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
@@ -40,7 +40,7 @@
       DOUBLE PRECISION :: prif(3)                             ! Reference point needed to find out the important gaussian
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
       DOUBLE PRECISION, DIMENSION(3) :: diff                  ! temp vector used to store distances
-      
+
       INTEGER npc                                             ! number of point in a cluster. Used to define the gaussians covariances
       INTEGER Nk                                              ! Number of gaussians in the mixture
       INTEGER delta                                           ! Number of data to skeep (for a faster calculation)
@@ -71,10 +71,10 @@
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
 	  DOUBLE PRECISION vpar(5)
 	  DOUBLE PRECISION dummyr1,tau,meannew(3), tau2
-	  
+
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
-      
-      
+
+
       !!!!!!! Iniatialze the parameters !!!!!!!
       filename="NULL"
       outputfile="out"
@@ -106,7 +106,7 @@
             ccmd = 5
          ELSEIF (cmdbuffer == "-nsamples") THEN ! N samples (total)
             ccmd = 6
-         ELSEIF (cmdbuffer == "-nminmax") THEN ! N samples extracted with minmax 
+         ELSEIF (cmdbuffer == "-nminmax") THEN ! N samples extracted with minmax
             ccmd = 7
          ELSEIF (cmdbuffer == "-rif") THEN    ! point from wich calculate the distances to order
             ccmd = 8                          ! the gaussians in the output
@@ -150,7 +150,7 @@
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      
+
       CALL SRAND(seed) ! initialize the random number generator
 
       ! Check the input parameters
@@ -162,18 +162,18 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-      
+
       ! Get total number of data points in the file
       Nlines = GetNlines(filename)
-      
+
       ! if the user don't want to use the total number of points
       ! in the file the -flag nsamples can be used
-      IF(nsamples.NE.-1) delta=Nlines/nsamples    
+      IF(nsamples.NE.-1) delta=Nlines/nsamples
       ! adjust nsamples
       nsamples = Nlines/delta
       IF(verbose) WRITE(*,*) "NSamples: " , nsamples
-      
-      ! Read the points from the input file    
+
+      ! Read the points from the input file
       counter=0
       ALLOCATE(vwad(3,nsamples),wj(nsamples))
       OPEN(UNIT=12,FILE=filename,STATUS='OLD',ACTION='READ')
@@ -185,31 +185,31 @@
             READ(12,*) dummyr1      ! discard the line
          ENDIF
       ENDDO
-      CLOSE(UNIT=12)       
-     
+      CLOSE(UNIT=12)
+
       ! If not specified, the number samples (voronoi polyhedras)
       ! are set to the square of the total number of points
       IF (nminmax.EQ.-1) nminmax=sqrt(float(nsamples))
-      
+
 	  ALLOCATE(iminij(nsamples))
 	  ALLOCATE(pnlist(nminmax+1),nlist(nsamples))
 	  ALLOCATE(Ymm(3,nminmax),npvoronoi(nminmax),probnmm(nminmax),sigma2(nminmax))
 	  ALLOCATE(idxroot(nminmax),qspath(nminmax),distmm(nminmax,nminmax))
-      
+
       ! Extract nminmax points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
       ! of the sampling points.
       IF(verbose) write(*,*) "Selecting ", nminmax, " points using MINMAX"
       CALL getvoronoi(nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
-  
+
       ! Generate the neighbour list
-      IF(verbose) write(*,*) "Generating neighbour list"      
+      IF(verbose) write(*,*) "Generating neighbour list"
       CALL getnlist(nsamples,nminmax,npvoronoi,iminij, pnlist,nlist)
-      
+
       ! Definition of the similarity matrix between Voronoi centers
       distmm=0.0d0
       sigma2=1e10 ! adaptive sigma of the kernel density estimator
-      IF(verbose) write(*,*) "Computing similarity matrix"      
+      IF(verbose) write(*,*) "Computing similarity matrix"
       DO i=1,nminmax
          DO j=1,i-1
             ! distance between two voronoi centers
@@ -220,33 +220,33 @@
             if (distmm(i,j) < sigma2(j)) sigma2(j) = distmm(i,j)
          ENDDO
       ENDDO
-      
+
       IF(tau.EQ.-1)THEN
          tau2=9.0d0*SUM(sigma2)/nminmax
          tau=dsqrt(tau2)
       ENDIF
-      tau2=tau*tau ! we always work with squared distances.... 
-      
+      tau2=tau*tau ! we always work with squared distances....
+
       IF(verbose) write(*,*) "Computing kernel density on reference points."
-      IF(verbose) write(*,*) "Tau : ", tau            
-      ! computes the KDE on the Voronoi centers using the neighbour list    
+      IF(verbose) write(*,*) "Tau : ", tau
+      ! computes the KDE on the Voronoi centers using the neighbour list
       probnmm = 0.0d0
       DO i=1,nminmax
          DO j=1,nminmax
-                 
+
             ! check if the polyhedra are too far away
             IF (distmm(i,j)/sigma2(j)>25.0d0) CYCLE
-            
+
             ! cycle just inside the polyhedra thanx to the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
                probnmm(i)=probnmm(i)+ wj(nlist(k))* &
-                          fkernel(sigma2(j),Ymm(:,i),vwad(:,nlist(k)))             
-            ENDDO                      
+                          fkernel(sigma2(j),Ymm(:,i),vwad(:,nlist(k)))
+            ENDDO
          ENDDO
-      ENDDO 
-	  
-	  IF(verbose) write(*,*) "Running quick shift"            
-	  
+      ENDDO
+
+	  IF(verbose) write(*,*) "Running quick shift"
+
 	  idxroot=0
 	  ! Start quick shift
 	  DO i=1,nminmax
@@ -256,7 +256,7 @@
 	     qspath(1)=i
 	     counter=1
 	     DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-	        idxroot(qspath(counter))= & 
+	        idxroot(qspath(counter))= &
 	            GethigherNN(nminmax,qspath(counter),tau2,probnmm,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -264,9 +264,9 @@
 	     ENDDO
 	     DO j=1,counter
 	        idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
-	     ENDDO     
+	     ENDDO
 	  ENDDO
-	  
+
 	  IF(verbose) write(*,*) "Writing out"
 	  qspath=0
 	  qspath(1)=idxroot(1)
@@ -290,9 +290,9 @@
 	     WRITE(11,"(A1,I4,A1,ES15.4E4)") " ", dummyi1 , " ", probnmm(i)
 	  ENDDO
 	  CLOSE(UNIT=11)
-	  
+
 	  ! now qspath contains the indexes of Nk gaussians
-	  
+
 	  !! covariance
 	  ALLOCATE(clusters(Nk),lpks(Nk))
 	  ! calculate the gaussians covariance from the data in the clusters
@@ -326,10 +326,10 @@
 	     lpks(k)=LOG(FLOAT(npc)/nminmax)
 	  ENDDO
 	  ! write gaussians
-	  
+
 	  ! oreder gaussians from the closest to the reference point
 	  CALL ordergaussians(Nk,clusters,lpks,prif)
-	  
+
 	  OPEN(UNIT=11,FILE=trim(outputfile)//".gauss",STATUS='REPLACE',ACTION='WRITE')
 	  !WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
 	  WRITE(11,"(A31)",ADVANCE="NO") "# Quick Shift GM output. Ntot: "
@@ -340,20 +340,20 @@
 	  DO k=1,Nk
 	     CALL writegausstofile(11,clusters(k),lpks(k))
 	  ENDDO
-	  
+
 	  CLOSE(UNIT=11)
-	  
+
 	  DEALLOCATE(clusters,lpks)
 	  DEALLOCATE(vwad,wj)
 	  DEALLOCATE(idxroot,qspath,distmm)
 	  DEALLOCATE(pnlist,nlist,iminij)
 	  DEALLOCATE(Ymm,npvoronoi,probnmm,sigma2)
-      
+
 	  CALL EXIT(0)
 	  ! end of the main programs
- 
- 
- 
+
+
+
       ! functions and subroutines !!!!!!!!!!!!!!!!!!!!
 
       CONTAINS
@@ -410,11 +410,11 @@
             INTEGER i,j
             DOUBLE PRECISION :: diff(3)
             DOUBLE PRECISION :: dminij(nsamples), dij, dmax
-            
+
             iminij=0
             Ymm=0.0d0
             npvoronoi=0
-            ! choose randomly the first point 
+            ! choose randomly the first point
             Ymm(:,1)=vwad(:,int(RAND()*nsamples))
             dminij = 1.0d99
             iminij = 1
@@ -436,7 +436,7 @@
                IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                   write(*,*) i,"/",nminmax
             ENDDO
-      
+
             ! finishes Voronoi attribution
             DO j=1,nsamples
                dij = dot_product( Ymm(:,nminmax) - vwad(:,j) , &
@@ -446,14 +446,14 @@
                   iminij(j) = nminmax
                ENDIF
             ENDDO
-            
+
             ! Number of points in each voronoi polyhedra
             npvoronoi=0.0d0
             DO j=1,nsamples
-               npvoronoi(iminij(j))=npvoronoi(iminij(j))+1 
-            ENDDO           
+               npvoronoi(iminij(j))=npvoronoi(iminij(j))+1
+            ENDDO
          END SUBROUTINE getvoronoi
-         
+
          SUBROUTINE getnlist(nsamples,nminmax,npvoronoi,iminij, pnlist,nlist)
             ! Build a neighbours list: for every voronoi center keep track of his
             ! neighboroud that correspond to all the points inside the voronoi
@@ -466,7 +466,7 @@
             !    iminij: array containg to wich polyhedra every point belong to
             !    pnlist: pointer to neighbours list
             !    nlist: neighbours list
-            
+
             INTEGER, INTENT(IN) :: nsamples
             INTEGER, INTENT(IN) :: nminmax
             INTEGER, DIMENSION(nminmax), INTENT(IN) :: npvoronoi
@@ -477,17 +477,17 @@
             INTEGER i,j
             INTEGER :: tmpnidx(nminmax)
             DOUBLE PRECISION :: dij, dmax
-            
+
             pnlist=0
             nlist=0
             tmpnidx=0
-            
+
             ! pointer to the neighbourlist
             pnlist(1)=0
             DO i=1,nminmax
                pnlist(i+1)=pnlist(i)+npvoronoi(i)
-               tmpnidx(i)=pnlist(i)+1  ! temporary array to use while filling up the neighbour list            
-            ENDDO 
+               tmpnidx(i)=pnlist(i)+1  ! temporary array to use while filling up the neighbour list
+            ENDDO
 
             DO j=1,nsamples
                i=iminij(j) ! this is the Voronoi center the sample j belongs to
@@ -505,16 +505,16 @@
             !    tau: cut-off in the jump
             !    probnmm: density estimations
             !    distmm: distances matrix
-            
+
             INTEGER, INTENT(IN) :: nminmax
             INTEGER, INTENT(IN) :: idx
             DOUBLE PRECISION, INTENT(IN) :: tau
             DOUBLE PRECISION, DIMENSION(nminmax), INTENT(IN) :: probnmm
             DOUBLE PRECISION, DIMENSION(nminmax,nminmax), INTENT(IN) :: distmm
-            
+
             INTEGER j
             DOUBLE PRECISION dmin
-            
+
             dmin=1.0d10
             GethigherNN=idx
 	        DO j=1,nminmax
@@ -523,11 +523,11 @@
 	                 dmin=distmm(idx,j)
 	                 GethigherNN=j
 	              ENDIF
-	           ENDIF 
+	           ENDIF
 	        ENDDO
 	        !write(*,*) "jump distance", dmin
          END FUNCTION GethigherNN
-         
+
 		 DOUBLE PRECISION FUNCTION fkernel(sig2,vc,vp)
             ! Calculate the (non-normalized) gaussian kernel
             !
@@ -535,11 +535,11 @@
             !    sig2: sig**2
             !    vc: voronoi center's vector
             !    vp: point's vector
-            
+
             DOUBLE PRECISION, INTENT(IN) :: sig2
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: vc
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: vp
-            
+
             fkernel=dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
          END FUNCTION fkernel
 
@@ -565,7 +565,7 @@
             cmdbuffer="rm tmp.tmp"
             CALL system(cmdbuffer)
          END FUNCTION
-         
+
          SUBROUTINE ordergaussians(ng,clusters,pks,prif)
             ! Order the gaussians from closest to prif
             !
@@ -573,27 +573,27 @@
             !    ng: number of gaussians to generate
             !    clusters: array containing gaussians parameters
             !    prif: reference point
-            
+
             INTEGER, INTENT(IN) :: ng
             TYPE(gauss_type), DIMENSION(ng), INTENT(INOUT) :: clusters
             DOUBLE PRECISION, DIMENSION(ng), INTENT(INOUT) :: pks
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: prif
-            
+
             TYPE(gauss_type) tmpgauss
             DOUBLE PRECISION distances(ng),tmpdistance,tmppk
 			INTEGER j,i
 			LOGICAL :: swapped = .TRUE.
-			
+
 			! calculate the distances
 			DO i=1,ng
-			   distances(i)=dot_product(clusters(i)%mean, prif)		   
+			   distances(i)=dot_product(clusters(i)%mean, prif)
             ENDDO
             ! now we can sort using the distances
             ! will use bubble sort
             DO j=ng-1,1,-1
                swapped = .FALSE.
                DO i = 1, j
-                  IF (distances(i) > distances(i+1)) THEN            
+                  IF (distances(i) > distances(i+1)) THEN
                      tmpdistance=distances(i)
                      distances(i)=distances(i+1)
                      distances(i+1)=tmpdistance
@@ -608,10 +608,10 @@
                      swapped = .TRUE.
                   END IF
                END DO
-               IF (.NOT. swapped) EXIT	   
-            ENDDO         
+               IF (.NOT. swapped) EXIT
+            ENDDO
          END SUBROUTINE ordergaussians
-         
+
          SUBROUTINE readgaussfromfile(fileid,gaussp,lpk)
             ! Read a line from the file and get the paramters for the related gaussian
             !
@@ -633,7 +633,7 @@
             CALL gauss_prepare(gaussp)
 
          END SUBROUTINE readgaussfromfile
-         
+
          SUBROUTINE writegausstofile(fileid,gaussp,lpk)
             ! Read a line from the file and get the paramters for the related gaussian
             !
@@ -645,7 +645,7 @@
             INTEGER, INTENT(IN) :: fileid
             TYPE(gauss_type) , INTENT(INOUT) :: gaussp
             DOUBLE PRECISION, INTENT(INOUT) :: lpk
-            
+
             WRITE(fileid,*) gaussp%mean(1)," ",gaussp%mean(2)," ",gaussp%mean(3)," ", &
                             ! write covariance matrix
                             gaussp%cov(1,1)," ",gaussp%cov(1,2)," ",gaussp%cov(1,3)," ", &
