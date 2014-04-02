@@ -22,16 +22,16 @@
 .PHONY: all
 
 FFLAGS=-g -O3
-MODULES=hbmixture.f90 xyz.f90  gaussmix.f90
+MODULES=hbmixture.f90 xyz.f90 gaussmix.f90
 OBJECTS=$(MODULES:.f90=.o)
 
-all: minitest gmm
+all: hbanalysis getgauss
 
-minitest: $(OBJECTS) minitest.o
-	gfortran $(FFLAGS) -o minitest $(OBJECTS) minitest.o
+minitest: $(OBJECTS) hbanalysis.o
+	gfortran $(FFLAGS) -o hbanalysis $(OBJECTS) hbanalysis.o 
 
-gmm: $(OBJECTS) gmm.o
-	gfortran $(FFLAGS) -o gmm $(OBJECTS) gmm.o
+gmm: $(OBJECTS) getgauss.o
+	gfortran $(FFLAGS) -o getgauss $(OBJECTS) getgauss.o
 	
 %.o: %.f90
 	gfortran $(FFLAGS) -c $<
