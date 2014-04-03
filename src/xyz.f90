@@ -25,7 +25,7 @@
 !    xyz_read: Get one frame off a xyz file
 
       MODULE xyz
-         USE hbmixture
+         USE mixture
       IMPLICIT NONE
       
       ! Constant to convert from bohrradius to angstrom

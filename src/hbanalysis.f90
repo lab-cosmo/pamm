@@ -1,4 +1,4 @@
-! The main program which runs our driver test case potentials
+! The main program which use the mixture library to HB. 
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
@@ -25,7 +25,7 @@
 
       PROGRAM hbanalysis 
          USE xyz
-         USE hbmixture
+         USE mixture
       IMPLICIT NONE
 
       CHARACTER*1024 :: filename, gaussianfile, outputfile
@@ -255,7 +255,7 @@
          ENDIF
       ENDIF
       
-      CALL inv3x3(cell,icell) 
+      CALL invmatrix(3,cell,icell) 
       OPEN(UNIT=11,FILE=filename)
       CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
       CLOSE(UNIT=11)
@@ -320,8 +320,8 @@
                !! Pre-processing mode: calculate and write to the stout v,w,R and 1/J
                CALL write_vwdj(natoms,cell,icell,wcutoff,masktypes,positions)
             ELSE
-               !!!!!!! HBMIXTURE HERE! !!!!!!!
-               CALL hbmixture_GetGMMP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
+               !!!!!!! mixture HERE! !!!!!!!
+               CALL mixture_GetP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
                                       nk,clusters,pks,sph,spd,spa)
                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                ! sum all the gaussians describing the HB

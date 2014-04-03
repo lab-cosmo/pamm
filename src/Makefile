@@ -22,19 +22,19 @@
 .PHONY: all clean
 
 FFLAGS=-g -O3
-MODULES=hbmixture.f90 xyz.f90 gaussmix.f90
+MODULES=mixture.f90 xyz.f90
 OBJECTS=$(MODULES:.f90=.o)
 
 all: hbanalysis getmodel
 
 hbanalysis: $(OBJECTS) hbanalysis.o
-	gfortran $(FFLAGS) -o hbanalysis $(OBJECTS) hbanalysis.o 
+	gfortran $(FFLAGS) -o hbanalysis $(OBJECTS) hbanalysis.o -llapack 
 
 getmodel: $(OBJECTS) getmodel.o
-	gfortran $(FFLAGS) -o getmodel $(OBJECTS) getmodel.o
+	gfortran $(FFLAGS) -o getmodel $(OBJECTS) getmodel.o -llapack 
 	
 %.o: %.f90
-	gfortran $(FFLAGS) -c $<
+	gfortran $(FFLAGS) -c $< -llapack 
 
 clean:
 	rm *.o *.mod

@@ -32,7 +32,7 @@
 !    ordergaussians: Order gaussians
 
       PROGRAM getmodel
-         USE hbmixture 
+         USE mixture 
       IMPLICIT NONE
 
       CHARACTER*1024 :: filename                               ! The input data file containing v,w and rad
@@ -363,9 +363,9 @@
             !
 
             WRITE(*,*) ""
-            WRITE(*,*) " USAGE: gmm [-h] -i filename [-o output] [-seed seedrandom] "
-            WRITE(*,*) "            [-tau tau] [-ev delta] [-nsamples NTot] [-nminmax Nminmax] "
-            WRITE(*,*) "            [-rif v,w,R] [-v] "
+            WRITE(*,*) " USAGE: getmodel [-h] -i filename [-o output] [-seed seedrandom] "
+            WRITE(*,*) "                 [-tau tau] [-ev delta] [-nsamples NTot] [-nminmax Nminmax] "
+            WRITE(*,*) "                 [-rif v,w,R] [-v] "
             WRITE(*,*) ""
             WRITE(*,*) " Clusterize the data and define a mixture of gaussians describing them. "
             WRITE(*,*) " It is mandatory to specify the file containg the data. "
@@ -375,8 +375,8 @@
             WRITE(*,*) "   -i inputfile      : File containin the input data (XYZ format) "
             WRITE(*,*) "   -o output         : Name for the output. This will produce : "
             WRITE(*,*) ""
-            WRITE(*,*) "                            c-output.dat (clusterized data) "
-            WRITE(*,*) "                            g-output.dat (gaussians) "
+            WRITE(*,*) "                            output.clusters (clusterized data) "
+            WRITE(*,*) "                            output.gauss (gaussians) "
             WRITE(*,*) ""
             WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator "
             WRITE(*,*) "   -tau tau          : Quick shift cutoff "
