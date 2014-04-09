@@ -224,12 +224,12 @@
       !!!!! END PARSER
       
       ! Mandatory parameters
-      IF (filename.EQ."NULL") THEN
-         WRITE(*,*) ""
-         WRITE(*,*) " Error: insert an input file! "
-         CALL helpmessage
-         CALL EXIT(-1)
-      ENDIF
+!      IF (filename.EQ."NULL") THEN
+!         WRITE(*,*) ""
+!         WRITE(*,*) " Error: insert an input file! "
+!         CALL helpmessage
+!         CALL EXIT(-1)
+!      ENDIF
       
       IF (.NOT.(errdef.EQ.3)) THEN
          WRITE(*,*) ""
@@ -256,20 +256,10 @@
       ENDIF
       
       CALL invmatrix(3,cell,icell) 
-      OPEN(UNIT=11,FILE=filename)
-      CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
-      CLOSE(UNIT=11)
-      
-      ! define what is acceptor,donor and hydrogen
-      ALLOCATE(masktypes(natoms))
-      ! set to TYPE_NONE
-      masktypes=TYPE_NONE
-      DO i=1,natoms
-         ! set the mask using BITWISE OR OPERATOR
-         IF(testtype(labels(i),vtH)) masktypes(i)=IOR(masktypes(i),TYPE_H)
-         IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
-         IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
-      ENDDO
+      ! at this point I need to now the number of atoms natoms
+      ! read the first line
+      READ(5,*,IOSTAT=i) natoms
+      IF(i.NE.0) error STOP "*** Error occurred while reading file. ***"
 
       IF (.NOT.ptcm) THEN
          ! HB-mixture mode
@@ -302,7 +292,6 @@
          OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       ENDIF
 
-      OPEN(UNIT=11,FILE=filename)
       ! Loop over the trajectory
       ts=0
       DO
@@ -314,8 +303,25 @@
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
             IF(verbose) WRITE(*,*) "Step: ",ts
-            CALL xyz_read(1,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
+            IF(ts.EQ.1)THEN
+               CALL xyz_read(.true.,1,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
+            ELSE
+               CALL xyz_read(.false.,1,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
+            ENDIF
             IF(endf<0)EXIT
+            ! define what is acceptor,donor and hydrogen
+            IF(.not.(ALLOCATED(masktypes)))THEN
+               ALLOCATE(masktypes(natoms))
+               ! set to TYPE_NONE
+               masktypes=TYPE_NONE
+               DO i=1,natoms
+                  ! set the mask using BITWISE OR OPERATOR
+                  IF(testtype(labels(i),vtH)) masktypes(i)=IOR(masktypes(i),TYPE_H)
+                  IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
+                  IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
+               ENDDO
+            ENDIF
+      
             IF(ptcm)THEN 
                !! Pre-processing mode: calculate and write to the stout v,w,R and 1/J
                CALL write_vwdj(natoms,cell,icell,wcutoff,masktypes,positions)
@@ -339,7 +345,11 @@
 
          ELSE
             ! discard this snapshot
-            CALL xyz_read(0,nptm,convert,11,natoms,positions,labels,cell,icell,endf)
+            IF(ts.EQ.1)THEN
+               CALL xyz_read(.true.,0,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
+            ELSE
+               CALL xyz_read(.false.,0,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
+            ENDIF
             IF(endf<0)EXIT
          ENDIF
       ENDDO
@@ -348,7 +358,6 @@
       DEALLOCATE(positions)
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
-      CLOSE(UNIT=11)
       IF (.NOT.ptcm) THEN
          DEALLOCATE(clusters,pks)
          DEALLOCATE(spa, sph, spd, sa, sh, sd, vghb)

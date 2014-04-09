@@ -33,7 +33,7 @@
       
       CONTAINS
 
-         SUBROUTINE xyz_read(mode,nptmode,convert,ufile,natoms,positions,labels,cell,icell,endf)
+         SUBROUTINE xyz_read(skipna,mode,nptmode,convert,ufile,natoms,positions,labels,cell,icell,endf)
             ! Get the coordinates of all the atoms
             !
             ! Args:
@@ -42,6 +42,7 @@
             !    natoms: The number of atoms in the system.
             !    positions: The array containing the atoms coordinates.
             
+            LOGICAL, INTENT(IN) :: skipna
             INTEGER, INTENT(IN) :: mode 
             LOGICAL, INTENT(IN) :: nptmode
             LOGICAL, INTENT(IN) :: convert
@@ -54,25 +55,30 @@
             INTEGER, INTENT(OUT) :: endf
 
             CHARACTER*30 dummy1,dummy2
-            INTEGER i
+            INTEGER i,nc
 
             IF (mode.eq.0) THEN
                ! Discard this timesnapshot
-               DO i=1,natoms+2
+               nc=natoms+2
+               IF(skipna) nc=nc-1
+               DO i=1,nc
                   READ(ufile,*,IOSTAT=endf) dummy1
+                  IF(endf>0) error STOP "*** Error occurred while reading file. ***"
                   IF(endf<0) return
                END DO
             ELSE
                ! Get the snapshot
             
                ! Get the atom number
-               READ(ufile,*,IOSTAT=endf) natoms 
-			      IF(endf<0) return
+               IF(.NOT.skipna)READ(ufile,*,IOSTAT=endf) natoms 
+               IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+			   IF(endf<0) return
 			   
 		       ! Get the cell
 		       IF ((cell(1,1)==(0.0d0) .OR. cell(2,2)==(0.0d0) .OR. cell(3,3)==(0.0d0)).or.(nptmode)) THEN
 		          ! read the box size
 		          READ(ufile,*,IOSTAT=endf) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
+		          IF(endf>0) error STOP "*** Error occurred while reading file. ***"
 		          IF(endf<0) return
 		          ! convert the box if necessary
 		          IF(convert) cell=cell*bohr
@@ -86,6 +92,7 @@
                
                DO i=1,natoms ! label, x, y, z
                   READ(ufile,*,IOSTAT=endf) labels(i),positions(1,i),positions(2,i),positions(3,i)
+                  IF(endf>0) error STOP "*** Error occurred while reading file. ***"
                   IF(endf<0) return
                END DO
                ! convert if necessary
