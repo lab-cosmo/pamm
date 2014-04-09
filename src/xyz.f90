@@ -76,7 +76,7 @@
 		          IF(endf<0) return
 		          ! convert the box if necessary
 		          IF(convert) cell=cell*bohr
-		          CALL inv3x3(cell,icell) 
+		          CALL invmatrix(3,cell,icell) 
 		       ELSE
 		          READ(ufile, '(A)') dummy1
                ENDIF

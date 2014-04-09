@@ -41,11 +41,12 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
       DOUBLE PRECISION, DIMENSION(3) :: diff                  ! temp vector used to store distances
       
+      INTEGER D
       INTEGER npc                                             ! number of point in a cluster. Used to define the gaussians covariances
       INTEGER Nk                                              ! Number of gaussians in the mixture
       INTEGER delta                                           ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines                                          ! Number of lines of the input data file
-      INTEGER nsamples                                        ! Total number points
+      INTEGER nsamples,nsamplesin                           ! Total number points
       INTEGER nminmax                                         ! Number of samples extracted using minmax
       DOUBLE PRECISION :: dij,dmin
       INTEGER jmax
@@ -68,6 +69,7 @@
       CHARACTER*1024 :: cmdbuffer   ! String used for reading text lines from files
       INTEGER ccmd                  ! Index used to control the input parameters
       LOGICAL verbose ! flag for verbosity
+      LOGICAL weighted ! flag for using weigheted data
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
 	  DOUBLE PRECISION vpar(5)
 	  DOUBLE PRECISION dummyr1,tau,meannew(3), tau2
@@ -81,7 +83,7 @@
       ccmd=0 ! no parameters specified
       delta=1 ! read every point
       Nk=0 ! number of gaussians
-      nsamples=-1         ! total number of points
+      nsamplesin=-1     ! total number of points
       nminmax=-1          ! number of samples extracted with minmax
       seed=1357           ! seed for the random number generator
       tau=-1              ! quick shift cut-off
@@ -89,6 +91,8 @@
       prif(2)= 2.9d0
       prif(3)= 2.9d0
       verbose = .false.   ! no verbosity
+      weighted= .false.   ! don't use the weights
+      D=-1
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
@@ -98,6 +102,8 @@
             ccmd = 1
          ELSEIF (cmdbuffer == "-o") THEN      ! output file
             ccmd = 2
+         ELSEIF (cmdbuffer == "-d") THEN      ! dimensionality
+            ccmd = 9   
          ELSEIF (cmdbuffer == "-ev") THEN     ! delta
             ccmd = 3
          ELSEIF (cmdbuffer == "-seed") THEN   ! seed for the random number genarator
@@ -110,6 +116,8 @@
             ccmd = 7
          ELSEIF (cmdbuffer == "-rif") THEN    ! point from wich calculate the distances to order
             ccmd = 8                          ! the gaussians in the output
+         ELSEIF (cmdbuffer == "-w") THEN    ! use weights
+            weighted = .true.
          ELSEIF (cmdbuffer == "-v") THEN      ! verbosity flag
             verbose = .true.
          ELSEIF (cmdbuffer == "-h") THEN      ! help flag
@@ -127,6 +135,8 @@
                filename=trim(cmdbuffer)
             ELSEIF (ccmd == 2) THEN ! output file
                outputfile=trim(cmdbuffer)
+            ELSEIF (ccmd == 9) THEN
+               READ(cmdbuffer,*) D
             ELSEIF (ccmd == 3) THEN ! delta
                READ(cmdbuffer,*) delta
             ELSEIF (ccmd == 4) THEN ! read the seed
@@ -134,7 +144,7 @@
             ELSEIF (ccmd == 5) THEN ! cut-off for quick-shift
                READ(cmdbuffer,*) tau
             ELSEIF (ccmd == 6) THEN
-               READ(cmdbuffer,*) nsamples
+               READ(cmdbuffer,*) nsamplesin
             ELSEIF (ccmd == 7) THEN
                READ(cmdbuffer,*) nminmax
             ELSEIF (ccmd == 8) THEN ! vrif,wrif,dADrif
@@ -152,54 +162,54 @@
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       
       CALL SRAND(seed) ! initialize the random number generator
-
+      
       ! Check the input parameters
-      IF (ccmd.EQ.0 .OR. filename.EQ."NULL") THEN
+      IF (ccmd.EQ.0) THEN
          ! ccmd==0 : no parameters inserted
-         ! filename=="NULL" no input datas specified
          WRITE(*,*) ""
          WRITE(*,*) " Wrong usage. Insert the right parameters!"
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
       
-      ! Get total number of data points in the file
-      Nlines = GetNlines(filename)
+      ! The dimensionalty can't be hard coded by default
+      IF (D.EQ.-1) THEN
+         WRITE(*,*) ""
+         WRITE(*,*) " Wrong usage. Insert the dimensionality!"
+         CALL helpmessage
+         CALL EXIT(-1)
+      ENDIF
       
-      ! if the user don't want to use the total number of points
-      ! in the file the -flag nsamples can be used
-      IF(nsamples.NE.-1) delta=Nlines/nsamples    
-      ! adjust nsamples
-      nsamples = Nlines/delta
-      IF(verbose) WRITE(*,*) "NSamples: " , nsamples
+      ! Nminmax should be smaller than samples
+      IF ((nminmax.NE.-1).AND.(nsamplesin.NE.-1).AND.(nminmax.GT.nsamplesin)) THEN
+         ! ccmd==0 : no parameters inserted
+         WRITE(*,*) ""
+         WRITE(*,*) " Wrong usage. You probably misunderstood the meaning of nminmax! "
+         WRITE(*,*) " Nminmax should be smaller than samples. "
+         CALL helpmessage
+         CALL EXIT(-1)
+      ENDIF
       
-      ! Read the points from the input file    
-      counter=0
-      ALLOCATE(vwad(3,nsamples),wj(nsamples))
-      OPEN(UNIT=12,FILE=filename,STATUS='OLD',ACTION='READ')
-      DO i=1,Nlines
-         IF(MODULO(i,delta)==0)THEN ! read a point every delta
-            counter=counter+1       ! index for the real data set
-            READ(12,*) vwad(1,counter),vwad(2,counter),vwad(3,counter),wj(counter)
-         ELSE
-            READ(12,*) dummyr1      ! discard the line
-         ENDIF
-      ENDDO
-      CLOSE(UNIT=12)       
+      ! get the data from the standard input
+      CALL readinput(D,nsamples,nsamplesin,delta,vwad,weighted,wj)
      
-      ! If not specified, the number samples (voronoi polyhedras)
+      ! If not specified, the number voronoi polyhedras
       ! are set to the square of the total number of points
       IF (nminmax.EQ.-1) nminmax=sqrt(float(nsamples))
       
 	  ALLOCATE(iminij(nsamples))
 	  ALLOCATE(pnlist(nminmax+1),nlist(nsamples))
-	  ALLOCATE(Ymm(3,nminmax),npvoronoi(nminmax),probnmm(nminmax),sigma2(nminmax))
+	  ALLOCATE(Ymm(D,nminmax),npvoronoi(nminmax),probnmm(nminmax),sigma2(nminmax))
 	  ALLOCATE(idxroot(nminmax),qspath(nminmax),distmm(nminmax,nminmax))
       
       ! Extract nminmax points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
-      ! of the sampling points.
-      IF(verbose) write(*,*) "Selecting ", nminmax, " points using MINMAX"
+      ! of the sampling points. 
+      IF(verbose) THEN
+         WRITE(*,*) "NSamples: " , nsamples 
+         WRITE(*,*) "Selecting ", nminmax, " points using MINMAX"
+      ENDIF
+      
       CALL getvoronoi(nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
   
       ! Generate the neighbour list
@@ -222,6 +232,7 @@
       ENDDO
       
       IF(tau.EQ.-1)THEN
+         ! tau set to 3*<sig>
          tau2=9.0d0*SUM(sigma2)/nminmax
          tau=dsqrt(tau2)
       ENDIF
@@ -363,7 +374,7 @@
             !
 
             WRITE(*,*) ""
-            WRITE(*,*) " USAGE: getmodel [-h] -i filename [-o output] [-seed seedrandom] "
+            WRITE(*,*) " USAGE: getmodel [-h] -d D -i filename [-o output] [-seed seedrandom] "
             WRITE(*,*) "                 [-tau tau] [-ev delta] [-nsamples NTot] [-nminmax Nminmax] "
             WRITE(*,*) "                 [-rif v,w,R] [-v] "
             WRITE(*,*) ""
@@ -372,6 +383,7 @@
             WRITE(*,*) " For the other options a default is defined.  "
             WRITE(*,*) ""
             WRITE(*,*) "   -h                : Print this message "
+            WRITE(*,*) "   -d D              : Dimnsionality "
             WRITE(*,*) "   -i inputfile      : File containin the input data (XYZ format) "
             WRITE(*,*) "   -o output         : Name for the output. This will produce : "
             WRITE(*,*) ""
@@ -387,6 +399,62 @@
             WRITE(*,*) "   -v                : Verobose mode "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
+         
+         SUBROUTINE readinput(D,nsamples,naspamplesin,delta,vout,weighted,wj)
+            INTEGER, INTENT(IN) :: D
+            INTEGER, INTENT(OUT) :: nsamples
+            INTEGER, INTENT(IN) :: naspamplesin
+            INTEGER, INTENT(IN) :: delta
+            DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: vout
+            LOGICAL, INTENT(IN) :: weighted
+            DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: wj
+            
+            
+            INTEGER, PARAMETER :: nbuff = 100000
+            DOUBLE PRECISION, DIMENSION(D,nbuff) :: vbuff
+            DOUBLE PRECISION, DIMENSION(nbuff) :: wbuff
+            INTEGER io_status,counter,i
+         
+            nsamples=0
+            counter=0
+            i=0
+            ! if I don't allocate the vectors I get a segmentation fault 
+            ALLOCATE(vout(D,10))
+            IF(weighted) ALLOCATE(wj(10))
+            vout=0.0d0
+            DO
+               i=i+1
+               IF(weighted) THEN
+                  READ(*,*, IOSTAT=io_status) vbuff(:,counter+1),wbuff(counter+1)
+               ELSE
+                  READ(*,*, IOSTAT=io_status) vbuff(:,counter+1)
+               ENDIF
+               IF(io_status<0) EXIT
+               IF(io_status>0) error STOP "*** Error occurred while reading file. ***"
+               IF(MODULO(i,delta).NE.0) CYCLE
+               counter=counter+1
+               IF(nsamples.GT.-1)THEN
+                  IF(nsamples+counter.EQ.naspamplesin) EXIT
+               ENDIF
+               IF(counter.EQ.nbuff) THEN
+                  IF(weighted) CALL collapse1d(nsamples,counter,wj,wbuff(1:counter))
+                  CALL collapsend(D,nsamples,counter,vout,vbuff(:,1:counter))
+                  counter=0
+                  vpar=0
+               ENDIF
+            END DO
+ 
+            IF(counter>0) THEN
+               IF(weighted) CALL collapse1d(nsamples,counter,wj,wbuff(1:counter))
+               CALL collapsend(D,nsamples,counter,vout,vbuff(:,1:counter))
+            ENDIF
+            
+            IF(.NOT.weighted)THEN
+               ALLOCATE(wj(nsamples))
+               wj=1.0d0
+            ENDIF
+            
+         END SUBROUTINE readinput
 
          SUBROUTINE getvoronoi(nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
             ! Select nminmax points from nsamples using minmax and
@@ -542,29 +610,6 @@
             
             fkernel=dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
          END FUNCTION fkernel
-
-         INTEGER FUNCTION GetNlines(filein)
-            ! Get the number of lines from the file.
-            ! This is usefull to calculate the number of timesnapshots.
-            !
-            ! Args:
-            !    filein: a text file
-
-            CHARACTER*70, INTENT(IN) :: filein
-
-            CHARACTER*1024 :: cmdbuffer
-            ! call the shell command wc and save the output to a temporary file
-			   cmdbuffer='wc -l '//filein//'>> tmp.tmp'
-			   ! execute the bash command
-            CALL system(cmdbuffer)
-            ! read the result from the temporary file
-            OPEN(UNIT=8,FILE='tmp.tmp',STATUS='OLD',ACTION='READ')
-            READ(8,*) GetNlines
-            CLOSE(UNIT=8)
-            !remove the temporary files
-            cmdbuffer="rm tmp.tmp"
-            CALL system(cmdbuffer)
-         END FUNCTION
          
          SUBROUTINE ordergaussians(ng,clusters,pks,prif)
             ! Order the gaussians from closest to prif
@@ -630,7 +675,7 @@
                            gaussp%cov(1,3), gaussp%cov(2,3), gaussp%cov(3,3), &
                            lpk
             lpk=log(lpk)
-            CALL gauss_prepare(gaussp)
+            CALL gauss_prepare(3,gaussp)
 
          END SUBROUTINE readgaussfromfile
          

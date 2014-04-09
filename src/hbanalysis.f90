@@ -359,11 +359,11 @@
 
          SUBROUTINE helpmessage
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: minitest [-h] [-P] -i filename [-o outputfile] [-l lx,ly,lz] "
-            WRITE(*,*) "                   -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
-            WRITE(*,*) "                  [-gn Ngaussians] [-gf gaussianfile] [-ghb 1,2,..]"
-            WRITE(*,*) "                  [-a smoothing_factor] [-ct cutoff] [-ev delta] "
-            WRITE(*,*) "                  [-ns total_steps] [-ss starting_step] [-npt] [-c] [-v] "
+            WRITE(*,*) " SYNTAX: hbanalysis [-h] [-P] -i filename [-o outputfile] [-l lx,ly,lz] "
+            WRITE(*,*) "                     -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
+            WRITE(*,*) "                    [-gn Ngaussians] [-gf gaussianfile] [-ghb 1,2,..]"
+            WRITE(*,*) "                    [-a smoothing_factor] [-ct cutoff] [-ev delta] "
+            WRITE(*,*) "                    [-ns total_steps] [-ss starting_step] [-npt] [-c] [-v] "
             WRITE(*,*) ""
             WRITE(*,*) " Description ... Two modalities :  "
             WRITE(*,*) ""
@@ -411,7 +411,7 @@
                            gaussp%cov(1,3), gaussp%cov(2,3), gaussp%cov(3,3), &
                            pk
 
-            CALL gauss_prepare(gaussp)
+            CALL gauss_prepare(3,gaussp)
 
          END SUBROUTINE readgaussfromfile
 
