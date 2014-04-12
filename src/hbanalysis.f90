@@ -27,7 +27,14 @@
          USE xyz
          USE mixture
       IMPLICIT NONE
-
+      
+      ! Types used by bitwise operators to control the atom type
+      ! they must be power of 2
+      INTEGER, PARAMETER :: TYPE_NONE=0
+      INTEGER, PARAMETER :: TYPE_H=1
+      INTEGER, PARAMETER :: TYPE_DONOR=2
+      INTEGER, PARAMETER :: TYPE_ACCEPTOR=4
+         
       CHARACTER*1024 :: filename, gaussianfile, outputfile
       CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
@@ -35,14 +42,19 @@
       DOUBLE PRECISION cell(3,3), icell(3,3), dummycell(3,3)
       DOUBLE PRECISION alpha, wcutoff
       INTEGER nsteps, startstep, delta
+      INTEGER D ! dimensionality of the dataset
       ! gaussians
       INTEGER Nk
       ! array of gaussians
       TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:) :: clusters
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pks
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:)  :: pnks
       ! vector that will contain the probabilities calculated using hb-mixture library
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sa, sd, sh
+      DOUBLE PRECISION, DIMENSION(3) :: vwR
+      INTEGER ia,id,ih
+      DOUBLE PRECISION rah,rdh,weight
       ! for the parser
       INTEGER ccmd
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
@@ -50,7 +62,7 @@
       ! counters
       INTEGER i,ts,k
 
-      LOGICAL verbose,convert,ptcm,nptm
+      LOGICAL verbose,convert,ptcm,nptm,weighted
       INTEGER errdef
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
@@ -64,6 +76,8 @@
       DOUBLE PRECISION dummyd1,dummyd2
       INTEGER dummyi1,dummyi2
       INTEGER endf
+      
+      
 
       !! default values
       DO i=1,4
@@ -86,9 +100,11 @@
       verbose = .false.
       ptcm = .false.
       nptm = .false.
+      weighted= .false.   ! don't use the weights
       endf = 0
       errdef=0
       vtghb=-1
+      D=3
       !!
 
       !!!!! PARSER
@@ -96,8 +112,6 @@
          CALL GETARG(i, cmdbuffer)
          IF (cmdbuffer == "-i") THEN ! input xyz
             ccmd = 1
-         ELSEIF (cmdbuffer == "-gn") THEN ! total number of gaussians
-            ccmd = 2
          ELSEIF (cmdbuffer == "-gf") THEN ! file containing gaussian parmeters
             ccmd = 3
          ELSEIF (cmdbuffer == "-o") THEN ! output file
@@ -124,6 +138,8 @@
             ccmd = 15
          ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
             nptm = .true.
+         ELSEIF (cmdbuffer == "-w") THEN ! weighted  mode
+            weighted = .true.
          ELSEIF (cmdbuffer == "-h") THEN ! help
             WRITE(*,*) ""
             WRITE(*,*) " HB-mixture test program."
@@ -143,8 +159,6 @@
                CALL EXIT(-1)
             ELSEIF (ccmd == 1) THEN ! input file
                filename=trim(cmdbuffer)
-            ELSEIF (ccmd == 2) THEN ! number of gaussian
-               READ(cmdbuffer,*) Nk
             ELSEIF (ccmd == 3) THEN ! gaussian file
                gaussianfile=trim(cmdbuffer)
             ELSEIF (ccmd == 4) THEN ! output file
@@ -265,26 +279,14 @@
          ! HB-mixture mode
          ! Read gaussian parameters from the gaussian file
          OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
-         ! skip the first two comment lines
-         READ(12,*) cmdbuffer
-         READ(12,*) cmdbuffer
-         ! read the number of gaussians form the file
-         READ(12,*) dummyi1
-         ! test the inserted value with the one from the file
-         IF(Nk.ne.dummyi1)THEN
-            WRITE(0,*) "Number of Gaussians on command line does not match init.", &
-                       "Will read what I can."
-         ENDIF
-         ALLOCATE(clusters(Nk))
-         ALLOCATE(pks(Nk))
-         DO i=1,Nk
-            CALL readgaussfromfile(12,clusters(i),pks(i))
-         ENDDO
+         ! this allocation is just to avoid the rising of errors
+         ALLOCATE(clusters(1),pks(1))
+         CALL readgaussians(12,D,nk,clusters,pks)
          CLOSE(UNIT=12)
 
          ! we can now define and inizialize the probabilities vector
          ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
-         ALLOCATE(sa(natoms), sd(natoms), sh(natoms))
+         ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
          spa=0.0d0
          spd=0.0d0
          sph=0.0d0
@@ -309,7 +311,9 @@
                CALL xyz_read(.false.,1,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
             ENDIF
             IF(endf<0)EXIT
+            
             ! define what is acceptor,donor and hydrogen
+            ! build the mask
             IF(.not.(ALLOCATED(masktypes)))THEN
                ALLOCATE(masktypes(natoms))
                ! set to TYPE_NONE
@@ -321,16 +325,54 @@
                   IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
                ENDDO
             ENDIF
-      
-            IF(ptcm)THEN 
-               !! Pre-processing mode: calculate and write to the stout v,w,R and 1/J
-               CALL write_vwdj(natoms,cell,icell,wcutoff,masktypes,positions)
-            ELSE
-               !!!!!!! mixture HERE! !!!!!!!
-               CALL mixture_GetP(natoms,cell,icell,alpha,wcutoff,positions,masktypes, &
-                                      nk,clusters,pks,sph,spd,spa)
-               !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-               ! sum all the gaussians describing the HB
+            
+            ! here the core of the program
+            
+            DO ih=1,natoms ! loop over H
+               IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
+               DO id=1,natoms
+                  IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
+                  ! Distance donor-hydrogen
+                  CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
+                  IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater
+                                            ! than the cutoff, we can already discard the D-H pair
+                  DO ia=1,natoms
+                  
+                     IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
+                        .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
+                     ! Distance acceptor-hydrogen
+                     CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
+                     vwR(2)=rdh+rah
+                     IF(vwR(2).GT.wcutoff) CYCLE
+                     vwR(1)=rdh-rah
+                     ! Calculate the distance donor-acceptor (R)
+                     CALL separation(cell,icell,positions(:,id),positions(:,ia),vwR(3))
+                     
+                     weight=1.0d0
+                     ! weight = 1/J = 1/((w*w-v*v)*R)
+                     IF(weighted) weight=1.0d0/((vwR(2)*vwR(2)-vwR(1)*vwR(1))*vwR(3))
+                     
+                     IF(ptcm)THEN ! -P mode
+                        ! write out : v,w,R  and weight
+                        WRITE(*,"(3(A1,ES21.8E4))",ADVANCE = "NO")  " ",vwR(1)," ",vwR(2)," ",vwR(3)
+                        WRITE(*,"(A1,ES21.8E4)") " ", weight
+                     ELSE ! hbmix
+                        ! call the library
+                        CALL GetP(3,vwR,weight,alpha,Nk,clusters,pks,pnks)
+                        ! get the pnks
+                        ! cumulate the probabilities of all the triplets in wich an the atoms ar involved
+                        sph(:,ih) = sph(:,ih) + pnks(:)
+                        spa(:,ia) = spa(:,ia) + pnks(:)
+                        spd(:,id) = spd(:,id) + pnks(:)
+                     ENDIF
+                  ENDDO
+               ENDDO
+            ENDDO
+            
+            ! write the results
+            
+            IF(.not.ptcm)THEN
+               ! sum over the gaussians of interest
                sa=0.0d0
                sd=0.0d0
                sh=0.0d0
@@ -359,7 +401,7 @@
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
       IF (.NOT.ptcm) THEN
-         DEALLOCATE(clusters,pks)
+         DEALLOCATE(clusters,pks,pnks)
          DEALLOCATE(spa, sph, spd, sa, sh, sd, vghb)
          CLOSE(UNIT=7)
       ENDIF
@@ -370,15 +412,16 @@
             WRITE(*,*) ""
             WRITE(*,*) " SYNTAX: hbanalysis [-h] [-P] -i filename [-o outputfile] [-l lx,ly,lz] "
             WRITE(*,*) "                     -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
-            WRITE(*,*) "                    [-gn Ngaussians] [-gf gaussianfile] [-ghb 1,2,..]"
-            WRITE(*,*) "                    [-a smoothing_factor] [-ct cutoff] [-ev delta] "
+            WRITE(*,*) "                    [-gf gaussianfile] [-ghb 1,2,..] [-a smoothing_factor] "
+            WRITE(*,*) "                    [-ct cutoff] [-ev delta] "
             WRITE(*,*) "                    [-ns total_steps] [-ss starting_step] [-npt] [-c] [-v] "
             WRITE(*,*) ""
             WRITE(*,*) " Description ... Two modalities :  "
             WRITE(*,*) ""
-            WRITE(*,*) " 1. Extract v,w,R and the reciprocal of the volume elemement from the data."
-            WRITE(*,*) "    This is the pre-processing mode. "
-            WRITE(*,*) " 2. Analyze the hydrogen bond patterns using a gaussian mixture model "
+            WRITE(*,*) " 1. Extract v,w,R and eventually the weight from the data."
+            WRITE(*,*) "    This is the pre-processing mode: call it with the -P flag."
+            WRITE(*,*) " 2. Analyze the hydrogen bond patterns using a probabilistic model "
+            WRITE(*,*) "    based on a mixture of gaussians "
             WRITE(*,*) ""
             WRITE(*,*) "   -h                   : Print this message "
             WRITE(*,*) "   -P                   : Pre-processing mode "
@@ -388,8 +431,7 @@
             WRITE(*,*) "   -ta A1,A2,...        : Namelist of acceptors "
             WRITE(*,*) "   -ta D1,D2,...        : Namelist of donors "
             WRITE(*,*) "   -ta H1,H2,...        : Namelist of hydrogens "
-            WRITE(*,*) "   -gn Ngaussians       : Quick shift cutoff "
-            WRITE(*,*) "   -gf Gaussians_file   : Stride reading data frome the file "
+            WRITE(*,*) "   -gf Gaussians_file   : File containing gaussians data "
             WRITE(*,*) "   -gh 1,2,...          : Index of the gaussians that describe the HB "
             WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the gaussians "
             WRITE(*,*) "   -ct cutoff           : Apply a distance cut-off during the calculation "
@@ -398,114 +440,10 @@
             WRITE(*,*) "   -ss starting_step    : Step from wich to start reading the data "
             WRITE(*,*) "   -npt                 : NPT mode "
             WRITE(*,*) "   -c                   : Convert from atomic units (Bohr) to Angstrom "
+            WRITE(*,*) "   -w                   : Data points must be weighted "
             WRITE(*,*) "   -v                   : Verobose mode "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
-
-         SUBROUTINE readgaussfromfile(fileid,gaussp,pk)
-            ! Read a line from the file and get the paramters for the related gaussian
-            !
-            ! Args:
-            !    fileid: the file containing the gaussians parameters
-            !    gaussp: type_gaussian container in wich we store the gaussian parameters
-            !    lpk: logarithm of the Pk associated to the gaussian
-
-            INTEGER, INTENT(IN) :: fileid
-            TYPE(gauss_type) , INTENT(INOUT) :: gaussp
-            DOUBLE PRECISION, INTENT(INOUT) :: pk
-
-            READ(fileid,*) gaussp%mean(1), gaussp%mean(2), gaussp%mean(3), &
-                           gaussp%cov(1,1), gaussp%cov(2,1), gaussp%cov(3,1), &
-                           gaussp%cov(1,2), gaussp%cov(2,2), gaussp%cov(3,2), &
-                           gaussp%cov(1,3), gaussp%cov(2,3), gaussp%cov(3,3), &
-                           pk
-
-            CALL gauss_prepare(3,gaussp)
-
-         END SUBROUTINE readgaussfromfile
-
-         SUBROUTINE write_vwdj(natoms,cell,icell,wcutoff,masktypes,positions)
-            ! Calculate the probabilities
-            ! ...
-            ! Args:
-            !    param: descript
-            INTEGER, INTENT(IN) :: natoms
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: icell
-            DOUBLE PRECISION, INTENT(IN) :: wcutoff
-            INTEGER, DIMENSION(natoms), INTENT(IN) :: masktypes
-            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
-
-            INTEGER ih,id,ia
-            DOUBLE PRECISION,DIMENSION(3) :: vwd
-            DOUBLE PRECISION rah,rdh
-
-            DO ih=1,natoms ! loop over H
-               IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
-               DO id=1,natoms
-                  IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
-                  CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
-                  IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater
-                                   !than the cutoff, we can already discard the D-H pair
-                  DO ia=1,natoms
-                     IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
-                        .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
-
-                     CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
-                     vwd(2)=rdh+rah
-                     IF(vwd(2).GT.wcutoff) CYCLE
-                     vwd(1)=rdh-rah
-                     ! Calculate the distance donor-acceptor
-                     CALL separation(cell,icell,positions(:,id),positions(:,ia),vwd(3))
-                     ! write out : v,w,R  and 1/J = 1/((w*w-v*v)R)
-                     WRITE(*,"(3(A1,F12.8))",ADVANCE = "NO")  " ",vwd(1)," ",vwd(2)," ",vwd(3)
-                     WRITE(*,"(A1,ES18.7E4)") " ",1.0d0/((vwd(2)*vwd(2)-vwd(1)*vwd(1))*vwd(3))
-                     !write(*,*) ia,id,ih," ",rah,rdh,rad
-                  ENDDO
-               ENDDO
-            ENDDO
-         END SUBROUTINE write_vwdj
-
-         SUBROUTINE write_xyz(natoms,cell,icell,cutoff,masktypes,positions)
-            ! Calculate the probabilities
-            ! ...
-            ! Args:
-            !    param: descript
-            INTEGER, INTENT(IN) :: natoms
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: icell
-            DOUBLE PRECISION, INTENT(IN) :: cutoff
-            INTEGER, DIMENSION(natoms), INTENT(IN) :: masktypes
-            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
-
-            INTEGER ih,id,ia
-            DOUBLE PRECISION,DIMENSION(3) :: vwd
-            DOUBLE PRECISION rah,rdh,rad
-
-            DO ih=1,natoms ! loop over H
-               IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
-               DO id=1,natoms
-                  IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
-                  CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
-                  IF(rdh.GT.(cutoff)) CYCLE
-                  DO ia=1,natoms
-                     IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
-                        .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
-
-                     CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
-                     IF(rah.GT.(cutoff)) CYCLE
-                     ! Calculate the distance donor-acceptor
-                     CALL separation(cell,icell,positions(:,id),positions(:,ia),rad)
-                     vwd(1)=rdh+rah-rad ! x
-                     vwd(2)=rdh-rah+rad ! y
-                     vwd(3)=-rdh+rah+rad ! z
-                     !IF(rdh.GT.cutoff .or. rah.GT.cutoff .or. rad.GT.cutoff) CYCLE
-                     WRITE(*,*) " ",vwd(1)," ",vwd(2)," ",vwd(3)
-                     !write(*,*) ia,id,ih," ",rah,rdh,rad
-                  ENDDO
-               ENDDO
-            ENDDO
-         END SUBROUTINE write_xyz
 
          LOGICAL FUNCTION testtype(id,vtype)
             CHARACTER*4, INTENT(IN) :: id

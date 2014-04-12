@@ -35,8 +35,7 @@
          USE mixture 
       IMPLICIT NONE
 
-      CHARACTER*1024 :: filename                               ! The input data file containing v,w and rad
-      CHARACTER*1024 :: outputfile                             ! The output file containing the calculated gaussians
+      CHARACTER*1024 :: outputfile                            ! The output file containing the calculated gaussians
       DOUBLE PRECISION :: prif(3)                             ! Reference point needed to find out the important gaussian
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
       DOUBLE PRECISION, DIMENSION(3) :: diff                  ! temp vector used to store distances
@@ -46,7 +45,7 @@
       INTEGER Nk                                              ! Number of gaussians in the mixture
       INTEGER delta                                           ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines                                          ! Number of lines of the input data file
-      INTEGER nsamples,nsamplesin                           ! Total number points
+      INTEGER nsamples,nsamplesin                             ! Total number points
       INTEGER nminmax                                         ! Number of samples extracted using minmax
       DOUBLE PRECISION :: dij,dmin
       INTEGER jmax
@@ -78,12 +77,11 @@
       
       
       !!!!!!! Iniatialze the parameters !!!!!!!
-      filename="NULL"
       outputfile="out"
-      ccmd=0 ! no parameters specified
-      delta=1 ! read every point
-      Nk=0 ! number of gaussians
-      nsamplesin=-1     ! total number of points
+      ccmd=0              ! no parameters specified
+      delta=1             ! read every point
+      Nk=0                ! number of gaussians
+      nsamplesin=-1       ! total number of points
       nminmax=-1          ! number of samples extracted with minmax
       seed=1357           ! seed for the random number generator
       tau=-1              ! quick shift cut-off
@@ -98,9 +96,7 @@
       !!!!!!! Command line parser !!!!!!!!!!!!!
       DO i = 1, IARGC()
          CALL GETARG(i, cmdbuffer)
-         IF (cmdbuffer == "-i") THEN          ! data file (v,w,rad)
-            ccmd = 1
-         ELSEIF (cmdbuffer == "-o") THEN      ! output file
+         IF (cmdbuffer == "-o") THEN      ! output file
             ccmd = 2
          ELSEIF (cmdbuffer == "-d") THEN      ! dimensionality
             ccmd = 9   
@@ -131,8 +127,6 @@
                WRITE(*,*) " Wrong usage. Insert the right parameters!"
                CALL helpmessage
                CALL EXIT(-1)
-            ELSEIF (ccmd == 1) THEN ! input data file
-               filename=trim(cmdbuffer)
             ELSEIF (ccmd == 2) THEN ! output file
                outputfile=trim(cmdbuffer)
             ELSEIF (ccmd == 9) THEN
@@ -310,6 +304,9 @@
 	  DO k=1,Nk
 	     meannew = 0.0d0
 	     npc=0
+	     IF (.not.(ALLOCATED(clusters(k)%mean))) ALLOCATE(clusters(k)%mean(D))
+         IF (.not.(ALLOCATED(clusters(k)%cov)))  ALLOCATE(clusters(k)%cov(D,D))
+         IF (.not.(ALLOCATED(clusters(k)%icov))) ALLOCATE(clusters(k)%icov(D,D))
 	     clusters(k)%mean=Ymm(:,qspath(k))
 	     clusters(k)%cov = 0.0d0
 	     DO i=1,nminmax
@@ -339,20 +336,22 @@
 	  ! write gaussians
 	  
 	  ! oreder gaussians from the closest to the reference point
-	  CALL ordergaussians(Nk,clusters,lpks,prif)
+	  CALL ordergaussians(D,Nk,clusters,lpks,prif)
 	  
-	  OPEN(UNIT=11,FILE=trim(outputfile)//".gauss",STATUS='REPLACE',ACTION='WRITE')
-	  !WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
-	  WRITE(11,"(A31)",ADVANCE="NO") "# Quick Shift GM output. Ntot: "
-	  WRITE(11,"(I12,A12,I11)",ADVANCE="NO") nsamples," , NVoroni: ",nminmax
-	  WRITE(11,"(A8,ES15.4E4)") " , Tau: ", tau
-	  WRITE(11,*) "# mean cov pk"
-	  WRITE(11,*) Nk
-	  DO k=1,Nk
-	     CALL writegausstofile(11,clusters(k),lpks(k))
-	  ENDDO
+!	  OPEN(UNIT=11,FILE=trim(outputfile)//".gauss",STATUS='REPLACE',ACTION='WRITE')
+!	  !WRITE(11,*) "# Mean-Shift output (Sig,Err Conv, Err Clusters): " , dsqrt(twosig2/2.0d0), errc, errclusters
+!	  WRITE(11,"(A31)",ADVANCE="NO") "# Quick Shift GM output. Ntot: "
+!	  WRITE(11,"(I12,A12,I11)",ADVANCE="NO") nsamples," , NVoroni: ",nminmax
+!	  WRITE(11,"(A8,ES15.4E4)") " , Tau: ", tau
+!	  WRITE(11,*) "# mean cov pk"
+!	  WRITE(11,*) Nk
+!	  DO k=1,Nk
+!	     CALL writegausstofile(11,clusters(k),lpks(k))
+!	  ENDDO
 	  
-	  CLOSE(UNIT=11)
+!	  CLOSE(UNIT=11)
+	  
+	  CALL writegaussianstofile(outputfile,D,nsamples,nminmax,tau,Nk,clusters,lpks)
 	  
 	  DEALLOCATE(clusters,lpks)
 	  DEALLOCATE(vwad,wj)
@@ -425,15 +424,15 @@
             DO
                i=i+1
                IF(weighted) THEN
-                  READ(*,*, IOSTAT=io_status) vbuff(:,counter+1),wbuff(counter+1)
+                  READ(5,*, IOSTAT=io_status) vbuff(:,counter+1),wbuff(counter+1)
                ELSE
-                  READ(*,*, IOSTAT=io_status) vbuff(:,counter+1)
+                  READ(5,*, IOSTAT=io_status) vbuff(:,counter+1)
                ENDIF
                IF(io_status<0) EXIT
                IF(io_status>0) error STOP "*** Error occurred while reading file. ***"
                IF(MODULO(i,delta).NE.0) CYCLE
                counter=counter+1
-               IF(nsamples.GT.-1)THEN
+               IF(nsamples.GT.-1)THEN    
                   IF(nsamples+counter.EQ.naspamplesin) EXIT
                ENDIF
                IF(counter.EQ.nbuff) THEN
@@ -610,95 +609,5 @@
             
             fkernel=dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
          END FUNCTION fkernel
-         
-         SUBROUTINE ordergaussians(ng,clusters,pks,prif)
-            ! Order the gaussians from closest to prif
-            !
-            ! Args:
-            !    ng: number of gaussians to generate
-            !    clusters: array containing gaussians parameters
-            !    prif: reference point
-            
-            INTEGER, INTENT(IN) :: ng
-            TYPE(gauss_type), DIMENSION(ng), INTENT(INOUT) :: clusters
-            DOUBLE PRECISION, DIMENSION(ng), INTENT(INOUT) :: pks
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: prif
-            
-            TYPE(gauss_type) tmpgauss
-            DOUBLE PRECISION distances(ng),tmpdistance,tmppk
-			INTEGER j,i
-			LOGICAL :: swapped = .TRUE.
-			
-			! calculate the distances
-			DO i=1,ng
-			   distances(i)=dot_product(clusters(i)%mean, prif)		   
-            ENDDO
-            ! now we can sort using the distances
-            ! will use bubble sort
-            DO j=ng-1,1,-1
-               swapped = .FALSE.
-               DO i = 1, j
-                  IF (distances(i) > distances(i+1)) THEN            
-                     tmpdistance=distances(i)
-                     distances(i)=distances(i+1)
-                     distances(i+1)=tmpdistance
-                     ! upgrade pks
-                     tmppk=pks(i)
-                     pks(i)=pks(i+1)
-                     pks(i+1)=tmppk
-                     ! upgrade also the clusters
-                     tmpgauss=clusters(i)
-                     clusters(i)=clusters(i+1)
-                     clusters(i+1)=tmpgauss
-                     swapped = .TRUE.
-                  END IF
-               END DO
-               IF (.NOT. swapped) EXIT	   
-            ENDDO         
-         END SUBROUTINE ordergaussians
-         
-         SUBROUTINE readgaussfromfile(fileid,gaussp,lpk)
-            ! Read a line from the file and get the paramters for the related gaussian
-            !
-            ! Args:
-            !    fileid: the file containing the gaussians parameters
-            !    gaussp: type_gaussian container in wich we store the gaussian parameters
-            !    lpk: logarithm of the Pk associated to the gaussian
-
-            INTEGER, INTENT(IN) :: fileid
-            TYPE(gauss_type) , INTENT(INOUT) :: gaussp
-            DOUBLE PRECISION, INTENT(INOUT) :: lpk
-
-            READ(fileid,*) gaussp%mean(1), gaussp%mean(2), gaussp%mean(3), &
-                           gaussp%cov(1,1), gaussp%cov(2,1), gaussp%cov(3,1), &
-                           gaussp%cov(1,2), gaussp%cov(2,2), gaussp%cov(3,2), &
-                           gaussp%cov(1,3), gaussp%cov(2,3), gaussp%cov(3,3), &
-                           lpk
-            lpk=log(lpk)
-            CALL gauss_prepare(3,gaussp)
-
-         END SUBROUTINE readgaussfromfile
-         
-         SUBROUTINE writegausstofile(fileid,gaussp,lpk)
-            ! Read a line from the file and get the paramters for the related gaussian
-            !
-            ! Args:
-            !    fileid: the file containing the gaussians parameters
-            !    gaussp: type_gaussian container in wich we store the gaussian parameters
-            !    lpk: logarithm of the Pk associated to the gaussian
-
-            INTEGER, INTENT(IN) :: fileid
-            TYPE(gauss_type) , INTENT(INOUT) :: gaussp
-            DOUBLE PRECISION, INTENT(INOUT) :: lpk
-            
-            WRITE(fileid,*) gaussp%mean(1)," ",gaussp%mean(2)," ",gaussp%mean(3)," ", &
-                            ! write covariance matrix
-                            gaussp%cov(1,1)," ",gaussp%cov(1,2)," ",gaussp%cov(1,3)," ", &
-                            gaussp%cov(2,1)," ",gaussp%cov(2,2)," ",gaussp%cov(2,3)," ", &
-                            gaussp%cov(3,1)," ",gaussp%cov(3,2)," ",gaussp%cov(3,3)," ", &
-                            ! write Pk of the gaussian
-                            dexp(lpk)
-
-         END SUBROUTINE writegausstofile
 
       END PROGRAM getmodel

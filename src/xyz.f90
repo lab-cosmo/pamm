@@ -42,7 +42,9 @@
             !    natoms: The number of atoms in the system.
             !    positions: The array containing the atoms coordinates.
             
-            LOGICAL, INTENT(IN) :: skipna
+            LOGICAL, INTENT(IN) :: skipna ! to skip the reading of the line
+                                          ! containing the number of atoms.
+                                          ! I need this just for the first snapshot
             INTEGER, INTENT(IN) :: mode 
             LOGICAL, INTENT(IN) :: nptmode
             LOGICAL, INTENT(IN) :: convert
@@ -118,10 +120,10 @@
                  "# CELL(abc): ",cell(1,1)," ",cell(2,2)," ",cell(3,3)," Step: ",ts
             ! body
             DO i=1,natoms
-               WRITE(ufile,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", advance='no') &
+               WRITE(ufile,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", ADVANCE='NO') &
                     trim(labels(i)), " ", positions(1,i), " ", &
                     positions(2,i), " ", positions(3,i)
-               WRITE(ufile,"(3(A1,ES20.9E4))", advance='no') " ", sh(i), &
+               WRITE(ufile,"(3(A1,ES20.9E4))", ADVANCE='NO') " ", sh(i), &
                        " ", sd(i), " ", sa(i)
                WRITE(ufile,*)
             ENDDO
