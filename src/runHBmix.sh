@@ -42,6 +42,13 @@ mkdir FE
 
 cat $input | $hban -ta $acc -th $hyd -td $don -ct $xf -w -P > tmphisto.dat &
 
+# decomment to choose the number of points
+# cat $input | $hban -ta OX -th HT -td OT -ct $3 -w -P | $getm -w -d 3 -nminmax 2000 -nsamples 50000 -o clusters/testooz -v
+
+echo "First step : calculate v,w,R and the weight from the trajectory, clusterize them and get the gaussians"
+cat $input | $hban -ta $acc -th $hyd -td $don -ct $xf -w -P | $getm -w -d 3 -o clusters/$prefix -v
+
+
 # Get histograms
 # weighted
 
@@ -64,12 +71,6 @@ awk '!/#/{print $3}' tmphisto.dat | $histo -xi 0 -xf $xf -n $n -t $b -whard > hi
 awk '!/#/{print $1,$2}' tmphisto.dat | $ndhisto -d 2 -xi -$xf,0 -xf $xf,$xf -n $n2,$n -b $b,$b -g -whard > histo/$prefix-nw.h12 &
 awk '!/#/{print $2,$3}' tmphisto.dat | $ndhisto -d 2 -xi 0,0 -xf $xf,$xf -n $n,$n -b $b,$b -g -whard > histo/$prefix-nw.h23 &
 awk '!/#/{print $1,$3}' tmphisto.dat | $ndhisto -d 2 -xi -$xf,0 -xf $xf,$xf -n $n2,$n -b $b,$b -g -whard > histo/$prefix-nw.h13 &
-
-# decomment to choose the number of points
-# cat $input | $hban -ta OX -th HT -td OT -ct $3 -w -P | $getm -w -d 3 -nminmax 2000 -nsamples 50000 -o clusters/testooz -v
-
-echo "First step : calculate v,w,R and the weight from the trajectory, clusterize them and get the gaussians"
-cat $input | $hban -ta $acc -th $hyd -td $don -ct $xf -w -P | $getm -w -d 3 -o clusters/$prefix -v
 
 rm tmphisto.dat
 
