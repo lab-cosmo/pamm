@@ -123,7 +123,7 @@
                WRITE(ufile,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", ADVANCE='NO') &
                     trim(labels(i)), " ", positions(1,i), " ", &
                     positions(2,i), " ", positions(3,i)
-               WRITE(ufile,"(3(A1,ES20.9E4))", ADVANCE='NO') " ", sh(i), &
+               WRITE(ufile,"(3(A1,ES21.8E4))", ADVANCE='NO') " ", sh(i), &
                        " ", sd(i), " ", sa(i)
                WRITE(ufile,*)
             ENDDO

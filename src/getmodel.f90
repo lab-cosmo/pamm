@@ -311,23 +311,24 @@
 	     clusters(k)%cov = 0.0d0
 	     DO i=1,nminmax
 	        IF(idxroot(i).NE.qspath(k)) CYCLE
-	        meannew = meannew + probnmm(i)*Ymm(:,i)
-	        clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + probnmm(i)*Ymm(1,i) * Ymm(1,i)
-	        clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + probnmm(i)*Ymm(1,i) * Ymm(2,i)
-	        clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + probnmm(i)*Ymm(1,i) * Ymm(3,i)
-	        clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + probnmm(i)*Ymm(2,i) * Ymm(2,i)
-	        clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + probnmm(i)*Ymm(2,i) * Ymm(3,i)
-	        clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + probnmm(i)*Ymm(3,i) * Ymm(3,i)
+	        ! to improve using the also the information from the KDE
+	        meannew = meannew + Ymm(:,i)
+	        clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + Ymm(1,i) * Ymm(1,i)
+	        clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + Ymm(1,i) * Ymm(2,i)
+	        clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + Ymm(1,i) * Ymm(3,i)
+	        clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + Ymm(2,i) * Ymm(2,i)
+	        clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + Ymm(2,i) * Ymm(3,i)
+	        clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + Ymm(3,i) * Ymm(3,i)
 	        npc=npc+1
 	     ENDDO
 	     meannew = meannew/npc
 	     clusters(k)%cov = clusters(k)%cov /npc
-	     clusters(k)%cov(1,1) = clusters(k)%cov(1,1) - probnmm(1)*probnmm(1)
-	     clusters(k)%cov(1,2) = clusters(k)%cov(1,2) - probnmm(1)*probnmm(2)
-	     clusters(k)%cov(1,3) = clusters(k)%cov(1,3) - probnmm(1)*probnmm(3)
-	     clusters(k)%cov(2,2) = clusters(k)%cov(2,2) - probnmm(2)*probnmm(2)
-	     clusters(k)%cov(2,3) = clusters(k)%cov(2,3) - probnmm(2)*probnmm(3)
-	     clusters(k)%cov(3,3) = clusters(k)%cov(3,3) - probnmm(3)*probnmm(3)
+	     clusters(k)%cov(1,1) = clusters(k)%cov(1,1) - meannew(1)*meannew(1)
+	     clusters(k)%cov(1,2) = clusters(k)%cov(1,2) - meannew(1)*meannew(2)
+	     clusters(k)%cov(1,3) = clusters(k)%cov(1,3) - meannew(1)*meannew(3)
+	     clusters(k)%cov(2,2) = clusters(k)%cov(2,2) - meannew(2)*meannew(2)
+	     clusters(k)%cov(2,3) = clusters(k)%cov(2,3) - meannew(2)*meannew(3)
+	     clusters(k)%cov(3,3) = clusters(k)%cov(3,3) - meannew(3)*meannew(3)
 	     clusters(k)%cov(2,1) = clusters(k)%cov(1,2)
 	     clusters(k)%cov(3,1) = clusters(k)%cov(1,3)
 	     clusters(k)%cov(3,2) = clusters(k)%cov(2,3)

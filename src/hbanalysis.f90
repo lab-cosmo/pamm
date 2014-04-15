@@ -35,7 +35,7 @@
       INTEGER, PARAMETER :: TYPE_DONOR=2
       INTEGER, PARAMETER :: TYPE_ACCEPTOR=4
          
-      CHARACTER*1024 :: filename, gaussianfile, outputfile
+      CHARACTER*1024 :: filename, gaussianfile !, outputfile
       CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
       INTEGER natoms
@@ -62,7 +62,7 @@
       ! counters
       INTEGER i,ts,k
 
-      LOGICAL verbose,convert,ptcm,nptm,weighted
+      LOGICAL convert,ptcm,nptm,weighted!,verbose
       INTEGER errdef
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
@@ -87,8 +87,8 @@
       ENDDO
       filename="NULL"
       gaussianfile="NULL"
-      outputfile="out-Pad.dat"
-      Nk=-1
+      !outputfile="out-Pad.dat"
+      nk=-1
       ccmd=0
       cell=0.0d0
       nsteps=-1
@@ -97,7 +97,7 @@
       alpha=1.0d0
       wcutoff=5.0d0
       convert = .false.
-      verbose = .false.
+      !verbose = .false.
       ptcm = .false.
       nptm = .false.
       weighted= .false.   ! don't use the weights
@@ -114,8 +114,8 @@
             ccmd = 1
          ELSEIF (cmdbuffer == "-gf") THEN ! file containing gaussian parmeters
             ccmd = 3
-         ELSEIF (cmdbuffer == "-o") THEN ! output file
-            ccmd = 4
+         !ELSEIF (cmdbuffer == "-o") THEN ! output file
+         !   ccmd = 4
          ELSEIF (cmdbuffer == "-l") THEN ! box lenght
             ccmd = 5
          ELSEIF (cmdbuffer == "-ns") THEN ! number of stpes
@@ -147,8 +147,8 @@
             CALL EXIT(-1)
          ELSEIF (cmdbuffer == "-c") THEN ! convert from bohrradius to angstrom
             convert = .true.
-         ELSEIF (cmdbuffer == "-v") THEN ! flag for verbose standard output
-            verbose = .true.
+         !ELSEIF (cmdbuffer == "-v") THEN ! flag for verbose standard output
+            !verbose = .true.
          ELSEIF (cmdbuffer == "-P") THEN ! PTC mode
             ptcm = .true.
          ELSE
@@ -161,8 +161,8 @@
                filename=trim(cmdbuffer)
             ELSEIF (ccmd == 3) THEN ! gaussian file
                gaussianfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 4) THEN ! output file
-               outputfile=trim(cmdbuffer)
+            !ELSEIF (ccmd == 4) THEN ! output file
+            !   outputfile=trim(cmdbuffer)
             ELSEIF (ccmd == 5) THEN ! box dimensions
                par_count = 1
                commas(1) = 0
@@ -254,15 +254,15 @@
 
       IF (.NOT.ptcm) THEN
          ! Mandatory parameters
-         IF ((gaussianfile.EQ."NULL").OR.(Nk.EQ.-1)) THEN
+         IF (gaussianfile.EQ."NULL") THEN
             WRITE(*,*) ""
-            WRITE(*,*) " Error: insert the gaussians parameters! "
+            WRITE(*,*) " Error: insert the file containing the gaussians parameters! "
             CALL helpmessage
             CALL EXIT(-1)
          ELSEIF (vtghb(1).EQ.-1) THEN
             ! the user didn't passed the numbers of the gaussians to use
             ! we will use the first
-            IF(verbose) WRITE(*,*) " Will use the first gaussian to describe the HB. "
+            !IF(verbose) WRITE(*,*) " Will use the first gaussian to describe the HB. "
             ALLOCATE(vghb(1))
             vghb(1)=1
             nghb=1
@@ -283,7 +283,6 @@
          ALLOCATE(clusters(1),pks(1))
          CALL readgaussians(12,D,nk,clusters,pks)
          CLOSE(UNIT=12)
-
          ! we can now define and inizialize the probabilities vector
          ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
          ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
@@ -291,7 +290,7 @@
          spd=0.0d0
          sph=0.0d0
          ! outputfile
-         OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
+         ! OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
       ENDIF
 
       ! Loop over the trajectory
@@ -304,7 +303,7 @@
          ENDIF
          IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
             ! read this snapshot
-            IF(verbose) WRITE(*,*) "Step: ",ts
+            !IF(verbose) WRITE(*,*) "Step: ",ts
             IF(ts.EQ.1)THEN
                CALL xyz_read(.true.,1,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
             ELSE
@@ -314,6 +313,7 @@
             
             ! define what is acceptor,donor and hydrogen
             ! build the mask
+            ! this will be done just the first time
             IF(.not.(ALLOCATED(masktypes)))THEN
                ALLOCATE(masktypes(natoms))
                ! set to TYPE_NONE
@@ -326,8 +326,7 @@
                ENDDO
             ENDIF
             
-            ! here the core of the program
-            
+            ! here the core of the program   
             DO ih=1,natoms ! loop over H
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
                DO id=1,natoms
@@ -358,7 +357,7 @@
                         WRITE(*,"(A1,ES21.8E4)") " ", weight
                      ELSE ! hbmix
                         ! call the library
-                        CALL GetP(3,vwR,weight,alpha,Nk,clusters,pks,pnks)
+                        CALL GetP(3,vwR,weight,alpha,Nk,clusters,pks,pnks)           
                         ! get the pnks
                         ! cumulate the probabilities of all the triplets in wich an the atoms ar involved
                         sph(:,ih) = sph(:,ih) + pnks(:)
@@ -382,7 +381,7 @@
                   sa(:)=sa(:)+spa(vghb(i),:)
                ENDDO
                ! write results to a formatted output
-               CALL xyz_write(7,natoms,cell,ts,labels,positions,sh,sd,sa)
+               CALL xyz_write(6,natoms,cell,ts,labels,positions,sh,sd,sa)
             ENDIF
 
          ELSE
@@ -403,18 +402,18 @@
       IF (.NOT.ptcm) THEN
          DEALLOCATE(clusters,pks,pnks)
          DEALLOCATE(spa, sph, spd, sa, sh, sd, vghb)
-         CLOSE(UNIT=7)
+         !CLOSE(UNIT=7)
       ENDIF
 
       CONTAINS
 
          SUBROUTINE helpmessage
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: hbanalysis [-h] [-P] -i filename [-o outputfile] [-l lx,ly,lz] "
+            WRITE(*,*) " SYNTAX: hbanalysis [-h] [-P] -i filename [-l lx,ly,lz] " ![-o outputfile]
             WRITE(*,*) "                     -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
             WRITE(*,*) "                    [-gf gaussianfile] [-ghb 1,2,..] [-a smoothing_factor] "
             WRITE(*,*) "                    [-ct cutoff] [-ev delta] "
-            WRITE(*,*) "                    [-ns total_steps] [-ss starting_step] [-npt] [-c] [-v] "
+            WRITE(*,*) "                    [-ns total_steps] [-ss starting_step] [-npt] [-c] " ![-v] "
             WRITE(*,*) ""
             WRITE(*,*) " Description ... Two modalities :  "
             WRITE(*,*) ""
@@ -441,7 +440,7 @@
             WRITE(*,*) "   -npt                 : NPT mode "
             WRITE(*,*) "   -c                   : Convert from atomic units (Bohr) to Angstrom "
             WRITE(*,*) "   -w                   : Data points must be weighted "
-            WRITE(*,*) "   -v                   : Verobose mode "
+            ! WRITE(*,*) "   -v                   : Verobose mode "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
