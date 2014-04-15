@@ -100,16 +100,15 @@ cat $input | $hban -ta $acc -th $hyd -td $don -ct $xf -w -gf clusters/$prefix.ga
 
 # makes 1D histograms - marginal probabilities
 # Sh
-awk -v class="${hyd}" '$0 ~ class {print $5}' FE/$prefix.xyz | $histo -xi $xi -xf $xf -n $n -t $b -whard > FE/$prefix.hh &
+awk -v class="${hyd}" '$0 ~ class {print $5}' FE/$prefix.xyz | $histo -xi 0 -xf 3.5 -n $n -t $b -whard > FE/$prefix.hh &
 # Sd
-awk -v class="${don}" '$0 ~ class {print $6}' FE/$prefix.xyz | $histo -xi $xi -xf $xf -n $n -t $b -whard > FE/$prefix.hd &
+awk -v class="${don}" '$0 ~ class {print $6}' FE/$prefix.xyz | $histo -xi 0 -xf 3.5 -n $n -t $b -whard > FE/$prefix.hd &
 # Sa
-awk -v class="${acc}" '$0 ~ class {print $7}' FE/$prefix.xyz | $histo -xi $xi -xf $xf -n $n -t $b -whard > FE/$prefix.ha &
+awk -v class="${acc}" '$0 ~ class {print $7}' FE/$prefix.xyz | $histo -xi 0 -xf 3.5 -n $n -t $b -whard > FE/$prefix.ha &
 
 
 # makes 2D histograms - jont probability
 # Sd | Sa for don
-awk -v class="${don}" '$0 ~ class {print $6, $7}' FE/$prefix.xyz | $ndhisto -d 2 -xi $xi,$xi -xf $xf,$xf -n $n,$n -b $b,$b -g -whard > FE/$prefix.hdd &
+awk -v class="${don}" '$0 ~ class {print $6, $7}' FE/$prefix.xyz | $ndhisto -d 2 -xi 0,0 -xf 3.5,3.5 -n $n,$n -b $b,$b -g -whard > FE/$prefix.hdd &
 # Sd | Sa for acc 
-awk -v class="${acc}" '$0 ~ class {print $6, $7}' FE/$prefix.xyz | $ndhisto -d 2 -xi $xi,$xi -xf $xf,$xf -n $n,$n -b $b,$b -g -whard > FE/$prefix.haa &
-
+awk -v class="${acc}" '$0 ~ class {print $6, $7}' FE/$prefix.xyz | $ndhisto -d 2 -xi 0,0 -xf 3.5,3.5 -n $n,$n -b $b,$b -g -whard > FE/$prefix.haa &

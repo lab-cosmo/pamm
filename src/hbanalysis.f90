@@ -113,29 +113,29 @@
          IF (cmdbuffer == "-i") THEN ! input xyz
             ccmd = 1
          ELSEIF (cmdbuffer == "-gf") THEN ! file containing gaussian parmeters
-            ccmd = 3
+            ccmd = 2
          !ELSEIF (cmdbuffer == "-o") THEN ! output file
          !   ccmd = 4
          ELSEIF (cmdbuffer == "-l") THEN ! box lenght
-            ccmd = 5
+            ccmd = 3
          ELSEIF (cmdbuffer == "-ns") THEN ! number of stpes
-            ccmd = 7
+            ccmd = 4
          ELSEIF (cmdbuffer == "-ss") THEN ! starting step
-            ccmd = 8
+            ccmd = 5
          ELSEIF (cmdbuffer == "-ev") THEN ! delta
-            ccmd = 9
+            ccmd = 6
          ELSEIF (cmdbuffer == "-a") THEN ! smoothing factor, alpha
-            ccmd = 10
+            ccmd = 7
          ELSEIF (cmdbuffer == "-ct") THEN ! cutoff for w
-            ccmd = 11
+            ccmd = 8
          ELSEIF (cmdbuffer == "-ta") THEN ! acceptor types
-            ccmd = 12
+            ccmd = 9
          ELSEIF (cmdbuffer == "-td") THEN ! donor types
-            ccmd = 13
+            ccmd = 10
          ELSEIF (cmdbuffer == "-th") THEN ! hydrogen types
-            ccmd = 14
+            ccmd = 11
          ELSEIF (cmdbuffer == "-ghb") THEN ! gaussians used to describe the HB
-            ccmd = 15
+            ccmd = 12
          ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
             nptm = .true.
          ELSEIF (cmdbuffer == "-w") THEN ! weighted  mode
@@ -159,11 +159,11 @@
                CALL EXIT(-1)
             ELSEIF (ccmd == 1) THEN ! input file
                filename=trim(cmdbuffer)
-            ELSEIF (ccmd == 3) THEN ! gaussian file
+            ELSEIF (ccmd == 2) THEN ! gaussian file
                gaussianfile=trim(cmdbuffer)
             !ELSEIF (ccmd == 4) THEN ! output file
             !   outputfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 5) THEN ! box dimensions
+            ELSEIF (ccmd == 3) THEN ! box dimensions
                par_count = 1
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
@@ -172,19 +172,17 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) cell(par_count,par_count)
-            ELSEIF (ccmd == 6) THEN ! numbers of atoms
-               READ(cmdbuffer,*) natoms
-            ELSEIF (ccmd == 7) THEN ! numbers of steps
+            ELSEIF (ccmd == 4) THEN ! numbers of steps
                READ(cmdbuffer,*) nsteps
-            ELSEIF (ccmd == 8) THEN ! starting step
+            ELSEIF (ccmd == 5) THEN ! starting step
                READ(cmdbuffer,*) startstep
-            ELSEIF (ccmd == 9) THEN ! delta
+            ELSEIF (ccmd == 6) THEN ! delta
                READ(cmdbuffer,*) delta
-            ELSEIF (ccmd == 10) THEN ! smoothing factor, alpha
+            ELSEIF (ccmd == 7) THEN ! smoothing factor, alpha
                READ(cmdbuffer,*) alpha
-            ELSEIF (ccmd == 11) THEN ! cutoff for w
+            ELSEIF (ccmd == 8) THEN ! cutoff for w
                READ(cmdbuffer,*) wcutoff
-            ELSEIF (ccmd == 12) THEN ! accettor types
+            ELSEIF (ccmd == 9) THEN ! accettor types
                errdef=errdef+1
                par_count = 1
                commas(1) = 0
@@ -194,7 +192,7 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtacc(par_count)
-            ELSEIF (ccmd == 13) THEN ! donor types
+            ELSEIF (ccmd == 10) THEN ! donor types
                errdef=errdef+1
                par_count = 1
                commas(1) = 0
@@ -204,7 +202,7 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtdon(par_count)
-            ELSEIF (ccmd == 14) THEN ! hydrogen types
+            ELSEIF (ccmd == 11) THEN ! hydrogen types
                errdef=errdef+1
                par_count = 1
                commas(1) = 0
@@ -214,7 +212,7 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtH(par_count)
-            ELSEIF (ccmd == 15) THEN ! gaussians describing the HB
+            ELSEIF (ccmd == 12) THEN ! gaussians describing the HB
                par_count = 1
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)

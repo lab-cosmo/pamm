@@ -302,12 +302,12 @@
 	  ALLOCATE(clusters(Nk),lpks(Nk))
 	  ! calculate the gaussians covariance from the data in the clusters
 	  DO k=1,Nk
+	     IF (.not.(ALLOCATED(clusters(k)%mean))) ALLOCATE(clusters(k)%mean(D))
+        IF (.not.(ALLOCATED(clusters(k)%cov)))  ALLOCATE(clusters(k)%cov(D,D))
+        IF (.not.(ALLOCATED(clusters(k)%icov))) ALLOCATE(clusters(k)%icov(D,D))
+	     clusters(k)%mean=Ymm(:,qspath(k))
 	     meannew = 0.0d0
 	     npc=0
-	     IF (.not.(ALLOCATED(clusters(k)%mean))) ALLOCATE(clusters(k)%mean(D))
-         IF (.not.(ALLOCATED(clusters(k)%cov)))  ALLOCATE(clusters(k)%cov(D,D))
-         IF (.not.(ALLOCATED(clusters(k)%icov))) ALLOCATE(clusters(k)%icov(D,D))
-	     clusters(k)%mean=Ymm(:,qspath(k))
 	     clusters(k)%cov = 0.0d0
 	     DO i=1,nminmax
 	        IF(idxroot(i).NE.qspath(k)) CYCLE
