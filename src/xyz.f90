@@ -27,106 +27,61 @@
       MODULE xyz
          USE mixture
       IMPLICIT NONE
-      
+
       ! Constant to convert from bohrradius to angstrom
-      DOUBLE PRECISION, PARAMETER :: bohr=0.5291772192171717171717171717171717
-      
+      DOUBLE PRECISION, PARAMETER :: bohr=0.529177219217
+
       CONTAINS
 
-         SUBROUTINE xyz_read(skipna,mode,nptmode,convert,ufile,natoms,positions,labels,cell,icell,endf)
-            ! Get the coordinates of all the atoms
-            !
-            ! Args:
-            !    mode: The flag that tell if we have to skip or not the snapshot
-            !    ufile: ID of the input file
-            !    natoms: The number of atoms in the system.
-            !    positions: The array containing the atoms coordinates.
-            
-            LOGICAL, INTENT(IN) :: skipna ! to skip the reading of the line
-                                          ! containing the number of atoms.
-                                          ! I need this just for the first snapshot
-            INTEGER, INTENT(IN) :: mode 
-            LOGICAL, INTENT(IN) :: nptmode
-            LOGICAL, INTENT(IN) :: convert
-            INTEGER, INTENT(IN) :: ufile
+         SUBROUTINE xyz_read(ufile,natoms,header,labels,positions,endf)
             INTEGER, INTENT(OUT) :: natoms
             DOUBLE PRECISION, DIMENSION(:,:), ALLOCATABLE, INTENT(INOUT)  :: positions
             CHARACTER*4, DIMENSION(:), ALLOCATABLE, INTENT(INOUT) :: labels
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(INOUT) :: cell
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(INOUT) :: icell
+            CHARACTER*1024, INTENT(OUT) :: header
+            INTEGER, INTENT(IN) :: ufile
             INTEGER, INTENT(OUT) :: endf
+            INTEGER i
 
-            CHARACTER*30 dummy1,dummy2
-            INTEGER i,nc
+            READ(ufile,*,IOSTAT=endf) natoms
+            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf<0) return
 
-            IF (mode.eq.0) THEN
-               ! Discard this timesnapshot
-               nc=natoms+2
-               IF(skipna) nc=nc-1
-               DO i=1,nc
-                  READ(ufile,*,IOSTAT=endf) dummy1
-                  IF(endf>0) error STOP "*** Error occurred while reading file. ***"
-                  IF(endf<0) return
-               END DO
-            ELSE
-               ! Get the snapshot
-            
-               ! Get the atom number
-               IF(.NOT.skipna)READ(ufile,*,IOSTAT=endf) natoms 
-               IF(endf>0) error STOP "*** Error occurred while reading file. ***"
-			   IF(endf<0) return
-			   
-		       ! Get the cell
-		       IF ((cell(1,1)==(0.0d0) .OR. cell(2,2)==(0.0d0) .OR. cell(3,3)==(0.0d0)).or.(nptmode)) THEN
-		          ! read the box size
-		          READ(ufile,*,IOSTAT=endf) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
-		          IF(endf>0) error STOP "*** Error occurred while reading file. ***"
-		          IF(endf<0) return
-		          ! convert the box if necessary
-		          IF(convert) cell=cell*bohr
-		          CALL invmatrix(3,cell,icell) 
-		       ELSE
-		          READ(ufile, '(A)') dummy1
-               ENDIF
+            ! Get the snapshot header
+            READ(ufile,'(A)',IOSTAT=endf) header
+		    IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+		    IF(endf<0) return
 
-               IF (.not.(ALLOCATED(labels))) ALLOCATE(labels(natoms))
-               IF (.not.(ALLOCATED(positions))) ALLOCATE(positions(3,natoms))
-               
-               DO i=1,natoms ! label, x, y, z
-                  READ(ufile,*,IOSTAT=endf) labels(i),positions(1,i),positions(2,i),positions(3,i)
-                  IF(endf>0) error STOP "*** Error occurred while reading file. ***"
-                  IF(endf<0) return
-               END DO
-               ! convert if necessary
-		       IF(convert) positions=positions*bohr
-            ENDIF
+            IF ( ALLOCATED(labels) .and. SIZE(labels)/=natoms ) DEALLOCATE(labels) ! atom number changed
+            IF (.not.(ALLOCATED(labels))) ALLOCATE(labels(natoms))
+
+            IF ( ALLOCATED(positions) .and. SIZE(positions)/=natoms ) DEALLOCATE(positions) ! atom number changed
+            IF (.not.(ALLOCATED(positions))) ALLOCATE(positions(3,natoms))
+
+            DO i=1,natoms ! label, x, y, z
+                READ(ufile,*,IOSTAT=endf) labels(i),positions(1,i),positions(2,i),positions(3,i)
+                IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+                IF(endf<0) return
+            END DO
             endf=0
          END SUBROUTINE xyz_read
-         
-         SUBROUTINE xyz_write(ufile,natoms,cell,ts,labels,positions,sh,sd,sa)
-            INTEGER, INTENT(IN) :: ufile
-            INTEGER, INTENT(IN) :: natoms
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
-            INTEGER, INTENT(IN) :: ts
-            CHARACTER*4, DIMENSION(natoms), INTENT(INOUT) :: labels
+
+         SUBROUTINE xyz_write(ufile,natoms,header,labels,positions)
+            INTEGER, INTENT(IN) :: ufile, natoms
+
+            CHARACTER*1024, INTENT(IN) :: header
+            CHARACTER*4, DIMENSION(natoms), INTENT(IN) :: labels
             DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
-            DOUBLE PRECISION, DIMENSION(natoms), INTENT(IN) :: sh, sd, sa
-            
             INTEGER i
 
             ! header
             WRITE(ufile,"(I4)") natoms
-            WRITE(ufile,"(a,F11.7,a,F11.7,a,F11.7,a,I10)") &
-                 "# CELL(abc): ",cell(1,1)," ",cell(2,2)," ",cell(3,3)," Step: ",ts
+            WRITE(ufile,"(A)") header
+
             ! body
             DO i=1,natoms
-               WRITE(ufile,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", ADVANCE='NO') &
+               WRITE(ufile,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)") &
                     trim(labels(i)), " ", positions(1,i), " ", &
                     positions(2,i), " ", positions(3,i)
-               WRITE(ufile,"(3(A1,ES21.8E4))", ADVANCE='NO') " ", sh(i), &
-                       " ", sd(i), " ", sa(i)
-               WRITE(ufile,*)
             ENDDO
          END SUBROUTINE xyz_write
-
       END MODULE xyz

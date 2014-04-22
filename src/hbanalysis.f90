@@ -1,4 +1,4 @@
-! The main program which use the mixture library to HB. 
+! The main program which use the mixture library to HB.
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
@@ -23,18 +23,18 @@
 !
 !
 
-      PROGRAM hbanalysis 
+      PROGRAM hbanalysis
          USE xyz
          USE mixture
       IMPLICIT NONE
-      
+
       ! Types used by bitwise operators to control the atom type
       ! they must be power of 2
       INTEGER, PARAMETER :: TYPE_NONE=0
       INTEGER, PARAMETER :: TYPE_H=1
       INTEGER, PARAMETER :: TYPE_DONOR=2
       INTEGER, PARAMETER :: TYPE_ACCEPTOR=4
-         
+
       CHARACTER*1024 :: filename, gaussianfile !, outputfile
       CHARACTER*1024 :: cmdbuffer,tmp
       ! system parameters
@@ -71,13 +71,16 @@
       INTEGER vtghb(12),nghb
       INTEGER, ALLOCATABLE, DIMENSION(:) :: vghb
       CHARACTER*4, ALLOCATABLE, DIMENSION(:) :: labels
+      CHARACTER*1024 :: header, dummyc
+
+
       CHARACTER*4, DIMENSION(4) :: vtacc,vtdon,vtH
 
       DOUBLE PRECISION dummyd1,dummyd2
       INTEGER dummyi1,dummyi2
       INTEGER endf
-      
-      
+
+
 
       !! default values
       DO i=1,4
@@ -234,7 +237,7 @@
          ENDIF
       ENDDO
       !!!!! END PARSER
-      
+
       ! Mandatory parameters
 !      IF (filename.EQ."NULL") THEN
 !         WRITE(*,*) ""
@@ -242,7 +245,7 @@
 !         CALL helpmessage
 !         CALL EXIT(-1)
 !      ENDIF
-      
+
       IF (.NOT.(errdef.EQ.3)) THEN
          WRITE(*,*) ""
          WRITE(*,*) " Error: insert hydrongen, donor and acceptor species! "
@@ -266,65 +269,61 @@
             nghb=1
          ENDIF
       ENDIF
-      
-      CALL invmatrix(3,cell,icell) 
-      ! at this point I need to now the number of atoms natoms
-      ! read the first line
-      READ(5,*,IOSTAT=i) natoms
-      IF(i.NE.0) error STOP "*** Error occurred while reading file. ***"
 
-      IF (.NOT.ptcm) THEN
-         ! HB-mixture mode
-         ! Read gaussian parameters from the gaussian file
-         OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
-         ! this allocation is just to avoid the rising of errors
-         ALLOCATE(clusters(1),pks(1))
-         CALL readgaussians(12,D,nk,clusters,pks)
-         CLOSE(UNIT=12)
-         ! we can now define and inizialize the probabilities vector
-         ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
-         ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
-         spa=0.0d0
-         spd=0.0d0
-         sph=0.0d0
-         ! outputfile
-         ! OPEN(UNIT=7,FILE=outputfile,STATUS='REPLACE',ACTION='WRITE')
-      ENDIF
+      CALL invmatrix(3,cell,icell)
 
       ! Loop over the trajectory
       ts=0
       DO
-         
          ts=ts+1
-         IF(nsteps.NE.-1)THEN
-            IF(nsteps.LT.ts) EXIT
-         ENDIF
-         IF ((MODULO(ts,delta)==0) .AND. (ts>=startstep)) THEN
-            ! read this snapshot
-            !IF(verbose) WRITE(*,*) "Step: ",ts
-            IF(ts.EQ.1)THEN
-               CALL xyz_read(.true.,1,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
-            ELSE
-               CALL xyz_read(.false.,1,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
+         IF (nsteps.NE.-1 .AND. nsteps.LT.ts) EXIT  ! time to go!
+
+         IF (ts-startstep .lt. 0  .or. MODULO(ts-startstep,delta)/=0) THEN
+            ! skip the frame
+            READ(5,*,IOSTAT=i) natoms
+            READ(5,'(A)') header
+            DO i=1,natoms
+               READ(5,'(A)',IOSTAT=endf) header
+            ENDDO
+            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf<0) EXIT
+            CYCLE
+         ELSE
+            CALL xyz_read(5,natoms,header,labels,positions,endf)
+            IF(endf<0) EXIT
+            IF (ts-startstep == 0) THEN ! first step, must allocate stuff
+                ! we can now define and inizialize the masks and Gaussians
+                IF (.NOT.ptcm) THEN
+                    ! Read gaussian parameters from the gaussian file
+                    OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
+                    ! this allocation is just to avoid the rising of errors
+                    ALLOCATE(clusters(1),pks(1))
+                    CALL readgaussians(12,D,nk,clusters,pks)
+                    CLOSE(UNIT=12)
+
+                    ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
+                    ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
+                    spa=0.0d0
+                    spd=0.0d0
+                    sph=0.0d0
+                ENDIF
+                ALLOCATE(masktypes(natoms))
+                ! set to TYPE_NONE
+                masktypes=TYPE_NONE
+                DO i=1,natoms
+                   ! set the mask using BITWISE OR OPERATOR
+                   IF(testtype(labels(i),vtH)) masktypes(i)=IOR(masktypes(i),TYPE_H)
+                   IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
+                   IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
+                ENDDO
             ENDIF
-            IF(endf<0)EXIT
-            
-            ! define what is acceptor,donor and hydrogen
-            ! build the mask
-            ! this will be done just the first time
-            IF(.not.(ALLOCATED(masktypes)))THEN
-               ALLOCATE(masktypes(natoms))
-               ! set to TYPE_NONE
-               masktypes=TYPE_NONE
-               DO i=1,natoms
-                  ! set the mask using BITWISE OR OPERATOR
-                  IF(testtype(labels(i),vtH)) masktypes(i)=IOR(masktypes(i),TYPE_H)
-                  IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
-                  IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
-               ENDDO
-            ENDIF
-            
-            ! here the core of the program   
+
+            IF (nptm .or. cell(1,1) == 0.0d0) THEN ! Variable cell! Try to read the cell parameters from the header
+               READ(header, *) dummyc,dummyc,cell(1,1),cell(2,2),cell(3,3)
+               CALL invmatrix(3,cell,icell)
+            END IF
+
+            ! here the core of the program
             DO ih=1,natoms ! loop over H
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
                DO id=1,natoms
@@ -334,7 +333,7 @@
                   IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater
                                             ! than the cutoff, we can already discard the D-H pair
                   DO ia=1,natoms
-                  
+
                      IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                         .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
                      ! Distance acceptor-hydrogen
@@ -344,18 +343,18 @@
                      vwR(1)=rdh-rah
                      ! Calculate the distance donor-acceptor (R)
                      CALL separation(cell,icell,positions(:,id),positions(:,ia),vwR(3))
-                     
+
                      weight=1.0d0
                      ! weight = 1/J = 1/((w*w-v*v)*R)
                      IF(weighted) weight=1.0d0/((vwR(2)*vwR(2)-vwR(1)*vwR(1))*vwR(3))
-                     
+
                      IF(ptcm)THEN ! -P mode
                         ! write out : v,w,R  and weight
                         WRITE(*,"(3(A1,ES21.8E4))",ADVANCE = "NO")  " ",vwR(1)," ",vwR(2)," ",vwR(3)
                         WRITE(*,"(A1,ES21.8E4)") " ", weight
                      ELSE ! hbmix
                         ! call the library
-                        CALL GetP(3,vwR,weight,alpha,Nk,clusters,pks,pnks)           
+                        CALL GetP(3,vwR,weight,alpha,Nk,clusters,pks,pnks)
                         ! get the pnks
                         ! cumulate the probabilities of all the triplets in wich an the atoms ar involved
                         sph(:,ih) = sph(:,ih) + pnks(:)
@@ -365,9 +364,9 @@
                   ENDDO
                ENDDO
             ENDDO
-            
+
             ! write the results
-            
+
             IF(.not.ptcm)THEN
                ! sum over the gaussians of interest
                sa=0.0d0
@@ -379,17 +378,12 @@
                   sa(:)=sa(:)+spa(vghb(i),:)
                ENDDO
                ! write results to a formatted output
-               CALL xyz_write(6,natoms,cell,ts,labels,positions,sh,sd,sa)
+               ! use positions as a dummy vector to store sh, sd, sa
+               positions(1,:) = sh
+               positions(2,:) = sd
+               positions(3,:) = sa
+               CALL xyz_write(6,natoms,header,labels,positions)
             ENDIF
-
-         ELSE
-            ! discard this snapshot
-            IF(ts.EQ.1)THEN
-               CALL xyz_read(.true.,0,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
-            ELSE
-               CALL xyz_read(.false.,0,nptm,convert,5,natoms,positions,labels,cell,icell,endf)
-            ENDIF
-            IF(endf<0)EXIT
          ENDIF
       ENDDO
       ! end the loop over the trajectory
