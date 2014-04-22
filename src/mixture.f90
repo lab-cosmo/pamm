@@ -31,9 +31,9 @@
 
       MODULE mixture
       IMPLICIT NONE
-      
+
       DOUBLE PRECISION, PARAMETER :: dpigreco = (2.0d0*3.14159265358979d0)
-      
+
       ! Structure that contains the parameters needed to define and
       ! estimate a gaussian
       TYPE gauss_type
@@ -46,51 +46,6 @@
 
       CONTAINS
 
-         ! A few utility functions
-
-         SUBROUTINE separation(cell_h, cell_ih, ri, rj, r)
-            ! Calculates the distance between two position vectors (with PBC).
-            !
-            ! Note that minimum image convention is used, so only the image of
-            ! atom j that is the shortest distance from atom i is considered.
-            !
-            ! Also note that while this may not work if the simulation
-            ! box is highly skewed from orthorhombic, as
-            ! in this case it is possible to return a distance less than the
-            ! nearest neighbour distance. However, this will not be of
-            ! importance unless the cut-off radius is more than half the
-            ! width of the shortest face-face distance of the simulation box,
-            ! which should never be the case.
-            !
-            ! Args:
-            !    cell_h: The simulation box cell vector matrix.
-            !    cell_ih: The inverse of the simulation box cell vector matrix.
-            !    ri: The position vector of atom i.
-            !    rj: The position vector of atom j
-            !    r: The distance between the atoms i and j.
-
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_h
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_ih
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
-            DOUBLE PRECISION, INTENT(OUT) :: r
-
-            INTEGER k
-            ! The separation in a basis where the simulation box
-            ! is a unit cube.
-            DOUBLE PRECISION, DIMENSION(3) :: sij
-            DOUBLE PRECISION, DIMENSION(3) :: rij
-
-            sij = matmul(cell_ih, ri-rj)
-            DO k = 1, 3
-               ! Finds the smallest separation of all the images of atom i and j
-               sij(k) = sij(k) - dnint(sij(k)) ! Minimum Image Convention
-            ENDDO
-            rij = matmul(cell_h, sij)
-            r = dsqrt(dot_product(rij, rij))
-
-         END SUBROUTINE
-         
          SUBROUTINE collapsend(D,n1,n2,v1,v2)
             ! ndimensional version
             ! collapse v1 and v2 into v1
@@ -102,15 +57,15 @@
             !    n2: size of the vector v2
             !    v1: vector to wich I want to append v2
             !    v2: vector to append to v1
-            
+
             INTEGER, INTENT(IN) :: D
             INTEGER, INTENT(INOUT) :: n1
             INTEGER, INTENT(IN) :: n2
             DOUBLE PRECISION, allocatable, dimension(:,:), INTENT(INOUT) :: v1
             DOUBLE PRECISION, dimension(:,:), INTENT(IN) :: v2
-         
+
             DOUBLE PRECISION, allocatable, dimension(:,:) :: tmp_v
-         
+
             IF(n1.EQ.0)THEN
                DEALLOCATE(v1)
                ALLOCATE(v1(D,n2))
@@ -126,9 +81,9 @@
                v1=tmp_v
                DEALLOCATE(tmp_v)
             ENDIF
-         
+
          END SUBROUTINE collapsend
-         
+
          SUBROUTINE collapse1d(n1,n2,v1,v2)
             ! 1D version
             ! collapse v1 and v2 into v1
@@ -139,9 +94,9 @@
             INTEGER, INTENT(IN) :: n2
             DOUBLE PRECISION, allocatable, dimension(:), INTENT(INOUT) :: v1
             DOUBLE PRECISION, dimension(:), INTENT(IN) :: v2
-         
+
             DOUBLE PRECISION, allocatable, dimension(:) :: tmp_v
-         
+
             IF(n1.EQ.0)THEN
                DEALLOCATE(v1)
                ALLOCATE(v1(n2))
@@ -155,15 +110,15 @@
                v1=tmp_v
                DEALLOCATE(tmp_v)
             ENDIF
-         
+
          END SUBROUTINE collapse1d
-                
+
          SUBROUTINE invmatrix(D,M,IM)
             ! inversion of a square matrix using lapack
             INTEGER, INTENT(IN) :: D
             DOUBLE PRECISION, DIMENSION(D,D), INTENT(IN) :: M
             DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: IM
-             
+
             DOUBLE PRECISION, DIMENSION(D) :: WORK
             INTEGER, DIMENSION(D) :: IPIV
             INTEGER info,error
@@ -180,14 +135,14 @@
             WORK(2) = 0.0d0
             WORK(3) = 0.0d0
             ! call lapack
-            call DGETRI(D,IM,D,IPIV,WORK,D,info)   
+            call DGETRI(D,IM,D,IPIV,WORK,D,info)
          END SUBROUTINE
 
          DOUBLE PRECISION FUNCTION detmatrix(D,M)
            ! determinant of a square matrix
             INTEGER, INTENT(IN) :: D
             DOUBLE PRECISION, DIMENSION(D,D) , INTENT(IN) :: M
-            
+
             DOUBLE PRECISION, DIMENSION(D,D) :: matrix
             DOUBLE PRECISION :: mt, temp
             INTEGER :: i, j, k, l
@@ -223,7 +178,7 @@
                    END DO
                END DO
             ENDDO
-    
+
             !Calculate determinant by finding product of diagonal elements
             detmatrix=l
             DO i=1,D
@@ -233,32 +188,32 @@
 
          SUBROUTINE gauss_prepare(D,gpars)
             ! Initialize all the parameters of the gaussian
-            ! 
+            !
             ! Args:
             !    D: dimensionality
             !    gpars: gauss_type variable to initialize
-            
-            INTEGER, INTENT(IN) :: D 
+
+            INTEGER, INTENT(IN) :: D
             TYPE(gauss_type), INTENT(INOUT) :: gpars
-            
+
             ! calculate the determinant of the covariance matrix
-            gpars%det = detmatrix(D,gpars%cov)          
-            ! calculate the inverse of the convariance matrix      
+            gpars%det = detmatrix(D,gpars%cov)
+            ! calculate the inverse of the convariance matrix
             CALL invmatrix(D,gpars%cov,gpars%icov)
-            
+
             ! calculate the  logarithm of the normalization factor
             gpars%lnorm = dlog(1.0d0/dsqrt((dpigreco**D)*gpars%det))
          END SUBROUTINE gauss_prepare
-         
+
          ! probably this is no more needed
          DOUBLE PRECISION FUNCTION gauss_logeval(D,gpars, x)
             ! Return the logarithm of the multivariate gaussian density
-            ! 
+            !
             ! Args:
             !    D: dimensionality
             !    gpars: gaussian parameters
-            !    x: point in wich estimate the log of the gaussian 
-            
+            !    x: point in wich estimate the log of the gaussian
+
             INTEGER, INTENT(IN) :: D
             TYPE(gauss_type), INTENT(IN) :: gpars
             DOUBLE PRECISION, INTENT(IN) :: x(D)
@@ -277,15 +232,15 @@
             ! Args:
             !    D: dimensionality
             !    gpars: gaussian parameters
-            !    x: point in wich estimate the value of the gaussian 
-            
+            !    x: point in wich estimate the value of the gaussian
+
             INTEGER, INTENT(IN) :: D
             TYPE(gauss_type), INTENT(IN) :: gpars
             DOUBLE PRECISION, INTENT(IN) :: x(D)
-            
+
             gauss_eval = dexp(gauss_logeval(D,gpars,x))
          END FUNCTION gauss_eval
-         
+
          SUBROUTINE readgaussians(fileid,D,Nk,clusters,pks)
             ! Load the gaussians from the stream fileid
             !
@@ -295,17 +250,17 @@
             !    Nk: numeber of gaussians
             !    clusters: array of type_gaussian in wich we store the gaussians parameters
             !    lpks: logarithm of the Pks associated to the gaussians
-               
+
             INTEGER, INTENT(IN) :: fileid
-            INTEGER, INTENT(IN) :: D 
+            INTEGER, INTENT(IN) :: D
             INTEGER, INTENT(INOUT) :: Nk
             TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:), INTENT(INOUT)  :: clusters
             DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(INOUT) :: pks
-            
+
             CHARACTER*1024 ::dummybuffer
             CHARACTER dummychar
             INTEGER k,i,j
-            
+
             ! skip the first two comment lines , for now...
             READ(fileid,*) dummybuffer
             READ(fileid,*) dummybuffer
@@ -334,9 +289,9 @@
               ! call the routine to prepare the gaussians
               CALL gauss_prepare(D,clusters(k))
             ENDDO
-            
+
          END SUBROUTINE readgaussians
-         
+
          SUBROUTINE writegaussianstofile(outputfile,D,nsamples,nminmax,tau,Nk,clusters,lpks)
             ! Write out the gaussian model informations to a file
             !
@@ -344,18 +299,18 @@
             !    fileid: the file containing the gaussians parameters
             !    gaussp: type_gaussian container in wich we store the gaussian parameters
             !    lpk: logarithm of the Pk associated to the gaussian
-               
+
             CHARACTER*1024, INTENT(IN) :: outputfile
-            INTEGER, INTENT(IN) :: D 
+            INTEGER, INTENT(IN) :: D
             INTEGER, INTENT(IN) :: nsamples
             INTEGER, INTENT(IN) :: nminmax
             INTEGER, INTENT(IN) :: Nk
             DOUBLE PRECISION, INTENT(IN) :: tau
             TYPE(GAUSS_TYPE), DIMENSION(Nk), INTENT(IN)  :: clusters
             DOUBLE PRECISION, DIMENSION(Nk), INTENT(IN) :: lpks
-            
+
             INTEGER k,i,j
-            
+
             OPEN(UNIT=12,FILE=trim(outputfile)//".gauss",STATUS='REPLACE',ACTION='WRITE')
             ! write a 2-lines header
 	        WRITE(12,"(A31)",ADVANCE="NO") "# Quick Shift GM output. Ntot: "
@@ -380,10 +335,10 @@
            ENDDO
            CLOSE(UNIT=12)
          END SUBROUTINE writegaussianstofile
-         
+
          SUBROUTINE ordergaussians(D,nk,clusters,pks,prif)
             ! Order the gaussians from the closest to prif
-            ! Bubble-sort ordering is implemented here 
+            ! Bubble-sort ordering is implemented here
             !
             ! Args:
             !    D: Dimensionality
@@ -391,28 +346,28 @@
             !    clusters: array containing gaussians parameters
             !    pks: The array containing the gaussians Pk
             !    prif: reference point
-            
-            INTEGER, INTENT(IN) :: D 
+
+            INTEGER, INTENT(IN) :: D
             INTEGER, INTENT(IN) :: nk
             TYPE(gauss_type), DIMENSION(nk), INTENT(INOUT) :: clusters
             DOUBLE PRECISION, DIMENSION(nk), INTENT(INOUT) :: pks
             DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: prif
-            
+
             TYPE(gauss_type) tmpgauss
             DOUBLE PRECISION distances(nk),tmpdistance,tmppk
 			INTEGER j,i
 			LOGICAL :: swapped = .TRUE.
-			
+
 			! calculate the distances
 			DO i=1,nk
-			   distances(i)=dot_product(clusters(i)%mean, prif)		   
+			   distances(i)=dot_product(clusters(i)%mean, prif)
             ENDDO
             ! now we can sort using the distances
             ! will use bubble sort
             DO j=nk-1,1,-1
                swapped = .FALSE.
                DO i = 1, j
-                  IF (distances(i) > distances(i+1)) THEN            
+                  IF (distances(i) > distances(i+1)) THEN
                      tmpdistance=distances(i)
                      distances(i)=distances(i+1)
                      distances(i+1)=tmpdistance
@@ -427,10 +382,10 @@
                      swapped = .TRUE.
                   END IF
                END DO
-               IF (.NOT. swapped) EXIT	   
-            ENDDO         
-         END SUBROUTINE ordergaussians         
-         
+               IF (.NOT. swapped) EXIT
+            ENDDO
+         END SUBROUTINE ordergaussians
+
          SUBROUTINE GetP(D,x,weight,alpha,nk,clusters,pks,pnks)
             ! Return for each atoms the sum of the ..
             !
@@ -442,7 +397,7 @@
             !    clusters: The array containing the structures with the gaussians parameters
             !    pks: The array containing the gaussians Pk
             !    pnks: The conditional probability of th point p given k
-            
+
             INTEGER, INTENT(IN) :: D
             DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: x
             DOUBLE PRECISION, INTENT(IN) :: weight
@@ -451,10 +406,10 @@
             TYPE(gauss_type), DIMENSION(nk), INTENT(IN) :: clusters
             DOUBLE PRECISION, DIMENSION(nk), INTENT(IN) :: pks
             DOUBLE PRECISION, DIMENSION(nk), INTENT(OUT) :: pnks
-           
+
             DOUBLE PRECISION pnormpk !normalization factor
             INTEGER k
-            
+
             pnks=0.0d0
             pnormpk=0.0d0 ! normalization factor (mixture weight)
 
@@ -466,8 +421,8 @@
                pnormpk = pnormpk+pnks(k)
             ENDDO
             ! skip cases in which the probability is tooooo tiny
-            IF (pnormpk.NE.0.0d0) pnks = pnks/pnormpk ! normalization  
+            IF (pnormpk.NE.0.0d0) pnks = pnks/pnormpk ! normalization
          END SUBROUTINE GetP
- 
+
 
       END MODULE mixture

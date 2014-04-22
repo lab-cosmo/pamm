@@ -34,6 +34,7 @@
       INTEGER, PARAMETER :: TYPE_H=1
       INTEGER, PARAMETER :: TYPE_DONOR=2
       INTEGER, PARAMETER :: TYPE_ACCEPTOR=4
+      INTEGER, PARAMETER :: MAXPARS = 4
 
       CHARACTER*1024 :: filename, gaussianfile !, outputfile
       CHARACTER*1024 :: cmdbuffer,tmp
@@ -41,8 +42,8 @@
       INTEGER natoms
       DOUBLE PRECISION cell(3,3), icell(3,3), dummycell(3,3)
       DOUBLE PRECISION alpha, wcutoff
-      INTEGER nsteps, startstep, delta
-      INTEGER D ! dimensionality of the dataset
+      INTEGER endframe, startframe, delta
+
       ! gaussians
       INTEGER Nk
       ! array of gaussians
@@ -57,12 +58,12 @@
       DOUBLE PRECISION rah,rdh,weight
       ! for the parser
       INTEGER ccmd
-      INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
+      INTEGER commas(MAXPARS), par_count  ! stores the index of commas in the parameter string
       ! for a faster reading
       ! counters
       INTEGER i,ts,k
 
-      LOGICAL convert,ptcm,nptm,weighted!,verbose
+      LOGICAL convert,dogma,nptm,weighted!,verbose
       INTEGER errdef
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
@@ -94,42 +95,41 @@
       nk=-1
       ccmd=0
       cell=0.0d0
-      nsteps=-1
+      endframe=-1
       delta=1
-      startstep=1
+      startframe=1
       alpha=1.0d0
       wcutoff=5.0d0
       convert = .false.
       !verbose = .false.
-      ptcm = .false.
+      dogma = .false.
       nptm = .false.
       weighted= .false.   ! don't use the weights
       endf = 0
       errdef=0
       vtghb=-1
-      D=3
       !!
 
       !!!!! PARSER
       DO i = 1, IARGC()
          CALL GETARG(i, cmdbuffer)
-         IF (cmdbuffer == "-i") THEN ! input xyz
+         IF (cmdbuffer == "-h") THEN ! help
             ccmd = 1
+            CALL helpmessage
+            CALL EXIT(-1)
          ELSEIF (cmdbuffer == "-gf") THEN ! file containing gaussian parmeters
             ccmd = 2
-         !ELSEIF (cmdbuffer == "-o") THEN ! output file
-         !   ccmd = 4
-         ELSEIF (cmdbuffer == "-l") THEN ! box lenght
+         ELSEIF (cmdbuffer == "-l") THEN ! box length
             ccmd = 3
-         ELSEIF (cmdbuffer == "-ns") THEN ! number of stpes
+         ELSEIF (cmdbuffer == "-ff") THEN ! final frame
             ccmd = 4
-         ELSEIF (cmdbuffer == "-ss") THEN ! starting step
+         ELSEIF (cmdbuffer == "-sf") THEN ! start frame
             ccmd = 5
          ELSEIF (cmdbuffer == "-ev") THEN ! delta
             ccmd = 6
          ELSEIF (cmdbuffer == "-a") THEN ! smoothing factor, alpha
             ccmd = 7
-         ELSEIF (cmdbuffer == "-ct") THEN ! cutoff for w
+         ELSEIF (cmdbuffer == "-ct") THEN ! cutoff for mu
             ccmd = 8
          ELSEIF (cmdbuffer == "-ta") THEN ! acceptor types
             ccmd = 9
@@ -143,29 +143,15 @@
             nptm = .true.
          ELSEIF (cmdbuffer == "-w") THEN ! weighted  mode
             weighted = .true.
-         ELSEIF (cmdbuffer == "-h") THEN ! help
-            WRITE(*,*) ""
-            WRITE(*,*) " HB-mixture test program."
-            CALL helpmessage
-            CALL EXIT(-1)
-         ELSEIF (cmdbuffer == "-c") THEN ! convert from bohrradius to angstrom
-            convert = .true.
-         !ELSEIF (cmdbuffer == "-v") THEN ! flag for verbose standard output
-            !verbose = .true.
-         ELSEIF (cmdbuffer == "-P") THEN ! PTC mode
-            ptcm = .true.
          ELSE
             IF (ccmd == 0) THEN
                WRITE(*,*) ""
                WRITE(*,*) " Wrong usage. Insert the right parameters!"
                CALL helpmessage
                CALL EXIT(-1)
-            ELSEIF (ccmd == 1) THEN ! input file
-               filename=trim(cmdbuffer)
             ELSEIF (ccmd == 2) THEN ! gaussian file
+               dogma=.true.
                gaussianfile=trim(cmdbuffer)
-            !ELSEIF (ccmd == 4) THEN ! output file
-            !   outputfile=trim(cmdbuffer)
             ELSEIF (ccmd == 3) THEN ! box dimensions
                par_count = 1
                commas(1) = 0
@@ -175,17 +161,17 @@
                   par_count = par_count + 1
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) cell(par_count,par_count)
-            ELSEIF (ccmd == 4) THEN ! numbers of steps
-               READ(cmdbuffer,*) nsteps
-            ELSEIF (ccmd == 5) THEN ! starting step
-               READ(cmdbuffer,*) startstep
+            ELSEIF (ccmd == 4) THEN ! last frame
+               READ(cmdbuffer,*) endframe
+            ELSEIF (ccmd == 5) THEN ! start frame
+               READ(cmdbuffer,*) startframe
             ELSEIF (ccmd == 6) THEN ! delta
                READ(cmdbuffer,*) delta
             ELSEIF (ccmd == 7) THEN ! smoothing factor, alpha
                READ(cmdbuffer,*) alpha
             ELSEIF (ccmd == 8) THEN ! cutoff for w
                READ(cmdbuffer,*) wcutoff
-            ELSEIF (ccmd == 9) THEN ! accettor types
+            ELSEIF (ccmd == 9) THEN ! acceptor types
                errdef=errdef+1
                par_count = 1
                commas(1) = 0
@@ -219,13 +205,10 @@
                par_count = 1
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
+                  IF (par_count .ge. MAXPARS) error STOP "*** Too many HB clusters specified on command line. ***"
                   commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
                   READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vtghb(par_count)
                   par_count = par_count + 1
-                  IF(par_count>15)THEN
-                     WRITE(*,*) "To much HBgaussians for me... Change the source code!"
-                     CALL EXIT(-1)
-                  ENDIF
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtghb(par_count)
                ! parameters readed. Now I know the number of the parameters passed
@@ -253,7 +236,7 @@
          CALL EXIT(-1)
       ENDIF
 
-      IF (.NOT.ptcm) THEN
+      IF (dogma) THEN
          ! Mandatory parameters
          IF (gaussianfile.EQ."NULL") THEN
             WRITE(*,*) ""
@@ -276,9 +259,9 @@
       ts=0
       DO
          ts=ts+1
-         IF (nsteps.NE.-1 .AND. nsteps.LT.ts) EXIT  ! time to go!
+         IF (endframe.NE.-1 .AND. endframe.LT.ts) EXIT  ! time to go!
 
-         IF (ts-startstep .lt. 0  .or. MODULO(ts-startstep,delta)/=0) THEN
+         IF (ts-startframe .lt. 0  .or. MODULO(ts-startframe,delta)/=0) THEN
             ! skip the frame
             READ(5,*,IOSTAT=i) natoms
             READ(5,'(A)') header
@@ -291,14 +274,14 @@
          ELSE
             CALL xyz_read(5,natoms,header,labels,positions,endf)
             IF(endf<0) EXIT
-            IF (ts-startstep == 0) THEN ! first step, must allocate stuff
+            IF (ts-startframe == 0) THEN ! first step, must allocate stuff
                 ! we can now define and inizialize the masks and Gaussians
-                IF (.NOT.ptcm) THEN
+                IF (dogma) THEN
                     ! Read gaussian parameters from the gaussian file
                     OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
                     ! this allocation is just to avoid the rising of errors
                     ALLOCATE(clusters(1),pks(1))
-                    CALL readgaussians(12,D,nk,clusters,pks)
+                    CALL readgaussians(12,3,nk,clusters,pks)
                     CLOSE(UNIT=12)
 
                     ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
@@ -348,11 +331,8 @@
                      ! weight = 1/J = 1/((w*w-v*v)*R)
                      IF(weighted) weight=1.0d0/((vwR(2)*vwR(2)-vwR(1)*vwR(1))*vwR(3))
 
-                     IF(ptcm)THEN ! -P mode
-                        ! write out : v,w,R  and weight
-                        WRITE(*,"(3(A1,ES21.8E4))",ADVANCE = "NO")  " ",vwR(1)," ",vwR(2)," ",vwR(3)
-                        WRITE(*,"(A1,ES21.8E4)") " ", weight
-                     ELSE ! hbmix
+                     IF (dogma) THEN
+                        ! compute HB analysis
                         ! call the library
                         CALL GetP(3,vwR,weight,alpha,Nk,clusters,pks,pnks)
                         ! get the pnks
@@ -360,6 +340,10 @@
                         sph(:,ih) = sph(:,ih) + pnks(:)
                         spa(:,ia) = spa(:,ia) + pnks(:)
                         spd(:,id) = spd(:,id) + pnks(:)
+                     ELSE
+                        ! write out : v,w,R  and weight
+                        WRITE(*,"(3(A1,ES21.8E4))",ADVANCE = "NO")  " ",vwR(1)," ",vwR(2)," ",vwR(3)
+                        WRITE(*,"(A1,ES21.8E4)") " ", weight
                      ENDIF
                   ENDDO
                ENDDO
@@ -367,7 +351,7 @@
 
             ! write the results
 
-            IF(.not.ptcm)THEN
+            IF(dogma)THEN
                ! sum over the gaussians of interest
                sa=0.0d0
                sd=0.0d0
@@ -391,7 +375,7 @@
       DEALLOCATE(positions)
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
-      IF (.NOT.ptcm) THEN
+      IF (dogma) THEN
          DEALLOCATE(clusters,pks,pnks)
          DEALLOCATE(spa, sph, spd, sa, sh, sd, vghb)
          !CLOSE(UNIT=7)
@@ -401,38 +385,44 @@
 
          SUBROUTINE helpmessage
             WRITE(*,*) ""
-            WRITE(*,*) " SYNTAX: hbanalysis [-h] [-P] -i filename [-l lx,ly,lz] " ![-o outputfile]
-            WRITE(*,*) "                     -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
+            WRITE(*,*) " SYNTAX: hbanalysis -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
+            WRITE(*,*) "                    [-h] [-l lx,ly,lz] [-w] [-npt] [-ct cutoff] "
+            WRITE(*,*) "                    [-ev delta] [-sf starting_frame]  [-ff final_frame]"
             WRITE(*,*) "                    [-gf gaussianfile] [-ghb 1,2,..] [-a smoothing_factor] "
-            WRITE(*,*) "                    [-ct cutoff] [-ev delta] "
-            WRITE(*,*) "                    [-ns total_steps] [-ss starting_step] [-npt] [-c] " ![-v] "
+            WRITE(*,*) "                    < input.xyz > output "
             WRITE(*,*) ""
-            WRITE(*,*) " Description ... Two modalities :  "
+            WRITE(*,*) " Description:  "
+            WRITE(*,*) " hbanalysis analyzes hydrogen-bonding patterns from simulation data"
+            WRITE(*,*) " given in XYZ format. It can 1. pre-process a trajectory to compute the "
+            WRITE(*,*) " local descriptors to be fed to the mixture model code, or "
+            WRITE(*,*) " 2. use the parameters from a previously-fitted mixture model to "
+            WRITE(*,*) " perform the actual analysis. "
             WRITE(*,*) ""
-            WRITE(*,*) " 1. Extract v,w,R and eventually the weight from the data."
-            WRITE(*,*) "    This is the pre-processing mode: call it with the -P flag."
-            WRITE(*,*) " 2. Analyze the hydrogen bond patterns using a probabilistic model "
-            WRITE(*,*) "    based on a mixture of gaussians "
-            WRITE(*,*) ""
+            WRITE(*,*) " Common options: "
             WRITE(*,*) "   -h                   : Print this message "
-            WRITE(*,*) "   -P                   : Pre-processing mode "
-            WRITE(*,*) "   -i  Input_file       : File containin the input data (XYZ format)"
-            WRITE(*,*) "   -o  Output_file      : Output file. "
             WRITE(*,*) "   -l  lx,ly,lz         : Box lenghts (orthorombic box) "
             WRITE(*,*) "   -ta A1,A2,...        : Namelist of acceptors "
-            WRITE(*,*) "   -ta D1,D2,...        : Namelist of donors "
-            WRITE(*,*) "   -ta H1,H2,...        : Namelist of hydrogens "
-            WRITE(*,*) "   -gf Gaussians_file   : File containing gaussians data "
+            WRITE(*,*) "   -td D1,D2,...        : Namelist of donors "
+            WRITE(*,*) "   -th H1,H2,...        : Namelist of hydrogens "
+            WRITE(*,*) "   -ct cutoff           : Ignore DHA triplets with d(DH)+d(AH)>cutoff "
+            WRITE(*,*) "   -ev delta            : Stride while reading data from the XYZ input "
+            WRITE(*,*) "   -ff final_frame      : Ends reading at this frame in the XYZ input "
+            WRITE(*,*) "   -sf starting_frame   : Start reading at this frame in the XYZ input "
+            WRITE(*,*) "   -npt                 : NPT mode. read cell date from the XYZ header "
+            WRITE(*,*) "                          Format: # CELL: axx ayy azz           "
+            WRITE(*,*) "   -w                   : Computes a weight for each DHA triplet "
+            WRITE(*,*) "                          to account for the uniform-density phase space volume "
+            WRITE(*,*) ""
+            WRITE(*,*) " Pre-processing options: "
+            WRITE(*,*) " Without further options, hbanalysis will just print  "
+            WRITE(*,*) " nu=d(DH)-d(AH),mu=d(DH)+d(AH),R=d(DA) for each DHA triplet found "
+            WRITE(*,*) " in the XYZ input. "
+            WRITE(*,*) ""
+            WRITE(*,*) " Mixture model analysis options: "
+            WRITE(*,*) "   -gf Gaussians_file   : Activates the analysis and specifies the file "
+            WRITE(*,*) "                          containing Gaussian clusters data "
             WRITE(*,*) "   -gh 1,2,...          : Index of the gaussians that describe the HB "
-            WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the gaussians "
-            WRITE(*,*) "   -ct cutoff           : Apply a distance cut-off during the calculation "
-            WRITE(*,*) "   -ev delta            : Stride while reading data from the file "
-            WRITE(*,*) "   -ns total_steps      : Apply a distance cut-off during the calculation "
-            WRITE(*,*) "   -ss starting_step    : Step from wich to start reading the data "
-            WRITE(*,*) "   -npt                 : NPT mode "
-            WRITE(*,*) "   -c                   : Convert from atomic units (Bohr) to Angstrom "
-            WRITE(*,*) "   -w                   : Data points must be weighted "
-            ! WRITE(*,*) "   -v                   : Verobose mode "
+            WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the Gaussian model"
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
