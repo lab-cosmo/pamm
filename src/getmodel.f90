@@ -35,8 +35,8 @@
          USE mixture
       IMPLICIT NONE
 
-      CHARACTER*1024 :: outputfile                            ! The output file containing the calculated gaussians
-      DOUBLE PRECISION :: prif(3)                             ! Reference point needed to find out the important gaussian
+      CHARACTER*1024 :: outputfile                            ! The output file prefix
+      DOUBLE PRECISION, ALLOCATABLE :: prif(:)                             ! Reference point needed to find out the important cluster
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
       DOUBLE PRECISION, DIMENSION(3) :: diff                  ! temp vector used to store distances
 
@@ -83,11 +83,8 @@
       Nk=0                ! number of gaussians
       nsamplesin=-1       ! total number of points
       nminmax=-1          ! number of samples extracted with minmax
-      seed=1357           ! seed for the random number generator
+      seed=12345          ! seed for the random number generator
       tau=-1              ! quick shift cut-off
-      prif(1)=-1.0d0      ! point from wich order the gaussians in the output
-      prif(2)= 2.9d0
-      prif(3)= 2.9d0
       verbose = .false.   ! no verbosity
       weighted= .false.   ! don't use the weights
       D=-1
@@ -106,19 +103,17 @@
             ccmd = 4
          ELSEIF (cmdbuffer == "-tau") THEN    ! threshold to differentiate different clusters
             ccmd = 5
-         ELSEIF (cmdbuffer == "-nsamples") THEN ! N samples (total)
+         ELSEIF (cmdbuffer == "-maxdata") THEN ! N samples (total)
             ccmd = 6
-         ELSEIF (cmdbuffer == "-nminmax") THEN ! N samples extracted with minmax
+         ELSEIF (cmdbuffer == "-nkde") THEN ! N samples extracted with minmax
             ccmd = 7
-         ELSEIF (cmdbuffer == "-rif") THEN    ! point from wich calculate the distances to order
+         ELSEIF (cmdbuffer == "-ref") THEN    ! point from wich calculate the distances to order
             ccmd = 8                          ! the gaussians in the output
-         ELSEIF (cmdbuffer == "-w") THEN    ! use weights
+         ELSEIF (cmdbuffer == "-w") THEN      ! use weights
             weighted = .true.
          ELSEIF (cmdbuffer == "-v") THEN      ! verbosity flag
             verbose = .true.
          ELSEIF (cmdbuffer == "-h") THEN      ! help flag
-            WRITE(*,*) ""
-            WRITE(*,*) " Quick Shift Gaussian-Mixture "
             CALL helpmessage
             CALL EXIT(-1)
          ELSE
@@ -131,6 +126,9 @@
                outputfile=trim(cmdbuffer)
             ELSEIF (ccmd == 9) THEN
                READ(cmdbuffer,*) D
+               ALLOCATE(prif(D))
+               prif=0.0d0
+               prif(1)=-1.0d0
             ELSEIF (ccmd == 3) THEN ! delta
                READ(cmdbuffer,*) delta
             ELSEIF (ccmd == 4) THEN ! read the seed
@@ -142,8 +140,9 @@
             ELSEIF (ccmd == 7) THEN
                READ(cmdbuffer,*) nminmax
             ELSEIF (ccmd == 8) THEN ! vrif,wrif,dADrif
+               IF (D<0) error STOP "Dimensionality must be given before the reference point. "
                par_count = 1
-               commas(1) = 0
+               commas(1) = 0   !TODO FIX EVERYWHERE! THERE IS NO NEED TO HAVE AN ARRAY FOR THE COMMAS!
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
                   commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
                   READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) prif(par_count)
@@ -380,24 +379,27 @@
             WRITE(*,*) ""
             WRITE(*,*) " Clusterize the data and define a mixture of gaussians describing them. "
             WRITE(*,*) " It is mandatory to specify the dimensionality of the data and the data "
-            WRITE(*,*) " file must be passed through the standard input. "
+            WRITE(*,*) " file must be passed through the standard input in the format: "
+            WRITE(*,*) " x11 x12 x13 ... x1D [w1] "
+            WRITE(*,*) " x21 x22 x23 ... x2D [w2] "
+            WRITE(*,*) ""
             WRITE(*,*) " For the other options a default is defined.  "
             WRITE(*,*) ""
             WRITE(*,*) "   -h                : Print this message "
-            WRITE(*,*) "   -d D              : Dimnsionality "
+            WRITE(*,*) "   -d D              : Dimensionality "
             WRITE(*,*) "   -w                : Reads weights for the sample points "
-            WRITE(*,*) "   -o output         : Prefix for output files. This will produce : "
+            WRITE(*,*) "   -o output         : Prefix for output files [out]. This will produce : "
             WRITE(*,*) ""
             WRITE(*,*) "                            output.clusters (clusterized data) "
             WRITE(*,*) "                            output.gauss (gaussians) "
             WRITE(*,*) ""
-            WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator "
-            WRITE(*,*) "   -tau tau          : Quick shift cutoff "
-            WRITE(*,*) "   -ev delta         : Stride reading data frome the file "
-            WRITE(*,*) "   -nsamples ntot    : Number of points to read from the input file "
-            WRITE(*,*) "   -nminmax nvoroni  : Number of Voronoi polyhedra "
-            WRITE(*,*) "   -rif v,w,R        : Point from wich order the gaussians "
-            WRITE(*,*) "   -v                : Verobose mode "
+            WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
+            WRITE(*,*) "   -tau tau          : Quick shift cutoff [automatic] "
+            WRITE(*,*) "   -ev delta         : Stride reading data frome the file [1] "
+            WRITE(*,*) "   -maxsamples nmax  : Maximum number of samples read from the input [read all]"
+            WRITE(*,*) "   -nkde nkde        : Number of points to evaluate KDE [sqrt(nsamples)]"
+            WRITE(*,*) "   -ref X            : Reference point for ordering the clusters [ (-1,0,0,...) ]"
+            WRITE(*,*) "   -v                : Verbose output "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 

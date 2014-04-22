@@ -75,7 +75,7 @@
 
             ! header
             WRITE(ufile,"(I4)") natoms
-            WRITE(ufile,"(A)") header
+            WRITE(ufile,"(A)") trim(header)
 
             ! body
             DO i=1,natoms

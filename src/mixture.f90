@@ -360,7 +360,7 @@
 
 			! calculate the distances
 			DO i=1,nk
-			   distances(i)=dot_product(clusters(i)%mean, prif)
+			   distances(i)=dot_product(clusters(i)%mean-prif,clusters(i)%mean-prif)
             ENDDO
             ! now we can sort using the distances
             ! will use bubble sort

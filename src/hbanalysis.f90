@@ -306,6 +306,11 @@
                CALL invmatrix(3,cell,icell)
             END IF
 
+            IF (dogma) THEN
+               sph=0.0d0
+               spa=0.0d0
+               spd=0.0d0
+            ENDIF
             ! here the core of the program
             DO ih=1,natoms ! loop over H
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
@@ -343,7 +348,8 @@
                      ELSE
                         ! write out : v,w,R  and weight
                         WRITE(*,"(3(A1,ES21.8E4))",ADVANCE = "NO")  " ",vwR(1)," ",vwR(2)," ",vwR(3)
-                        WRITE(*,"(A1,ES21.8E4)") " ", weight
+                        IF (weighted) WRITE(*,"(A1,ES21.8E4)",ADVANCE = "NO") " ", weight
+                        write(*,*) ""
                      ENDIF
                   ENDDO
                ENDDO
@@ -363,9 +369,9 @@
                ENDDO
                ! write results to a formatted output
                ! use positions as a dummy vector to store sh, sd, sa
-               positions(1,:) = sh
-               positions(2,:) = sd
-               positions(3,:) = sa
+               positions(1,:) = sh(:)
+               positions(2,:) = sd(:)
+               positions(3,:) = sa(:)
                CALL xyz_write(6,natoms,header,labels,positions)
             ENDIF
          ENDIF
