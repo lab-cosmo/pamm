@@ -611,7 +611,7 @@
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: vc
             DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: vp
 
-            fkernel=dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
+            fkernel=(1/dsqrt(dpigreco*sig2))*dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
          END FUNCTION fkernel
 
       END PROGRAM getmodel
