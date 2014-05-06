@@ -230,7 +230,7 @@
 
       IF(tau.EQ.-1)THEN
          ! tau set to 3*<sig>
-         tau2=9.0d0*SUM(sigma2)/nminmax
+         tau2=25.0d0*SUM(sigma2)/nminmax
          tau=dsqrt(tau2)
       ENDIF
       tau2=tau*tau ! we always work with squared distances....
