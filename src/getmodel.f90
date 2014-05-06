@@ -38,20 +38,23 @@
       CHARACTER*1024 :: outputfile                            ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: prif(:)                             ! Reference point needed to find out the important cluster
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
-      DOUBLE PRECISION, DIMENSION(3) :: diff                  ! temp vector used to store distances
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: diff                  ! temp vector used to store distances
 
       INTEGER D
-      INTEGER npc                                             ! number of point in a cluster. Used to define the gaussians covariances
       INTEGER Nk                                              ! Number of gaussians in the mixture
       INTEGER delta                                           ! Number of data to skeep (for a faster calculation)
       INTEGER Nlines                                          ! Number of lines of the input data file
       INTEGER nsamples,nsamplesin                             ! Total number points
       INTEGER nminmax                                         ! Number of samples extracted using minmax
       DOUBLE PRECISION :: dij,dmin
-      INTEGER jmax
+      INTEGER jmax,ii,jj
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm
+      DOUBLE PRECISION :: normwj ! accumulator for wj
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi,iminij,pnlist,nlist
       INTEGER seed     ! seed for the random number generator
+      
+      ! variable to set the covariance matrix
+      DOUBLE PRECISION tmppks,normpks
 
       ! Array of Gaussians containing the gaussians parameters
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
@@ -71,7 +74,7 @@
       LOGICAL weighted ! flag for using weigheted data
       INTEGER commas(4), par_count  ! stores the index of commas in the parameter string
 	  DOUBLE PRECISION vpar(5)
-	  DOUBLE PRECISION dummyr1,tau,meannew(3), tau2
+	  DOUBLE PRECISION dummyr1,tau,tau2
 
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
 
@@ -103,7 +106,7 @@
             ccmd = 4
          ELSEIF (cmdbuffer == "-tau") THEN    ! threshold to differentiate different clusters
             ccmd = 5
-         ELSEIF (cmdbuffer == "-maxdata") THEN ! N samples (total)
+         ELSEIF (cmdbuffer == "-maxsamples") THEN ! N samples (total)
             ccmd = 6
          ELSEIF (cmdbuffer == "-nkde") THEN ! N samples extracted with minmax
             ccmd = 7
@@ -184,16 +187,17 @@
       ENDIF
 
       ! get the data from the standard input
-      CALL readinput(D,nsamples,nsamplesin,delta,vwad,weighted,wj)
+      CALL readinput(D,nsamples,nsamplesin,delta,vwad,weighted,wj,normwj)
 
       ! If not specified, the number voronoi polyhedras
       ! are set to the square of the total number of points
       IF (nminmax.EQ.-1) nminmax=sqrt(float(nsamples))
 
-	  ALLOCATE(iminij(nsamples))
-	  ALLOCATE(pnlist(nminmax+1),nlist(nsamples))
-	  ALLOCATE(Ymm(D,nminmax),npvoronoi(nminmax),probnmm(nminmax),sigma2(nminmax))
-	  ALLOCATE(idxroot(nminmax),qspath(nminmax),distmm(nminmax,nminmax))
+	    ALLOCATE(iminij(nsamples))
+	    ALLOCATE(pnlist(nminmax+1),nlist(nsamples))
+	    ALLOCATE(Ymm(D,nminmax),npvoronoi(nminmax),probnmm(nminmax),sigma2(nminmax))
+	    ALLOCATE(idxroot(nminmax),qspath(nminmax),distmm(nminmax,nminmax))
+      ALLOCATE(diff(D))
 
       ! Extract nminmax points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -203,7 +207,7 @@
          WRITE(*,*) "Selecting ", nminmax, " points using MINMAX"
       ENDIF
 
-      CALL getvoronoi(nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
+      CALL getvoronoi(D,nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
 
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
@@ -244,9 +248,10 @@
             ! cycle just inside the polyhedra thanx to the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
                probnmm(i)=probnmm(i)+ wj(nlist(k))* &
-                          fkernel(sigma2(j),Ymm(:,i),vwad(:,nlist(k)))
+                          fkernel(D,sigma2(j),Ymm(:,i),vwad(:,nlist(k)))
             ENDDO
          ENDDO
+         probnmm(i)=probnmm(i)/normwj
       ENDDO
 
 	  IF(verbose) write(*,*) "Running quick shift"
@@ -275,6 +280,7 @@
 	  qspath=0
 	  qspath(1)=idxroot(1)
 	  Nk=1
+    normpks=0.0d0
 	  OPEN(UNIT=11,FILE=trim(outputfile)//".clusters",STATUS='REPLACE',ACTION='WRITE')
 	  DO i=1,nminmax
 	     ! write out the clusters
@@ -290,8 +296,12 @@
 	        qspath(Nk)=idxroot(i)
 	        dummyi1=Nk
 	     ENDIF
-	     WRITE(11,"(3(A1,ES15.4E4))",ADVANCE = "NO") " ", Ymm(1,i)," ", Ymm(2,i)," ", Ymm(3,i)
-	     WRITE(11,"(A1,I4,A1,ES15.4E4)") " ", dummyi1 , " ", probnmm(i)
+       DO j=1,D
+	        WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Ymm(j,i)
+       ENDDO
+       WRITE(11,"(A1,I4,A1,ES15.4E4)") " ", dummyi1 , " ", probnmm(i)
+       ! accumulate the normalazation factor for the pks
+       normpks=normpks+probnmm(i)
 	  ENDDO
 	  CLOSE(UNIT=11)
 
@@ -302,36 +312,24 @@
 	  ! calculate the gaussians covariance from the data in the clusters
 	  DO k=1,Nk
 	     IF (.not.(ALLOCATED(clusters(k)%mean))) ALLOCATE(clusters(k)%mean(D))
-        IF (.not.(ALLOCATED(clusters(k)%cov)))  ALLOCATE(clusters(k)%cov(D,D))
-        IF (.not.(ALLOCATED(clusters(k)%icov))) ALLOCATE(clusters(k)%icov(D,D))
+       IF (.not.(ALLOCATED(clusters(k)%cov)))  ALLOCATE(clusters(k)%cov(D,D))
+       IF (.not.(ALLOCATED(clusters(k)%icov))) ALLOCATE(clusters(k)%icov(D,D))
 	     clusters(k)%mean=Ymm(:,qspath(k))
-	     meannew = 0.0d0
-	     npc=0
 	     clusters(k)%cov = 0.0d0
-	     DO i=1,nminmax
+       
+       tmppks=0.0d0
+       DO i=1,nminmax
 	        IF(idxroot(i).NE.qspath(k)) CYCLE
-	        ! to improve using the also the information from the KDE
-	        meannew = meannew + Ymm(:,i)
-	        clusters(k)%cov(1,1) = clusters(k)%cov(1,1) + Ymm(1,i) * Ymm(1,i)
-	        clusters(k)%cov(1,2) = clusters(k)%cov(1,2) + Ymm(1,i) * Ymm(2,i)
-	        clusters(k)%cov(1,3) = clusters(k)%cov(1,3) + Ymm(1,i) * Ymm(3,i)
-	        clusters(k)%cov(2,2) = clusters(k)%cov(2,2) + Ymm(2,i) * Ymm(2,i)
-	        clusters(k)%cov(2,3) = clusters(k)%cov(2,3) + Ymm(2,i) * Ymm(3,i)
-	        clusters(k)%cov(3,3) = clusters(k)%cov(3,3) + Ymm(3,i) * Ymm(3,i)
-	        npc=npc+1
-	     ENDDO
-	     meannew = meannew/npc
-	     clusters(k)%cov = clusters(k)%cov /npc
-	     clusters(k)%cov(1,1) = clusters(k)%cov(1,1) - meannew(1)*meannew(1)
-	     clusters(k)%cov(1,2) = clusters(k)%cov(1,2) - meannew(1)*meannew(2)
-	     clusters(k)%cov(1,3) = clusters(k)%cov(1,3) - meannew(1)*meannew(3)
-	     clusters(k)%cov(2,2) = clusters(k)%cov(2,2) - meannew(2)*meannew(2)
-	     clusters(k)%cov(2,3) = clusters(k)%cov(2,3) - meannew(2)*meannew(3)
-	     clusters(k)%cov(3,3) = clusters(k)%cov(3,3) - meannew(3)*meannew(3)
-	     clusters(k)%cov(2,1) = clusters(k)%cov(1,2)
-	     clusters(k)%cov(3,1) = clusters(k)%cov(1,3)
-	     clusters(k)%cov(3,2) = clusters(k)%cov(2,3)
-	     lpks(k)=LOG(FLOAT(npc)/nminmax)
+          tmppks=tmppks+probnmm(i)
+          DO ii=1,D
+             DO jj=1,D
+                clusters(k)%cov(ii,jj)=clusters(k)%cov(ii,jj)+probnmm(i)* &
+                    (Ymm(ii,i)-clusters(k)%mean(ii))*(Ymm(jj,i)-clusters(k)%mean(jj))
+             ENDDO
+          ENDDO
+       ENDDO
+       clusters(k)%cov=clusters(k)%cov/tmppks
+       lpks(k)=dlog(tmppks/normpks)
 	  ENDDO
 	  ! write gaussians
 
@@ -358,6 +356,7 @@
 	  DEALLOCATE(idxroot,qspath,distmm)
 	  DEALLOCATE(pnlist,nlist,iminij)
 	  DEALLOCATE(Ymm,npvoronoi,probnmm,sigma2)
+    DEALLOCATE(diff)
 
 	  CALL EXIT(0)
 	  ! end of the main programs
@@ -374,8 +373,8 @@
 
             WRITE(*,*) ""
             WRITE(*,*) " USAGE: getmodel [-h] -d D [-w] [-o output] [-seed seedrandom] "
-            WRITE(*,*) "                 [-tau tau] [-ev delta] [-nsamples NTot] [-nminmax Nminmax] "
-            WRITE(*,*) "                 [-rif v,w,R] [-v] "
+            WRITE(*,*) "                 [-ev delta] [-nkde NTot] [-maxsamples Nminmax] "
+            WRITE(*,*) "                 [-tau tau] [-rif -1,0,0,...] [-v] "
             WRITE(*,*) ""
             WRITE(*,*) " Clusterize the data and define a mixture of gaussians describing them. "
             WRITE(*,*) " It is mandatory to specify the dimensionality of the data and the data "
@@ -403,7 +402,8 @@
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
-         SUBROUTINE readinput(D,nsamples,naspamplesin,delta,vout,weighted,wj)
+         SUBROUTINE readinput(D,nsamples,naspamplesin,delta,vout,weighted, &
+                              wj,normwj)
             INTEGER, INTENT(IN) :: D
             INTEGER, INTENT(OUT) :: nsamples
             INTEGER, INTENT(IN) :: naspamplesin
@@ -411,7 +411,7 @@
             DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: vout
             LOGICAL, INTENT(IN) :: weighted
             DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: wj
-
+            DOUBLE PRECISION, INTENT(OUT) :: normwj
 
             INTEGER, PARAMETER :: nbuff = 100000
             DOUBLE PRECISION, DIMENSION(D,nbuff) :: vbuff
@@ -422,13 +422,15 @@
             counter=0
             i=0
             ! if I don't allocate the vectors I get a segmentation fault
-            ALLOCATE(vout(D,10))
-            IF(weighted) ALLOCATE(wj(10))
+            ALLOCATE(vout(D,nbuff))
+            IF(weighted) ALLOCATE(wj(nbuff))
             vout=0.0d0
+            normwj=0.0d0
             DO
                i=i+1
                IF(weighted) THEN
                   READ(5,*, IOSTAT=io_status) vbuff(:,counter+1),wbuff(counter+1)
+                  normwj=normwj+wbuff(counter+1)
                ELSE
                   READ(5,*, IOSTAT=io_status) vbuff(:,counter+1)
                ENDIF
@@ -455,11 +457,12 @@
             IF(.NOT.weighted)THEN
                ALLOCATE(wj(nsamples))
                wj=1.0d0
+               normwj=nsamples
             ENDIF
 
          END SUBROUTINE readinput
 
-         SUBROUTINE getvoronoi(nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
+         SUBROUTINE getvoronoi(D,nsamples,nminmax,vwad,Ymm,npvoronoi,iminij)
             ! Select nminmax points from nsamples using minmax and
             ! the voronoi polyhedra around them.
             !
@@ -470,16 +473,17 @@
             !    Ymm: array that will contain the voronoi centers
             !    npvoronoi: array cotaing the number of points inside each voroni polyhedra
             !    iminij: array containg to wich polyhedra every point belong to.
-
+            
+            INTEGER, INTENT(IN) :: D
             INTEGER, INTENT(IN) :: nsamples
             INTEGER, INTENT(IN) :: nminmax
-            DOUBLE PRECISION, DIMENSION(3,nsamples), INTENT(IN) :: vwad
-            DOUBLE PRECISION, DIMENSION(3,nminmax), INTENT(OUT) :: Ymm
+            DOUBLE PRECISION, DIMENSION(D,nsamples), INTENT(IN) :: vwad
+            DOUBLE PRECISION, DIMENSION(D,nminmax), INTENT(OUT) :: Ymm
             INTEGER, DIMENSION(nminmax), INTENT(OUT) :: npvoronoi
             INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
 
             INTEGER i,j
-            DOUBLE PRECISION :: diff(3)
+            DOUBLE PRECISION :: diff(D)
             DOUBLE PRECISION :: dminij(nsamples), dij, dmax
 
             iminij=0
@@ -599,19 +603,22 @@
 	        !write(*,*) "jump distance", dmin
          END FUNCTION GethigherNN
 
-		 DOUBLE PRECISION FUNCTION fkernel(sig2,vc,vp)
+		 DOUBLE PRECISION FUNCTION fkernel(D,sig2,vc,vp)
             ! Calculate the (non-normalized) gaussian kernel
             !
             ! Args:
             !    sig2: sig**2
             !    vc: voronoi center's vector
             !    vp: point's vector
-
+            
+            INTEGER, INTENT(IN) :: D
             DOUBLE PRECISION, INTENT(IN) :: sig2
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: vc
-            DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: vp
-
-            fkernel=(1/dsqrt(dpigreco*sig2))*dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
+            DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: vc
+            DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: vp
+            
+                                       ! put here ** -D/2
+            fkernel=(1/( (dpigreco*sig2)**(dble(D)/2) ))* &
+                    dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
          END FUNCTION fkernel
 
       END PROGRAM getmodel
