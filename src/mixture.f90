@@ -22,7 +22,6 @@
 ! SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 !
 ! Functions:
-!    separation: Calculates the distance between two position vectors (with PBC).
 !    inv3x3: Invert a 3x3 matrix
 !    gauss_prepare: Initialize all the parameters of the gaussian
 !    gauss_logeval: Return the logarithm of the multivariate gaussian density
@@ -32,15 +31,16 @@
       MODULE mixture
       IMPLICIT NONE
 
-      DOUBLE PRECISION, PARAMETER :: dpigreco = (2.0d0*3.14159265358979d0)
+      DOUBLE PRECISION, PARAMETER :: twopi = (2.0d0*3.14159265358979d0)
 
       ! Structure that contains the parameters needed to define and
       ! estimate a gaussian
       TYPE gauss_type
+         INTEGER D              ! dimensionality of the Gaussian
          DOUBLE PRECISION lnorm ! logarithm of the normalization factor
-         DOUBLE PRECISION det ! determinant of the covariance matrix
+         DOUBLE PRECISION det   ! determinant of the covariance matrix
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: cov ! convariance matrix
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: cov  ! convariance matrix
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: icov ! inverse convariance matrix
       END TYPE
 
@@ -53,7 +53,7 @@
             ! Args:
             !    D: dimensionality
             !    n1: size of the vector v1.
-            !        n1 will be changed whend the routine will finish.
+            !        n1 will be changed whend the routine will finish. 
             !    n2: size of the vector v2
             !    v1: vector to wich I want to append v2
             !    v2: vector to append to v1
@@ -202,7 +202,7 @@
             CALL invmatrix(D,gpars%cov,gpars%icov)
 
             ! calculate the  logarithm of the normalization factor
-            gpars%lnorm = dlog(1.0d0/dsqrt((dpigreco**D)*gpars%det))
+            gpars%lnorm = dlog(1.0d0/dsqrt((twopi**D)*gpars%det))
          END SUBROUTINE gauss_prepare
 
          ! probably this is no more needed

@@ -603,22 +603,22 @@
 	        !write(*,*) "jump distance", dmin
          END FUNCTION GethigherNN
 
-		 DOUBLE PRECISION FUNCTION fkernel(D,sig2,vc,vp)
-            ! Calculate the (non-normalized) gaussian kernel
-            !
-            ! Args:
-            !    sig2: sig**2
-            !    vc: voronoi center's vector
-            !    vp: point's vector
-            
-            INTEGER, INTENT(IN) :: D
-            DOUBLE PRECISION, INTENT(IN) :: sig2
-            DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: vc
-            DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: vp
-            
-                                       ! put here ** -D/2
-            fkernel=(1/( (dpigreco*sig2)**(dble(D)/2) ))* &
-                    dexp(-dot_product(vc-vp,vc-vp)*0.5/sig2)
+         DOUBLE PRECISION FUNCTION fkernel(D,sig2,vc,vp)
+               ! Calculate the (normalized) gaussian kernel
+               !
+               ! Args:
+               !    sig2: sig**2
+               !    vc: voronoi center's vector
+               !    vp: point's vector
+               
+               INTEGER, INTENT(IN) :: D
+               DOUBLE PRECISION, INTENT(IN) :: sig2
+               DOUBLE PRECISION, INTENT(IN) :: vc(D)
+               DOUBLE PRECISION, INTENT(IN) :: vp(D)
+               
+                                          ! put here ** -D/2
+               fkernel=(1/( (twopi*sig2)**(dble(D)/2) ))* &
+                       dexp(-sum((vc-vp)*(vc-vp))*0.5/sig2)
          END FUNCTION fkernel
 
       END PROGRAM getmodel

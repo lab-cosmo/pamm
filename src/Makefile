@@ -21,20 +21,24 @@
 
 .PHONY: all clean
 
-FFLAGS=-g -O3
-MODULES=mixture.f90 xyz.f90
+FF=gfortran
+FFLAGS=-g -O3 -Wall
+MODULES=mixture.f90 xyz.f90 libpamm.f90
 OBJECTS=$(MODULES:.f90=.o)
 
-all: hbanalysis getmodel
+all: hbanalysis getmodel pamm
 
 hbanalysis: $(OBJECTS) hbanalysis.o
-	gfortran $(FFLAGS) -o hbanalysis $(OBJECTS) hbanalysis.o -llapack 
+	$(FF) $(FFLAGS) -o hbanalysis $(OBJECTS) hbanalysis.o -llapack 
 
 getmodel: $(OBJECTS) getmodel.o
-	gfortran $(FFLAGS) -o getmodel $(OBJECTS) getmodel.o -llapack 
+	$(FF) $(FFLAGS) -o getmodel $(OBJECTS) getmodel.o -llapack 
+
+pamm: $(OBJECTS) pamm.o
+	$(FF) $(FFLAGS) -o pamm $(OBJECTS) pamm.o -llapack 
 	
 %.o: %.f90
-	gfortran $(FFLAGS) -c $< -llapack 
+	$(FF) $(FFLAGS) -c $< -llapack 
 
 clean:
 	rm *.o *.mod

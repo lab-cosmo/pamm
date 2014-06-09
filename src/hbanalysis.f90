@@ -230,7 +230,7 @@
 !      ENDIF
 
       IF (.NOT.(errdef.EQ.3)) THEN
-         WRITE(*,*) ""
+         WRITE(*,*) "", errdef
          WRITE(*,*) " Error: insert hydrongen, donor and acceptor species! "
          CALL helpmessage
          CALL EXIT(-1)
@@ -317,7 +317,7 @@
                DO id=1,natoms
                   IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
                   ! Distance donor-hydrogen
-                  CALL separation(cell,icell,positions(:,ih),positions(:,id),rdh)
+                  CALL pbcdist(cell,icell,positions(:,ih),positions(:,id),rdh)
                   IF(rdh.GT.wcutoff) CYCLE  ! if one of the distances is greater
                                             ! than the cutoff, we can already discard the D-H pair
                   DO ia=1,natoms
@@ -325,12 +325,12 @@
                      IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                         .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
                      ! Distance acceptor-hydrogen
-                     CALL separation(cell,icell,positions(:,ih),positions(:,ia),rah)
+                     CALL pbcdist(cell,icell,positions(:,ih),positions(:,ia),rah)
                      vwR(2)=rdh+rah
                      IF(vwR(2).GT.wcutoff) CYCLE
                      vwR(1)=rdh-rah
                      ! Calculate the distance donor-acceptor (R)
-                     CALL separation(cell,icell,positions(:,id),positions(:,ia),vwR(3))
+                     CALL pbcdist(cell,icell,positions(:,id),positions(:,ia),vwR(3))
 
                      weight=1.0d0
                      ! weight = 1/J = 1/((w*w-v*v)*R)

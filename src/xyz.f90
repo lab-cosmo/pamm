@@ -86,8 +86,7 @@
          END SUBROUTINE xyz_write
 
          ! A few utility functions
-
-         SUBROUTINE separation(cell_h, cell_ih, ri, rj, r)
+         SUBROUTINE pbcdist(cell_h, cell_ih, ri, rj, r)
             ! Calculates the distance between two position vectors (with PBC).
             !
             ! Note that minimum image convention is used, so only the image of
