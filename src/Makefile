@@ -23,19 +23,16 @@
 
 FF=gfortran
 FFLAGS=-g -O3 -Wall
-MODULES=mixture.f90 xyz.f90 libpamm.f90
+MODULES=libpamm.f90 xyz.f90
 OBJECTS=$(MODULES:.f90=.o)
 
-all: hbanalysis getmodel pamm
-
-hbanalysis: $(OBJECTS) hbanalysis.o
-	$(FF) $(FFLAGS) -o hbanalysis $(OBJECTS) hbanalysis.o -llapack 
-
-getmodel: $(OBJECTS) getmodel.o
-	$(FF) $(FFLAGS) -o getmodel $(OBJECTS) getmodel.o -llapack 
+all: pamm hbpamm
 
 pamm: $(OBJECTS) pamm.o
 	$(FF) $(FFLAGS) -o pamm $(OBJECTS) pamm.o -llapack 
+
+hbpamm: $(OBJECTS) hbpamm.o
+	$(FF) $(FFLAGS) -o hbpamm $(OBJECTS) hbpamm.o -llapack
 	
 %.o: %.f90
 	$(FF) $(FFLAGS) -c $< -llapack 

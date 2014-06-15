@@ -25,9 +25,6 @@
 ! SOFTWARE OR THE USE OR OTHER DEALIngS IN THE SOFTWARE.
 !
 ! Functions:
-!    GetNlines: Get the number of lines from a file.
-!    generatefromscratch: Iniatialize from scratch. Guess starting values for
-!                         the gaussians parameters.
 !    readgaussfromfile: Get the gaussian paramters from file
 !    helpmessage: Banner containing the help message
 !    ordergaussians: Order gaussians
@@ -41,16 +38,16 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: diff     ! temp vector used to store distances
 
-      INTEGER D                                               ! Dimensionality of  problem
+      INTEGER D                                               ! Dimensionality of problem
       INTEGER Nk                                              ! Number of gaussians in the mixture
       INTEGER nsamples                                        ! Total number points
       INTEGER nminmax                                         ! Number of samples extracted using minmax
 
       INTEGER jmax,ii,jj
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm
-      DOUBLE PRECISION :: normwj ! accumulator for wj
+      DOUBLE PRECISION :: normwj                              ! accumulator for wj
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
-      INTEGER seed     ! seed for the random number generator
+      INTEGER seed                                            ! seed for the random number generator
       
       ! variable to set the covariance matrix
       DOUBLE PRECISION tmppks,normpks
@@ -73,7 +70,7 @@
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
 
 
-      !!!!!!! Default value of the parameters !!!!!!!
+!!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile="out"
       ccmd=0              ! no parameters specified
       Nk=0                ! number of gaussians
@@ -83,7 +80,7 @@
       verbose = .false.   ! no verbosity
       weighted= .false.   ! don't use the weights
       D=-1
-      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
       DO i = 1, IARGC()

@@ -30,11 +30,11 @@
       ! Structure that contains the parameters needed to define and
       ! estimate a gaussian
       TYPE gauss_type
-         INTEGER D               ! dimensionality of the Gaussian
-         DOUBLE PRECISION weight ! weight associated with the Gaussian cluster (not included in the normalization!)
-         DOUBLE PRECISION lnorm  ! logarithm of the normalization factor
-         DOUBLE PRECISION det    ! determinant of the covariance matrix
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean
+         INTEGER D                                             ! dimensionality of the Gaussian
+         DOUBLE PRECISION weight                               ! weight associated with the Gaussian cluster (not included in the normalization!)
+         DOUBLE PRECISION lnorm                                ! logarithm of the normalization factor
+         DOUBLE PRECISION det                                  ! determinant of the covariance matrix
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean   
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: cov  ! convariance matrix
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: icov ! inverse convariance matrix
       END TYPE
@@ -100,7 +100,7 @@
          !    nk: The number of gaussians in the mixture
          !    clusters: The array containing the structures with the gaussians parameters
          !    pks: The array containing the gaussians Pk
-         !    pnks: The conditional probability of th point p given k
+         !    pnks: The conditional probability of the point p given k
 
          INTEGER, INTENT(IN) :: nk
          TYPE(gauss_type), INTENT(IN) :: clusters(nk)
@@ -150,8 +150,7 @@
             READ(fileid,*) dummybuffer
          ENDDO
          READ(dummybuffer, *) D, Nk
-
-         ! as always this the way that I know to allocate an dynamical array in a subroutine in fortran..
+         
          IF (ALLOCATED(clusters)) DEALLOCATE(clusters)
          ALLOCATE(clusters(nk))
          DO k=1,Nk
