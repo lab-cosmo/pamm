@@ -36,6 +36,7 @@
       INTEGER, PARAMETER :: TYPE_DONOR=2
       INTEGER, PARAMETER :: TYPE_ACCEPTOR=4
       INTEGER, PARAMETER :: MAXPARS = 4
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: masktypes ! mask to define what is what
       CHARACTER(LEN=1024) :: filename, clusterfile 
       CHARACTER(LEN=1024) :: cmdbuffer
 
@@ -43,60 +44,57 @@
       INTEGER natoms
       DOUBLE PRECISION cell(3,3), icell(3,3)
       DOUBLE PRECISION alpha, mucutoff
-
-      !to remove
-      ! gaussians
-      INTEGER Nk
-      ! array of gaussians
+      
+      ! Gaussian-mixture model
+      INTEGER Nk ! number of gaussians in the mixture
       TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:) :: clusters
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pks
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:)  :: pnks
-      ! vector that will contain the probabilities calculated using hb-mixture library
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pnks
+      ! collective variables describing the HB
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sa, sd, sh
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:)   :: sa, sd, sh
+      ! point in the high-dimensional description
       DOUBLE PRECISION, DIMENSION(3) :: x  ! [nu,mu,r]
-      INTEGER ia,id,ih
-      DOUBLE PRECISION rah,rdh,wfactor
-      ! for the parser
-      INTEGER ccmd
-      INTEGER commas(MAXPARS), par_count  ! stores the index of commas in the parameter string
+      DOUBLE PRECISION rah,rdh,wfactor     ! distances and weight 
+      INTEGER ia,id,ih ! simples indexes
       ! for a faster reading
       ! counters
       INTEGER i,ts
-      LOGICAL convert,dopamm,nptm,weighted!,verbose
-      INTEGER errdef
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
-      ! mask to define what is what
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: masktypes
-      INTEGER vtghb(12),nghb
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: vghb
+      LOGICAL convert,dopamm,nptm,readgauss,weighted!,verbose
+      INTEGER delta
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions 
+      INTEGER nghb ! number of gaussians describing the HB
+      INTEGER, DIMENSION(MAXPARS) :: vghb ! indexes of the gaussians describing the HB
       CHARACTER(LEN=4), ALLOCATABLE, DIMENSION(:) :: labels
       CHARACTER(LEN=1024) :: header, dummyc
-      CHARACTER(LEN=4), DIMENSION(4) :: vtacc,vtdon,vtH
+      ! PARSER
+      INTEGER ccmd     ! parser index
+      INTEGER isep1, isep2, par_count  ! temporary indices for parsing command line arguments
+      CHARACTER(LEN=4), DIMENSION(MAXPARS) :: vta,vtd,vth
       INTEGER endf
-      !default values
-      DO i=1,4
-         vtacc(i)="NULL"
-         vtdon(i)="NULL"
-         vtH(i)="NULL"
-      ENDDO
-      filename="NULL"
-      clusterfile="NULL"
-      nk=-1
-      ccmd=0
-      cell=0.0d0
-      alpha=1.0d0
-      mucutoff=5.0d0
-      convert = .false.
-      dopamm = .false.
-      nptm = .false.
-      weighted = .false.   ! don't use wfactor
-      endf = 0
-      errdef=0
-      vtghb=-1
-      !!!!
+      
+!!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      vta(:)        = "NULL"
+      vtd(:)        = "NULL"
+      vth(:)        = "NULL"
+      filename      = "NULL"
+      clusterfile   = "NULL"
+      vghb          = 0        
+      nk            = -1        ! number of gaussians in the mixture
+      mucutoff      = 5.0d0     ! cutoff in the mu coordinates to save cputime
+      ccmd          = 0         ! no parameters specified
+      delta         = 1         ! read every step 
+      cell          = 0.0d0  
+      alpha         = 1.0d0
+      convert       = .false.
+      dopamm        = .false.
+      nptm          = .false.
+      weighted      = .false.   ! don't use wfactor by default
+      readgauss     = .true.
+      endf          = 0
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      !!!!! PARSER
+!!!!!!!!!!!!! Command line parser !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       DO i = 1, IARGC()
          CALL GETARG(i, cmdbuffer)
          IF (cmdbuffer == "-h") THEN ! help
@@ -119,6 +117,8 @@
             ccmd = 8
          ELSEIF (cmdbuffer == "-ghb") THEN ! gaussians used to describe the HB
             ccmd = 9
+         ELSEIF (cmdbuffer == "-ev") THEN ! delta
+            ccmd = 10
          ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
             nptm = .true.
          ELSEIF (cmdbuffer == "-w") THEN ! weighted  mode
@@ -141,81 +141,86 @@
                ! just the diagonal of the matrix.
                ! It is trivial to extend the code to the general case. 
                par_count = 1
-               commas(1) = 0
-               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
-                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
-                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) cell(par_count,par_count)
+               isep1 = 0                  
+               DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
+                  isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
+                  READ(cmdbuffer(isep1+1:isep2-1),*) cell(par_count,par_count)
                   par_count = par_count + 1
+                  isep1=isep2
                ENDDO
-               READ(cmdbuffer(commas(par_count)+1:),*) cell(par_count,par_count)
+               READ(cmdbuffer(isep1+1:),*) cell(par_count,par_count)
             ELSEIF (ccmd == 4) THEN ! smoothing factor, alpha
                READ(cmdbuffer,*) alpha
             ELSEIF (ccmd == 5) THEN ! cutoff in the mu=d(AH)+d(dH) distance
                READ(cmdbuffer,*) mucutoff
             ELSEIF (ccmd == 6) THEN ! acceptor types
-               errdef=errdef+1
                par_count = 1
-               commas(1) = 0
-               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
-                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
-                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vtacc(par_count)
+               isep1 = 0                  
+               DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
+                  IF (par_count .ge. MAXPARS) &
+                     error STOP "*** Too many acceptor types specified on command line. ***"
+                  isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
+                  READ(cmdbuffer(isep1+1:isep2-1),*) vta(par_count)
                   par_count = par_count + 1
+                  isep1=isep2
                ENDDO
-               READ(cmdbuffer(commas(par_count)+1:),*) vtacc(par_count)
+               READ(cmdbuffer(isep1+1:),*) vta(par_count)
             ELSEIF (ccmd == 7) THEN ! donor types
-               errdef=errdef+1
                par_count = 1
-               commas(1) = 0
-               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
-                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
-                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vtdon(par_count)
+               isep1 = 0                  
+               DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
+                  IF (par_count .ge. MAXPARS) &
+                     error STOP "*** Too many donor types specified on command line. ***"
+                  isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
+                  READ(cmdbuffer(isep1+1:isep2-1),*) vtd(par_count)
                   par_count = par_count + 1
+                  isep1=isep2
                ENDDO
-               READ(cmdbuffer(commas(par_count)+1:),*) vtdon(par_count)
+               READ(cmdbuffer(isep1+1:),*) vtd(par_count)
             ELSEIF (ccmd == 8) THEN ! hydrogen types
-               errdef=errdef+1
                par_count = 1
-               commas(1) = 0
-               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
-                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
-                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vtH(par_count)
+               isep1 = 0                  
+               DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
+                  IF (par_count .ge. MAXPARS) &
+                     error STOP "*** Too many hydrogen types specified on command line. ***"
+                  isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
+                  READ(cmdbuffer(isep1+1:isep2-1),*) vth(par_count)
                   par_count = par_count + 1
+                  isep1=isep2
                ENDDO
-               READ(cmdbuffer(commas(par_count)+1:),*) vtH(par_count)
+               READ(cmdbuffer(isep1+1:),*) vth(par_count)
             ELSEIF (ccmd == 9) THEN ! gaussians describing the HB
                ! more then 1 gaussian can be used to describe the HB,
                ! but the standard case is to use just one gaussian
                ! and the default is to use the first gaussian in the list
-               ! that will be passed through the clusterfile
+               ! that will be passed through the clusterfile               
                par_count = 1
-               commas(1) = 0
-               DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
-                  IF (par_count .ge. MAXPARS) STOP "*** Too many HB clusters specified on command line. ***"
-                  commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
-                  READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vtghb(par_count)
+               isep1 = 0                  
+               DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
+                  IF (par_count .ge. MAXPARS) &
+                     error STOP "*** Too many HB clusters specified on command line. ***"
+                  isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
+                  READ(cmdbuffer(isep1+1:isep2-1),*) vghb(par_count)
                   par_count = par_count + 1
+                  isep1=isep2
                ENDDO
-               READ(cmdbuffer(commas(par_count)+1:),*) vtghb(par_count)
-               ! parameters readed. Now I know the number of the parameters passed
-               ! and so I can allocate the vector I will use later
-               nghb=par_count
-               ALLOCATE(vghb(nghb))
-               vghb(1:nghb)=vtghb(1:nghb)
+               READ(cmdbuffer(isep1+1:),*) vghb(par_count)
+            ELSEIF (ccmd == 10) THEN ! delta
+               READ(cmdbuffer,*) delta
             ENDIF
          ENDIF
       ENDDO
-      !!!!! END PARSER
+!!!!!!!!!!! END PARSER !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!! CHECK for mandatory parameters !!!!!!
       ! The user, at least, must specifies what is what
-      IF (.NOT.(errdef.EQ.3)) THEN
-         WRITE(*,*) "", errdef
+      IF ((vta(1).EQ."NULL").AND.(vtd(1).EQ."NULL").AND.(vth(1).EQ."NULL")) THEN
          WRITE(*,*) " Error: insert the hydrongen, donor and acceptor species! "
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
 
-      ! dopamm will be true just specifying the -gf flug
+      ! dopamm will be true just specifying the -gf flag
       IF (dopamm) THEN
          IF (clusterfile.EQ."NULL") THEN
             ! the user did something wrong in the GM specifications
@@ -223,11 +228,10 @@
             WRITE(*,*) " Error: insert the file containing the gaussians parameters! "
             CALL helpmessage
             CALL EXIT(-1)
-         ELSEIF (vtghb(1).EQ.-1) THEN
+         ELSEIF (vghb(1).EQ.0) THEN
             ! the user didn't specify indices of clusters that
             ! describe the HB into the PAMM framework.
             ! The first gaussian in the list will be used.
-            ALLOCATE(vghb(1))
             vghb(1)=1
             nghb=1
          ENDIF
@@ -241,122 +245,133 @@
       ts=0 ! timestep
       DO
          ts=ts+1
-         ! unit=5  --> read frome the standard input
-         CALL xyz_read(5,natoms,header,labels,positions,endf)
-         IF(endf<0) EXIT ! time to go!
-         IF (ts==1) THEN ! first step, must allocate stuff
-            ! inizialize the mask types and Gaussian structures
+         IF (MODULO(ts,delta)/=0) THEN
+            ! skip the frame
+            READ(5,*,IOSTAT=endf) natoms
+            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf<0) EXIT
+            READ(5,'(A)',IOSTAT=endf) header
+            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf<0) EXIT
+            DO i=1,natoms
+               READ(5,'(A)',IOSTAT=endf) header
+            ENDDO
+            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf<0) EXIT
+            CYCLE
+         ELSE
+            ! unit=5  --> read frome the standard input
+            CALL xyz_read(5,natoms,header,labels,positions,endf)
+            IF(endf<0) EXIT ! time to go!
+            IF (readgauss) THEN ! first step, must allocate stuff
+               readgauss = .false.
+               ! inizialize the mask types and Gaussian structures
+               IF (dopamm) THEN
+                  ! PAMM mode
+                  ! Read gaussian parameters from the gaussian file
+                  OPEN(UNIT=12,FILE=clusterfile,STATUS='OLD',ACTION='READ')
+                  ! read the gaussian model informations from a file.
+                  CALL readclusters(12,nk,clusters)
+                  CLOSE(UNIT=12)
+                  ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
+                  ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
+                  spa=0.0d0
+                  spd=0.0d0
+                  sph=0.0d0
+               ENDIF
+               ALLOCATE(masktypes(natoms))
+               masktypes=TYPE_NONE
+               DO i=1,natoms
+                  ! set the mask using BITWISE OR OPERATOR
+                  IF(testtype(labels(i),vth)) masktypes(i)=IOR(masktypes(i),TYPE_H)
+                  IF(testtype(labels(i),vtd)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
+                  IF(testtype(labels(i),vta)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
+               ENDDO
+            ENDIF
+            IF (nptm .or. cell(1,1) == 0.0d0) THEN 
+               ! NPT mode: this means variable cell!
+               ! Try to read the cell parameters the header in input stream
+               READ(header, *) dummyc,dummyc,cell(1,1),cell(2,2),cell(3,3)
+               CALL invmatrix(3,cell,icell)
+            END IF
+            
             IF (dopamm) THEN
-               ! PAMM mode
-               ! Read gaussian parameters from the gaussian file
-               OPEN(UNIT=12,FILE=clusterfile,STATUS='OLD',ACTION='READ')
-               ! read the gaussian model informations from a file.
-               CALL readclusters(12,nk,clusters)
-               CLOSE(UNIT=12)
-               ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
-               ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
+               ! every step the collective variables values has to be reinitialized
+               sph=0.0d0
                spa=0.0d0
                spd=0.0d0
-               sph=0.0d0
             ENDIF
-            ALLOCATE(masktypes(natoms))
-            masktypes=TYPE_NONE
-!!!!!!! should I put this part out of the if and reset the every step???
-!!!!!!! this will make sense only if the order atoms in the input stream changes
-!!!!!!! between different timestep
-            DO i=1,natoms
-               ! set the mask using BITWISE OR OPERATOR
-               IF(testtype(labels(i),vtH)) masktypes(i)=IOR(masktypes(i),TYPE_H)
-               IF(testtype(labels(i),vtdon)) masktypes(i)=IOR(masktypes(i),TYPE_DONOR)
-               IF(testtype(labels(i),vtacc)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
-            ENDDO
-         ENDIF
-         IF (nptm .or. cell(1,1) == 0.0d0) THEN 
-            ! NPT mode: this means ariable cell!
-            ! Try to read the cell parameters the header in input stream
-            READ(header, *) dummyc,dummyc,cell(1,1),cell(2,2),cell(3,3)
-            CALL invmatrix(3,cell,icell)
-         END IF
-         
-         IF (dopamm) THEN
-            ! every step the collective variables values has to be reinitialized
-            sph=0.0d0
-            spa=0.0d0
-            spd=0.0d0
-         ENDIF
-         
-         ! here is the core of hbpamm
-         ! we have to generate all the possible [nu,mu,r]
-         DO ih=1,natoms ! loop over hydrogen types
-            IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
-            DO id=1,natoms ! loop over donor types
-               IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
-               ! Get the distance D-H
-               CALL pbcdist(cell,icell,positions(:,ih),positions(:,id),rdh)
-               IF(rdh.GT.mucutoff) CYCLE  ! if the D-H distances is greater than the pre-defined
-                                          ! cutoff, we do not need to check A-H
-               DO ia=1,natoms ! loop over acceptor types
-                  IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
-                     .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
-                  ! Get the distance acceptor-hydrogen
-                  CALL pbcdist(cell,icell,positions(:,ih),positions(:,ia),rah)
-                  x(2)=rdh+rah ! calculation of mu
-                  IF(x(2).GT.mucutoff) CYCLE ! cutoff check in mu
-                  x(1)=rdh-rah ! calculation of nu
-                  ! Calculate the distance donor-acceptor (R)
-                  CALL pbcdist(cell,icell,positions(:,id),positions(:,ia),x(3))
-
-                  wfactor=1.0d0
-                  IF(weighted) wfactor=1.0d0/((x(2)-x(1))*(x(2)+x(1))*x(3))
-
-                  IF (dopamm) THEN
-                     ! PAMM mode. We apply here the gaussian mixture model.
-                     ! call lipbamm and compute the PAMM probability
-                     CALL pamm_p(x, pnks, nk, clusters, alpha)
-!!!!!! Where do I put the wfactor?? 
-!!!!!! It should be passed inside pamm_p as in the previus GetP
-                      
-                     ! CALL GetP(3,x,wfactor,alpha,Nk,clusters,pks,pnks)
-                     ! cumulate the probabilities conditional probabilieties
-                     sph(:,ih) = sph(:,ih) + pnks(:)
-                     spa(:,ia) = spa(:,ia) + pnks(:)
-                     spd(:,id) = spd(:,id) + pnks(:)
-                  ELSE
-                     ! Pre-PAMM mode : write out x=[nu,mu,r] and the associated wfactor
-                     WRITE(*,"(3(A1,ES21.8E4))",ADVANCE = "NO")  " ",x(1)," ",x(2)," ",x(3)
-                     IF (weighted) WRITE(*,"(A1,ES21.8E4)",ADVANCE = "NO") " ", wfactor
-                     write(*,*) "" ! go to a new line
-                  ENDIF
+            
+            ! here is the core of hbpamm
+            ! we have to generate all the possible [nu,mu,r]
+            DO ih=1,natoms ! loop over hydrogen types
+               IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
+               DO id=1,natoms ! loop over donor types
+                  IF (IAND(masktypes(id),TYPE_DONOR).EQ.0 .OR. ih.EQ.id) CYCLE
+                  ! Get the distance D-H
+                  CALL pbcdist(cell,icell,positions(:,ih),positions(:,id),rdh)
+                  IF(rdh.GT.mucutoff) CYCLE  ! if the D-H distances is greater than the pre-defined
+                                             ! cutoff, we do not need to check A-H
+                  DO ia=1,natoms ! loop over acceptor types
+                     IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
+                        .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
+                     ! Get the distance acceptor-hydrogen
+                     CALL pbcdist(cell,icell,positions(:,ih),positions(:,ia),rah)
+                     x(2)=rdh+rah ! calculation of mu
+                     IF(x(2).GT.mucutoff) CYCLE ! cutoff check in mu
+                     x(1)=rdh-rah ! calculation of nu
+                     ! Calculate the distance donor-acceptor (R)
+                     CALL pbcdist(cell,icell,positions(:,id),positions(:,ia),x(3))
+   
+                     wfactor=1.0d0
+                     IF(weighted) wfactor=1.0d0/((x(2)-x(1))*(x(2)+x(1))*x(3))
+   
+                     IF (dopamm) THEN
+                        ! PAMM mode. We apply here the gaussian mixture model.
+                        ! call lipbamm and compute the PAMM probability
+                        CALL pamm_p(x, pnks, nk, clusters, alpha)
+                        ! CALL GetP(3,x,wfactor,alpha,Nk,clusters,pks,pnks)
+                        ! sum the probabilities from the gaussians describing the HB
+                        sph(:,ih) = sph(:,ih) + pnks(:)
+                        spa(:,ia) = spa(:,ia) + pnks(:)
+                        spd(:,id) = spd(:,id) + pnks(:)
+                     ELSE
+                        ! Pre-PAMM mode : write out x=[nu,mu,r] and the associated wfactor
+                        WRITE(*,"(3(A1,ES21.8E4))",ADVANCE = "NO")  " ",x(1)," ",x(2)," ",x(3)
+                        IF (weighted) WRITE(*,"(A1,ES21.8E4)",ADVANCE = "NO") " ", wfactor
+                        write(*,*) "" ! go to a new line
+                     ENDIF
+                  ENDDO
                ENDDO
             ENDDO
-         ENDDO
-
-         IF(dopamm)THEN
-            ! sum over the gaussians of interest
-            sa=0.0d0
-            sd=0.0d0
-            sh=0.0d0
-            DO i=1,nghb
-               sh(:)=sh(:)+sph(vghb(i),:)
-               sd(:)=sd(:)+spd(vghb(i),:)
-               sa(:)=sa(:)+spa(vghb(i),:)
-            ENDDO
-            ! write results to a formatted output
-            ! use positions as a dummy vector to store sh, sd, sa
-            positions(1,:) = sh(:)
-            positions(2,:) = sd(:)
-            positions(3,:) = sa(:)
-            CALL xyz_write(6,natoms,header,labels,positions)
+   
+            IF(dopamm)THEN
+               ! sum over the gaussians of interest
+               sa=0.0d0
+               sd=0.0d0
+               sh=0.0d0
+               DO i=1,nghb
+                  sh(:)=sh(:)+sph(vghb(i),:)
+                  sd(:)=sd(:)+spd(vghb(i),:)
+                  sa(:)=sa(:)+spa(vghb(i),:)
+               ENDDO
+               ! write results to a formatted output
+               ! use positions as a dummy vector to store sh, sd, sa
+               positions(1,:) = sh(:)
+               positions(2,:) = sd(:)
+               positions(3,:) = sa(:)
+               CALL xyz_write(6,natoms,header,labels,positions)
+            ENDIF
          ENDIF
       ENDDO
-      ! end the loop over the trajectory
+      ! end of the loop over the trajectory
 
       DEALLOCATE(positions)
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
       IF (dopamm) THEN
          DEALLOCATE(clusters,pks,pnks)
-         DEALLOCATE(spa, sph, spd, sa, sh, sd, vghb)
+         DEALLOCATE(spa, sph, spd, sa, sh, sd)
       ENDIF
 
       CONTAINS
@@ -364,7 +379,7 @@
          SUBROUTINE helpmessage
             WRITE(*,*) ""
             WRITE(*,*) " SYNTAX: hbpamm -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
-            WRITE(*,*) "                [-h] [-l lx,ly,lz] [-w] [-npt] [-ct mucutoff] "
+            WRITE(*,*) "                [-h] [-l lx,ly,lz] [-w] [-npt] [-ct mucutoff] [-ev delta] "
             WRITE(*,*) "                [-gf clusterfile] [-ghb 1,2,..] [-a smoothing_factor] "
             WRITE(*,*) "                 < input.xyz > output "
             WRITE(*,*) ""
@@ -382,6 +397,7 @@
             WRITE(*,*) "   -td D1,D2,...        : Namelist of donors "
             WRITE(*,*) "   -th H1,H2,...        : Namelist of hydrogens "
             WRITE(*,*) "   -ct mucutoff         : Ignore DHA triplets with d(DH)+d(AH)>cutoff "
+            WRITE(*,*) "   -ev delta            : Stride while reading data from the XYZ input "
             WRITE(*,*) "   -npt                 : NPT mode. read cell date from the XYZ header "
             WRITE(*,*) "                          Format: # CELL: axx ayy azz           "
             WRITE(*,*) "   -w                   : Computes a weight for each DHA triplet "
@@ -402,10 +418,10 @@
 
          LOGICAL FUNCTION testtype(id,vtype)
             CHARACTER*4, INTENT(IN) :: id
-            CHARACTER*4, DIMENSION(4), INTENT(IN) :: vtype
+            CHARACTER*4, DIMENSION(MAXPARS), INTENT(IN) :: vtype
             INTEGER i
             testtype=.false.
-            DO i=1,4
+            DO i=1,MAXPARS
                IF(trim(id).EQ.trim(vtype(i)))THEN
                   testtype=.true.
                   EXIT

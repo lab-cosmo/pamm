@@ -22,7 +22,7 @@
 .PHONY: all clean
 
 FF=gfortran
-FFLAGS=-g -O3 -Wall 
+FFLAGS=-O3  
 MODULES=libpamm.f90 xyz.f90
 OBJECTS=$(MODULES:.f90=.o)
 
