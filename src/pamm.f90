@@ -33,7 +33,7 @@
       USE libpamm
       IMPLICIT NONE
 
-      CHARACTER*1024 :: outputfile                            ! The output file prefix
+      CHARACTER(LEN=1024) :: outputfile                       ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: xref(:)                ! Reference point needed to find out the important cluster
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: diff     ! temp vector used to store distances
@@ -60,7 +60,7 @@
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot,qspath
 
       ! PARSER
-      CHARACTER*1024 :: cmdbuffer, comment   ! String used for reading text lines from files
+      CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
       INTEGER ccmd                  ! Index used to control the input parameters
       LOGICAL verbose ! flag for verbosity
       LOGICAL weighted ! flag for using weigheted data
@@ -124,7 +124,7 @@
             ELSEIF (ccmd == 7) THEN ! number of grid points
                READ(cmdbuffer,*) nminmax
             ELSEIF (ccmd == 8) THEN 
-               IF (D<0) error STOP "Dimensionality (-d) must be precede the reference point (-red). "
+               IF (D<0) STOP "Dimensionality (-d) must be precede the reference point (-red). "
                par_count = 1
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
@@ -398,7 +398,7 @@
             ENDIF
             totw=totw+wbuff(counter+1)
             IF(io_status<0) EXIT
-            IF(io_status>0) error STOP "*** Error occurred while reading file. ***"
+            IF(io_status>0) STOP "*** Error occurred while reading file. ***"
             
             counter=counter+1
             

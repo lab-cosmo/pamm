@@ -1,5 +1,5 @@
-! The program which apply the pamm definition in libpamme
-! to the HB.
+! An application of PAMM to the hydrogen bond. 
+! Uses libpamm for the evaluation of sDHA
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
@@ -36,12 +36,14 @@
       INTEGER, PARAMETER :: TYPE_DONOR=2
       INTEGER, PARAMETER :: TYPE_ACCEPTOR=4
       INTEGER, PARAMETER :: MAXPARS = 4
-      CHARACTER*1024 :: filename, gaussianfile !, outputfile
-      CHARACTER*1024 :: cmdbuffer
+      CHARACTER(LEN=1024) :: filename, clusterfile 
+      CHARACTER(LEN=1024) :: cmdbuffer
+
       !system parameters
       INTEGER natoms
       DOUBLE PRECISION cell(3,3), icell(3,3)
       DOUBLE PRECISION alpha, mucutoff
+
       !to remove
       ! gaussians
       INTEGER Nk
@@ -61,16 +63,16 @@
       ! for a faster reading
       ! counters
       INTEGER i,ts
-      LOGICAL convert,dogma,nptm,weighted!,verbose
+      LOGICAL convert,dopamm,nptm,weighted!,verbose
       INTEGER errdef
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions
       ! mask to define what is what
       INTEGER, ALLOCATABLE, DIMENSION(:) :: masktypes
       INTEGER vtghb(12),nghb
       INTEGER, ALLOCATABLE, DIMENSION(:) :: vghb
-      CHARACTER*4, ALLOCATABLE, DIMENSION(:) :: labels
-      CHARACTER*1024 :: header, dummyc
-      CHARACTER*4, DIMENSION(4) :: vtacc,vtdon,vtH
+      CHARACTER(LEN=4), ALLOCATABLE, DIMENSION(:) :: labels
+      CHARACTER(LEN=1024) :: header, dummyc
+      CHARACTER(LEN=4), DIMENSION(4) :: vtacc,vtdon,vtH
       INTEGER endf
       !default values
       DO i=1,4
@@ -79,14 +81,14 @@
          vtH(i)="NULL"
       ENDDO
       filename="NULL"
-      gaussianfile="NULL"
+      clusterfile="NULL"
       nk=-1
       ccmd=0
       cell=0.0d0
       alpha=1.0d0
       mucutoff=5.0d0
       convert = .false.
-      dogma = .false.
+      dopamm = .false.
       nptm = .false.
       weighted = .false.   ! don't use wfactor
       endf = 0
@@ -128,8 +130,8 @@
                CALL helpmessage
                CALL EXIT(-1)
             ELSEIF (ccmd == 2) THEN ! gaussian file
-               dogma=.true.
-               gaussianfile=trim(cmdbuffer)
+               dopamm=.true.
+               clusterfile=trim(cmdbuffer)
             ELSEIF (ccmd == 3) THEN ! box dimensions
                ! read the box dimensions
                ! if not specified here, they will be read from the 
@@ -181,14 +183,14 @@
                ENDDO
                READ(cmdbuffer(commas(par_count)+1:),*) vtH(par_count)
             ELSEIF (ccmd == 9) THEN ! gaussians describing the HB
-               ! more then 1 gaussians can be used to describe the HB,
+               ! more then 1 gaussian can be used to describe the HB,
                ! but the standard case is to use just one gaussian
-               ! and the default is to use the first gassion in the list
-               ! that will be passed through the gaussianfile
+               ! and the default is to use the first gaussian in the list
+               ! that will be passed through the clusterfile
                par_count = 1
                commas(1) = 0
                DO WHILE (index(cmdbuffer(commas(par_count)+1:), ',') > 0)
-                  IF (par_count .ge. MAXPARS) error STOP "*** Too many HB clusters specified on command line. ***"
+                  IF (par_count .ge. MAXPARS) STOP "*** Too many HB clusters specified on command line. ***"
                   commas(par_count + 1) = index(cmdbuffer(commas(par_count)+1:), ',') + commas(par_count)
                   READ(cmdbuffer(commas(par_count)+1:commas(par_count + 1)-1),*) vtghb(par_count)
                   par_count = par_count + 1
@@ -212,18 +214,18 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-      ! DOGMA stands for 'DO Gaussian Mixture Analysis'
-      ! dogma will be true just specifying the -gf flug
-      IF (dogma) THEN
-         IF (gaussianfile.EQ."NULL") THEN
-            ! the user did something wrong in the his specifications
+
+      ! dopamm will be true just specifying the -gf flug
+      IF (dopamm) THEN
+         IF (clusterfile.EQ."NULL") THEN
+            ! the user did something wrong in the GM specifications
             WRITE(*,*) ""
             WRITE(*,*) " Error: insert the file containing the gaussians parameters! "
             CALL helpmessage
             CALL EXIT(-1)
          ELSEIF (vtghb(1).EQ.-1) THEN
-            ! the user didn't passed the numbers of the gaussians to use
-            ! to describe the HB into the PAMM framework.
+            ! the user didn't specify indices of clusters that
+            ! describe the HB into the PAMM framework.
             ! The first gaussian in the list will be used.
             ALLOCATE(vghb(1))
             vghb(1)=1
@@ -231,10 +233,11 @@
          ENDIF
       ENDIF
       !!!! END CHECK .. we needed just few things !!!
+
       ! Invert the cell. Needed for PBC.
       CALL invmatrix(3,cell,icell)
-      ! Loop over the input trajectory
-      
+
+      ! Loop over the input trajectory      
       ts=0 ! timestep
       DO
          ts=ts+1
@@ -243,10 +246,10 @@
          IF(endf<0) EXIT ! time to go!
          IF (ts==1) THEN ! first step, must allocate stuff
             ! inizialize the mask types and Gaussian structures
-            IF (dogma) THEN
+            IF (dopamm) THEN
                ! PAMM mode
                ! Read gaussian parameters from the gaussian file
-               OPEN(UNIT=12,FILE=gaussianfile,STATUS='OLD',ACTION='READ')
+               OPEN(UNIT=12,FILE=clusterfile,STATUS='OLD',ACTION='READ')
                ! read the gaussian model informations from a file.
                CALL readclusters(12,nk,clusters)
                CLOSE(UNIT=12)
@@ -275,14 +278,14 @@
             CALL invmatrix(3,cell,icell)
          END IF
          
-         IF (dogma) THEN
+         IF (dopamm) THEN
             ! every step the collective variables values has to be reinitialized
             sph=0.0d0
             spa=0.0d0
             spd=0.0d0
          ENDIF
          
-         ! here the core of hbpamm
+         ! here is the core of hbpamm
          ! we have to generate all the possible [nu,mu,r]
          DO ih=1,natoms ! loop over hydrogen types
             IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
@@ -291,7 +294,7 @@
                ! Get the distance D-H
                CALL pbcdist(cell,icell,positions(:,ih),positions(:,id),rdh)
                IF(rdh.GT.mucutoff) CYCLE  ! if the D-H distances is greater than the pre-defined
-                                          ! cutoff, we can already discard the A-H pair
+                                          ! cutoff, we do not need to check A-H
                DO ia=1,natoms ! loop over acceptor types
                   IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
                      .OR. (ia.EQ.id).OR.(ia.EQ.ih)) CYCLE
@@ -304,12 +307,11 @@
                   CALL pbcdist(cell,icell,positions(:,id),positions(:,ia),x(3))
 
                   wfactor=1.0d0
-                  ! wfactor = 1/(r[(mu+nu)(mu-nu)])
-                  IF(weighted) wfactor=1.0d0/((x(2)*x(2)-x(1)*x(1))*x(3))
+                  IF(weighted) wfactor=1.0d0/((x(2)-x(1))*(x(2)+x(1))*x(3))
 
-                  IF (dogma) THEN
+                  IF (dopamm) THEN
                      ! PAMM mode. We apply here the gaussian mixture model.
-                     ! call the lipbamm and compute the PAMM probability
+                     ! call lipbamm and compute the PAMM probability
                      CALL pamm_p(x, pnks, nk, clusters, alpha)
 !!!!!! Where do I put the wfactor?? 
 !!!!!! It should be passed inside pamm_p as in the previus GetP
@@ -329,7 +331,7 @@
             ENDDO
          ENDDO
 
-         IF(dogma)THEN
+         IF(dopamm)THEN
             ! sum over the gaussians of interest
             sa=0.0d0
             sd=0.0d0
@@ -352,7 +354,7 @@
       DEALLOCATE(positions)
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
-      IF (dogma) THEN
+      IF (dopamm) THEN
          DEALLOCATE(clusters,pks,pnks)
          DEALLOCATE(spa, sph, spd, sa, sh, sd, vghb)
       ENDIF
@@ -363,7 +365,7 @@
             WRITE(*,*) ""
             WRITE(*,*) " SYNTAX: hbpamm -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
             WRITE(*,*) "                [-h] [-l lx,ly,lz] [-w] [-npt] [-ct mucutoff] "
-            WRITE(*,*) "                [-gf gaussianfile] [-ghb 1,2,..] [-a smoothing_factor] "
+            WRITE(*,*) "                [-gf clusterfile] [-ghb 1,2,..] [-a smoothing_factor] "
             WRITE(*,*) "                 < input.xyz > output "
             WRITE(*,*) ""
             WRITE(*,*) " Description:  "
@@ -379,7 +381,7 @@
             WRITE(*,*) "   -ta A1,A2,...        : Namelist of acceptors "
             WRITE(*,*) "   -td D1,D2,...        : Namelist of donors "
             WRITE(*,*) "   -th H1,H2,...        : Namelist of hydrogens "
-            WRITE(*,*) "   -ct mucutoff           : Ignore DHA triplets with d(DH)+d(AH)>cutoff "
+            WRITE(*,*) "   -ct mucutoff         : Ignore DHA triplets with d(DH)+d(AH)>cutoff "
             WRITE(*,*) "   -npt                 : NPT mode. read cell date from the XYZ header "
             WRITE(*,*) "                          Format: # CELL: axx ayy azz           "
             WRITE(*,*) "   -w                   : Computes a weight for each DHA triplet "
@@ -393,8 +395,8 @@
             WRITE(*,*) " Mixture model analysis options: "
             WRITE(*,*) "   -gf Gaussians_file   : Activates the analysis and specifies the file "
             WRITE(*,*) "                          containing Gaussian clusters data "
-            WRITE(*,*) "   -gh 1,2,...          : Index of the gaussians that describe the HB "
-            WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the Gaussian model"
+            WRITE(*,*) "   -gh 1,2,...          : Indices of the gaussian(s) that describe the HB [default:1]"
+            WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 

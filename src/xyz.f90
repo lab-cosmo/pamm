@@ -32,19 +32,19 @@
       SUBROUTINE xyz_read(ufile,natoms,header,labels,positions,endf)
          INTEGER, INTENT(OUT) :: natoms
          DOUBLE PRECISION, DIMENSION(:,:), ALLOCATABLE, INTENT(INOUT)  :: positions
-         CHARACTER*4, DIMENSION(:), ALLOCATABLE, INTENT(INOUT) :: labels
-         CHARACTER*1024, INTENT(OUT) :: header
+         CHARACTER(LEN=4), DIMENSION(:), ALLOCATABLE, INTENT(INOUT) :: labels
+         CHARACTER(LEN=1024), INTENT(OUT) :: header
          INTEGER, INTENT(IN) :: ufile
          INTEGER, INTENT(OUT) :: endf
          INTEGER i
          
          READ(ufile,*,IOSTAT=endf) natoms
-         IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+         IF(endf>0) STOP "*** Error occurred while reading file. ***"
          IF(endf<0) return
          
          ! Get the snapshot header
          READ(ufile,'(A)',IOSTAT=endf) header
-         IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+         IF(endf>0) STOP "*** Error occurred while reading file. ***"
          IF(endf<0) return
          IF ( ALLOCATED(labels) .and. SIZE(labels)/=natoms ) DEALLOCATE(labels) ! atom number changed
          IF (.not.(ALLOCATED(labels))) ALLOCATE(labels(natoms))
@@ -52,7 +52,7 @@
          IF (.not.(ALLOCATED(positions))) ALLOCATE(positions(3,natoms))
          DO i=1,natoms ! label, x, y, z
             READ(ufile,*,IOSTAT=endf) labels(i),positions(1,i),positions(2,i),positions(3,i)
-            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf>0) STOP "*** Error occurred while reading file. ***"
             IF(endf<0) return
          END DO
          endf=0
@@ -60,8 +60,8 @@
 		
       SUBROUTINE xyz_write(ufile,natoms,header,labels,positions)
          INTEGER, INTENT(IN) :: ufile, natoms
-         CHARACTER*1024, INTENT(IN) :: header
-         CHARACTER*4, DIMENSION(natoms), INTENT(IN) :: labels
+         CHARACTER(LEN=1024), INTENT(IN) :: header
+         CHARACTER(LEN=4), DIMENSION(natoms), INTENT(IN) :: labels
          DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
          INTEGER i
          ! header

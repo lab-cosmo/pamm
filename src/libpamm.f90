@@ -140,7 +140,7 @@
          INTEGER, INTENT(OUT) :: Nk
          TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:), INTENT(OUT)  :: clusters         
 
-         CHARACTER*1024 :: dummybuffer         
+         CHARACTER(LEN=1024) :: dummybuffer         
          INTEGER k,i,j,D
 
          ! skip the first two comment lines , for now...         
@@ -191,7 +191,7 @@
          !    clusters: type_gaussian container in wich we store the gaussian parameters
 
          INTEGER, INTENT(IN) :: outf
-         CHARACTER*1024, INTENT(IN) :: comments
+         CHARACTER(LEN=1024), INTENT(IN) :: comments
          INTEGER, INTENT(IN) :: nk
          TYPE(GAUSS_TYPE), DIMENSION(Nk), INTENT(IN)  :: clusters
 
