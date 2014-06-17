@@ -39,4 +39,16 @@ Next, one can run the PAMM analysis on the set of HB parameters:
     ../bin/pamm -d 3 -w -o h2o -ngrid 2000 < h2o.nmr
 ```
 
-Note that 
+Note that most parameters in PAMM are selected automatically to 
+give reasonable defaults. Here we specify the number of grid points
+manually, since this is a very short data file and the default would
+yield a very sparse grid. 
+
+`pamm` generates two files, `h2o.grid` that cointains the grid points,
+that have been selected, together with the value of the KDE of the 
+probability density and with the cluster index for each point. 
+`h2o.pamm` contains the list of clusters that have been identified,
+represented by Gaussians with the given mean and covariance.
+
+3. **Post-processing the trajectory**
+

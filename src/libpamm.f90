@@ -144,10 +144,9 @@
          INTEGER k,i,j,D
 
          ! skip the first two comment lines , for now...         
-         READ(fileid,*) dummybuffer
-         
+         READ(fileid,'(A)') dummybuffer
          DO WHILE ( dummybuffer(1:1) == '#' ) 
-            READ(fileid,*) dummybuffer
+            READ(fileid,'(A)') dummybuffer
          ENDDO
          READ(dummybuffer, *) D, Nk
          
@@ -159,16 +158,7 @@
            ALLOCATE(clusters(k)%cov(D,D))
            ALLOCATE(clusters(k)%icov(D,D))
            ! read first the mean
-           READ(fileid,*) clusters(k)%weight
-           DO i=1,D
-              READ(fileid,*) clusters(k)%mean(i)
-           ENDDO
-           ! read the covariance matrix
-           DO i=1,D
-              DO j=1,D
-                 READ(fileid,*) clusters(k)%cov(i,j)
-              ENDDO
-           ENDDO
+           READ(fileid,*) clusters(k)%weight, clusters(k)%mean, clusters(k)%cov
            ! call the routine to prepare the gaussians
            CALL gauss_prepare(clusters(k))
          ENDDO
