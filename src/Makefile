@@ -1,4 +1,4 @@
-# Makefile for the HB Gaussian Mixture library and tests
+# Makefile for the PAMM library and tests
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -19,23 +19,24 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-.PHONY: all clean
-
 FF=gfortran
-FFLAGS=-O3  
+FFLAGS=-O3 -g
+LDFLAGS=-llapack
 MODULES=libpamm.f90 xyz.f90
 OBJECTS=$(MODULES:.f90=.o)
+TOOLS=pamm hbpamm
 
-all: pamm hbpamm
+.PHONY: all clean $(TOOLS)
+all: $(TOOLS)
 
-pamm: $(OBJECTS) pamm.o
-	$(FF) $(FFLAGS) -o pamm $(OBJECTS) pamm.o -llapack 
+$(TOOLS:%=%.o): $(OBJECTS)
 
-hbpamm: $(OBJECTS) hbpamm.o
-	$(FF) $(FFLAGS) -o hbpamm $(OBJECTS) hbpamm.o -llapack
-	
+$(TOOLS): % : ../bin/%
+$(TOOLS:%=../bin/%): ../bin/%: %.o $(OBJECTS)
+	$(FF) $(FFLAGS) -o $@ $^ $(LDFLAGS)
+
 %.o: %.f90
-	$(FF) $(FFLAGS) -c $< -llapack 
+	$(FF) $(FFLAGS) -c $<
 
 clean:
 	rm *.o *.mod

@@ -158,7 +158,7 @@
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   IF (par_count .ge. MAXPARS) &
-                     error STOP "*** Too many acceptor types specified on command line. ***"
+                     STOP "*** Too many acceptor types specified on command line. ***"
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) vta(par_count)
                   par_count = par_count + 1
@@ -170,7 +170,7 @@
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   IF (par_count .ge. MAXPARS) &
-                     error STOP "*** Too many donor types specified on command line. ***"
+                     STOP "*** Too many donor types specified on command line. ***"
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) vtd(par_count)
                   par_count = par_count + 1
@@ -182,7 +182,7 @@
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   IF (par_count .ge. MAXPARS) &
-                     error STOP "*** Too many hydrogen types specified on command line. ***"
+                     STOP "*** Too many hydrogen types specified on command line. ***"
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) vth(par_count)
                   par_count = par_count + 1
@@ -198,7 +198,7 @@
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   IF (par_count .ge. MAXPARS) &
-                     error STOP "*** Too many HB clusters specified on command line. ***"
+                     STOP "*** Too many HB clusters specified on command line. ***"
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) vghb(par_count)
                   par_count = par_count + 1
@@ -248,15 +248,15 @@
          IF (MODULO(ts,delta)/=0) THEN
             ! skip the frame
             READ(5,*,IOSTAT=endf) natoms
-            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf>0) STOP "*** Error occurred while reading file. ***"
             IF(endf<0) EXIT
             READ(5,'(A)',IOSTAT=endf) header
-            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf>0) STOP "*** Error occurred while reading file. ***"
             IF(endf<0) EXIT
             DO i=1,natoms
                READ(5,'(A)',IOSTAT=endf) header
             ENDDO
-            IF(endf>0) error STOP "*** Error occurred while reading file. ***"
+            IF(endf>0) STOP "*** Error occurred while reading file. ***"
             IF(endf<0) EXIT
             CYCLE
          ELSE
@@ -398,8 +398,8 @@
             WRITE(*,*) "   -th H1,H2,...        : Namelist of hydrogens "
             WRITE(*,*) "   -ct mucutoff         : Ignore DHA triplets with d(DH)+d(AH)>cutoff "
             WRITE(*,*) "   -ev delta            : Stride while reading data from the XYZ input "
-            WRITE(*,*) "   -npt                 : NPT mode. read cell date from the XYZ header "
-            WRITE(*,*) "                          Format: # CELL: axx ayy azz           "
+            WRITE(*,*) "   -npt                 : NPT mode. read cell data from the XYZ header "
+            WRITE(*,*) "                          Header format: # CELL: axx ayy azz           "
             WRITE(*,*) "   -w                   : Computes a weight for each DHA triplet "
             WRITE(*,*) "                          to account for the uniform-density phase space volume "
             WRITE(*,*) ""
