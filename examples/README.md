@@ -21,7 +21,9 @@ the proton transfer coordinate nu, the symmetric stretch coordinate mu
 and the donor-acceptor distance r for each O-H...O triplet in each
 snapshot. This is done using
 
+```bash
     ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w < h2o-blyp-piglet.xyz > h2o.nmr
+```
 
 `-td` specifies the atom type(s) that are to be tested as donors, 
 `-th` specifies the label that identifies hydrogen atoms, and `-ta`
@@ -31,9 +33,10 @@ cutoff value specified, and `-w` asks to compute a re-normalization
 weight that accounts for the trivial phase space volume factor.
 
 2. **Optimization of the PAMM model**
-
 Next, one can run the PAMM analysis on the set of HB parameters:
 
+```bash
     ../bin/pamm -d 3 -w -o h2o -ngrid 2000 < h2o.nmr
+```
 
 Note that 
