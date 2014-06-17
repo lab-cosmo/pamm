@@ -41,7 +41,7 @@
       INTEGER D                                               ! Dimensionality of problem
       INTEGER Nk                                              ! Number of gaussians in the mixture
       INTEGER nsamples                                        ! Total number points
-      INTEGER nminmax                                         ! Number of samples extracted using minmax
+      INTEGER ngrid                                         ! Number of samples extracted using minmax
 
       INTEGER jmax,ii,jj
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm
@@ -74,7 +74,7 @@
       outputfile="out"
       ccmd=0              ! no parameters specified
       Nk=0                ! number of gaussians
-      nminmax=-1          ! number of samples extracted with minmax
+      ngrid=-1          ! number of samples extracted with minmax
       seed=12345          ! seed for the random number generator
       tau=-1              ! quick shift cut-off
       verbose = .false.   ! no verbosity
@@ -93,7 +93,7 @@
             ccmd = 4
          ELSEIF (cmdbuffer == "-tau") THEN    ! threshold to differentiate different clusters
             ccmd = 5
-         ELSEIF (cmdbuffer == "-nkde") THEN   ! N of grid points 
+         ELSEIF (cmdbuffer == "-ngrid") THEN   ! N of grid points 
             ccmd = 7
          ELSEIF (cmdbuffer == "-ref") THEN    ! point from wich calculate the distances to order
             ccmd = 8                          ! the gaussians in the output
@@ -122,7 +122,7 @@
             ELSEIF (ccmd == 5) THEN ! cut-off for quick-shift
                READ(cmdbuffer,*) tau
             ELSEIF (ccmd == 7) THEN ! number of grid points
-               READ(cmdbuffer,*) nminmax
+               READ(cmdbuffer,*) ngrid
             ELSEIF (ccmd == 8) THEN 
                IF (D<0) STOP "Dimensionality (-d) must be precede the reference point (-red). "
                par_count = 1
@@ -163,33 +163,33 @@
 
       ! If not specified, the number voronoi polyhedras
       ! are set to the square of the total number of points
-      IF (nminmax.EQ.-1) nminmax=int(sqrt(float(nsamples)))
+      IF (ngrid.EQ.-1) ngrid=int(sqrt(float(nsamples)))
 
       ALLOCATE(iminij(nsamples))
-      ALLOCATE(pnlist(nminmax+1),nlist(nsamples))
-      ALLOCATE(y(D,nminmax),npvoronoi(nminmax),probnmm(nminmax),sigma2(nminmax))
-      ALLOCATE(idxroot(nminmax),qspath(nminmax),distmm(nminmax,nminmax))
+      ALLOCATE(pnlist(ngrid+1),nlist(nsamples))
+      ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid),sigma2(ngrid))
+      ALLOCATE(idxroot(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
       ALLOCATE(diff(D))
 
-      ! Extract nminmax points on which the kernel density estimation is to be
+      ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
       ! of the sampling points.
       IF(verbose) THEN
          WRITE(*,*) "NSamples: ", nsamples
-         WRITE(*,*) "Selecting ", nminmax, " points using MINMAX"
+         WRITE(*,*) "Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
-      CALL mkgrid(D,nsamples,nminmax,x,y,npvoronoi,iminij)
+      CALL mkgrid(D,nsamples,ngrid,x,y,npvoronoi,iminij)
 
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
-      CALL getnlist(nsamples,nminmax,npvoronoi,iminij, pnlist,nlist)
+      CALL getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
 
       ! Definition of the similarity matrix between grid points
       distmm=0.0d0
       sigma2=1e10 ! adaptive sigma of the kernel density estimator
       IF(verbose) write(*,*) "Computing similarity matrix"
-      DO i=1,nminmax
+      DO i=1,ngrid
          DO j=1,i-1
             ! distance between two voronoi centers
             distmm(i,j) = dot_product( y(:,i) - y(:,j) , y(:,i) - y(:,j) )
@@ -202,7 +202,7 @@
 
       IF(tau.EQ.-1)THEN
          ! set automatically the mean shift tau set to 5*<sig>
-         tau2=25.0d0*SUM(sigma2)/nminmax
+         tau2=25.0d0*SUM(sigma2)/ngrid
          tau=dsqrt(tau2)
       ENDIF
       tau2=tau*tau ! we always work with squared distances....
@@ -212,8 +212,8 @@
       
       ! computes the KDE on the Voronoi centers using the neighbour list
       probnmm = 0.0d0
-      DO i=1,nminmax
-         DO j=1,nminmax
+      DO i=1,ngrid
+         DO j=1,ngrid
 
             ! do not compute KDEs for points that belong to far away Voronoj
             IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
@@ -231,7 +231,7 @@
 
       idxroot=0
       ! Start quick shift
-      DO i=1,nminmax
+      DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
          !idxroot(i)=i
          qspath=0
@@ -239,7 +239,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-               qs_next(nminmax,qspath(counter),tau2,probnmm,distmm)
+               qs_next(ngrid,qspath(counter),tau2,probnmm,distmm)
                IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
                counter=counter+1
                qspath(counter)=idxroot(qspath(counter-1))
@@ -255,7 +255,7 @@
       Nk=1
       normpks=0.0d0
       OPEN(UNIT=11,FILE=trim(outputfile)//".grid",STATUS='REPLACE',ACTION='WRITE')
-      DO i=1,nminmax
+      DO i=1,ngrid
          ! write out the clusters
          dummyi1=0
          DO k=1,Nk
@@ -291,7 +291,7 @@
          clusters(k)%cov = 0.0d0
           
          tmppks=0.0d0
-         DO i=1,nminmax
+         DO i=1,ngrid
             IF(idxroot(i).NE.qspath(k)) CYCLE
             tmppks=tmppks+probnmm(i)
             DO ii=1,D
@@ -313,7 +313,7 @@
       
       ! write a 2-lines header
       WRITE(comment,*) "# PAMM clusters analysis. NSamples: ", nsamples, " NGrid: ", &
-                nminmax, " QSTau: ", tau, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance "
+                ngrid, " QSTau: ", tau, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance "
 
       OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
       
@@ -340,7 +340,7 @@
          !
 
          WRITE(*,*) ""
-         WRITE(*,*) " USAGE: pamm [-h] -d D [-w] [-o output] [-nkde NTot] [-tau tau] "
+         WRITE(*,*) " USAGE: pamm [-h] -d D [-w] [-o output] [-ngrid ngrid] [-tau tau] "
          WRITE(*,*) "              [-seed seedrandom] [-rif -1,0,0,...] [-v] "
          WRITE(*,*) ""
          WRITE(*,*) " Applies the PAMM clustering to a high-dimensional data set. "
@@ -358,7 +358,7 @@
          WRITE(*,*) "                            output.grid (clusterized grid points) "
          WRITE(*,*) "                            output.pamm (cluster parameters) "
          WRITE(*,*) "   -tau tau          : Quick shift cutoff [automatic] "
-         WRITE(*,*) "   -nkde nkde        : Number of points to evaluate KDE [sqrt(nsamples)]"
+         WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -ref X            : Reference point for ordering the clusters [ (-1,0,0,...) ]"
          WRITE(*,*) "   -v                : Verbose output "
@@ -389,15 +389,15 @@
          ALLOCATE(xj(D,1),wj(1),vtmp(D,1),wtmp(1))
          xj=0.0d0
          totw=0.0d0
-         DO
-            READ(5,*, IOSTAT=io_status) vbuff(:,counter+1)
+         DO            
             IF(fweight) THEN
-               READ(5,*, IOSTAT=io_status) wbuff(counter+1)                  
+               READ(5,*, IOSTAT=io_status) vbuff(:,counter+1), wbuff(counter+1)                                   
             ELSE               
+               READ(5,*, IOSTAT=io_status) vbuff(:,counter+1)
                wbuff(counter+1)=1.0d0
             ENDIF
             totw=totw+wbuff(counter+1)
-            IF(io_status<0) EXIT
+            IF(io_status<0 .or. io_status==5008) EXIT    ! also intercepts a weird error given by some compilers when reading past of EOF
             IF(io_status>0) STOP "*** Error occurred while reading file. ***"
             
             counter=counter+1
@@ -440,13 +440,13 @@
          
       END SUBROUTINE readinput
 
-      SUBROUTINE mkgrid(D,nsamples,nminmax,x,y,npvoronoi,iminij)
-         ! Select nminmax grid points from nsamples using minmax and
+      SUBROUTINE mkgrid(D,nsamples,ngrid,x,y,npvoronoi,iminij)
+         ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          !
          ! Args:
          !    nsamples: total points number
-         !    nminmax: number of grid points
+         !    ngrid: number of grid points
          !    x: array containing the data samples
          !    y: array that will contain the grid points
          !    npvoronoi: array cotaing the number of samples inside the Voronoj polyhedron of each grid point 
@@ -454,10 +454,10 @@
          
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: nsamples
-         INTEGER, INTENT(IN) :: nminmax
+         INTEGER, INTENT(IN) :: ngrid
          DOUBLE PRECISION, DIMENSION(D,nsamples), INTENT(IN) :: x
-         DOUBLE PRECISION, DIMENSION(D,nminmax), INTENT(OUT) :: y
-         INTEGER, DIMENSION(nminmax), INTENT(OUT) :: npvoronoi
+         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
 
          INTEGER i,j
@@ -470,7 +470,7 @@
          y(:,1)=x(:,int(RAND()*nsamples))
          dminij = 1.0d99
          iminij = 1
-         DO i=2,nminmax
+         DO i=2,ngrid
             dmax = 0.0d0
             DO j=1,nsamples
                dij = dot_product( y(:,i-1) - x(:,j) , &
@@ -486,16 +486,16 @@
             ENDDO
             y(:,i) = x(:, jmax)
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
-               write(*,*) i,"/",nminmax
+               write(*,*) i,"/",ngrid
          ENDDO
 
          ! finishes Voronoi attribution
          DO j=1,nsamples
-            dij = dot_product( y(:,nminmax) - x(:,j) , &
-                               y(:,nminmax) - x(:,j) )
+            dij = dot_product( y(:,ngrid) - x(:,j) , &
+                               y(:,ngrid) - x(:,j) )
             IF (dminij(j)>dij) THEN
                dminij(j) = dij
-               iminij(j) = nminmax
+               iminij(j) = ngrid
             ENDIF
          ENDDO
 
@@ -506,28 +506,28 @@
          ENDDO
       END SUBROUTINE mkgrid
 
-      SUBROUTINE getnlist(nsamples,nminmax,npvoronoi,iminij, pnlist,nlist)
+      SUBROUTINE getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
          ! Build a neighbours list: for every voronoi center keep track of his
          ! neighboroud that correspond to all the points inside the voronoi
          ! polyhedra.
          !
          ! Args:
          !    nsamples: total points number
-         !    nminmax: number of voronoi polyhedra
+         !    ngrid: number of voronoi polyhedra
          !    weights: array cotaing the number of points inside each voroni polyhedra
          !    iminij: array containg to wich polyhedra every point belong to
          !    pnlist: pointer to neighbours list
          !    nlist: neighbours list
 
          INTEGER, INTENT(IN) :: nsamples
-         INTEGER, INTENT(IN) :: nminmax
-         INTEGER, DIMENSION(nminmax), INTENT(IN) :: npvoronoi
+         INTEGER, INTENT(IN) :: ngrid
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: npvoronoi
          INTEGER, DIMENSION(nsamples), INTENT(IN) :: iminij
-         INTEGER, DIMENSION(nminmax+1), INTENT(OUT) :: pnlist
+         INTEGER, DIMENSION(ngrid+1), INTENT(OUT) :: pnlist
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: nlist
 
          INTEGER i,j
-         INTEGER :: tmpnidx(nminmax)
+         INTEGER :: tmpnidx(ngrid)
 
          pnlist=0
          nlist=0
@@ -535,7 +535,7 @@
 
          ! pointer to the neighbourlist
          pnlist(1)=0
-         DO i=1,nminmax
+         DO i=1,ngrid
             pnlist(i+1)=pnlist(i)+npvoronoi(i)
             tmpnidx(i)=pnlist(i)+1  ! temporary array to use while filling up the neighbour list
          ENDDO
@@ -547,28 +547,28 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      INTEGER FUNCTION qs_next(nminmax,idx,tau,probnmm,distmm)
+      INTEGER FUNCTION qs_next(ngrid,idx,tau,probnmm,distmm)
          ! Return the index of the closest point higher in P
          !
          ! Args:
-         !    nminmax: number of voronoi polyhedra
+         !    ngrid: number of grid points
          !    idx: current point
          !    tau: cut-off in the jump
          !    probnmm: density estimations
          !    distmm: distances matrix
 
-         INTEGER, INTENT(IN) :: nminmax
+         INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
          DOUBLE PRECISION, INTENT(IN) :: tau
-         DOUBLE PRECISION, DIMENSION(nminmax), INTENT(IN) :: probnmm
-         DOUBLE PRECISION, DIMENSION(nminmax,nminmax), INTENT(IN) :: distmm
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
 
          INTEGER j
          DOUBLE PRECISION dmin
 
          dmin=1.0d10
          qs_next=idx
-         DO j=1,nminmax
+         DO j=1,ngrid
             IF(probnmm(j)>probnmm(idx))THEN
                IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.tau))THEN
                   dmin=distmm(idx,j)
