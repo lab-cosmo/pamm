@@ -24,7 +24,7 @@ The PAMM analysis consists of three steps.
    snapshot. This is done using
  
    ```bash
-       ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w < h2o-blyp-piglet.xyz > h2o.nmr
+    ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w < h2o-blyp-piglet.xyz > h2o.nmr
    ```
 
    `-td` specifies the atom type(s) that are to be tested as donors, 
@@ -38,7 +38,7 @@ The PAMM analysis consists of three steps.
    Next, one can run the PAMM analysis on the set of HB parameters:
  
    ```bash
-       ../bin/pamm -d 3 -w -o h2o -ngrid 2000 < h2o.nmr
+   ../bin/pamm -d 3 -w -o h2o -ngrid 2000 < h2o.nmr
    ```
 
    Note that most parameters in PAMM are selected automatically to 
@@ -64,7 +64,7 @@ The PAMM analysis consists of three steps.
    step, plus a specification of the cluster file:
 
    ```bash
-       ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf h2o.pamm < h2o-blyp-piglet.xyz > h2o.hda
+   ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf h2o.pamm < h2o-blyp-piglet.xyz > h2o.hda
    ```
    `hbpamm` automatically selects the first cluster as the one that 
    represents the HB, but one can choose another using the `-gh` option.
@@ -77,8 +77,8 @@ one can use the histogram codes that is part of the [toolbox](http://github.com/
 post-processing and utilities suite. 
 
 ```bash
-    grep H h2o.hda | awk '{print $2}' | histogram -xi 0 -xf 3 -n 300 -t 0.05 -whard > h2o.hb
-    grep O h2o.hda | awk '{print $3,$4}' | ndhistogram -d 2 -xi 0,0 -xf 4,4 \
-               -n 200,200 -t 0.05,0.05 -whard -g -adaptive 1.0 > h2o.sasd
+grep H h2o.hda | awk '{print $2}' | histogram -xi 0 -xf 3 -n 300 -t 0.05 -whard > h2o.hb
+grep O h2o.hda | awk '{print $3,$4}' | ndhistogram -d 2 -xi 0,0 -xf 4,4 \
+           -n 200,200 -t 0.05,0.05 -whard -g -adaptive 1.0 > h2o.sasd
 ```
 

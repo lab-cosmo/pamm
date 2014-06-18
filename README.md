@@ -22,8 +22,8 @@ and the path of the libraries modifying `src/Makefile`. You
 should then be able to compile the library with the commands
 
 ```bash
-    cd src/
-    make
+cd src/
+make
 ```
 
 The executables will be generated inside the `bin/` directory.
@@ -31,7 +31,7 @@ Make sure to copy them in your path, or to add the folder to
 your path environment variable:
 
 ```bash
-    export PATH=$PATH:$PWD/bin/
+export PATH=$PATH:$PWD/bin/
 ```
 
 Getting started
