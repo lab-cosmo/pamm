@@ -25,99 +25,98 @@
 !    xyz_read: Get one frame off a xyz file
 
       MODULE xyz
-         USE hbmixture
-      IMPLICIT NONE
-      
-      ! Constant to convert from bohrradius to angstrom
-      DOUBLE PRECISION, PARAMETER :: bohr=0.5291772192171717171717171717171717
-      
+        IMPLICIT NONE
+! Constant to convert from bohrradius to angstrom
+      DOUBLE PRECISION, PARAMETER :: bohr=0.529177219217
       CONTAINS
-
-         SUBROUTINE xyz_read(mode,nptmode,convert,ufile,natoms,positions,labels,cell,icell,endf)
-            ! Get the coordinates of all the atoms
-            !
-            ! Args:
-            !    mode: The flag that tell if we have to skip or not the snapshot
-            !    ufile: ID of the input file
-            !    natoms: The number of atoms in the system.
-            !    positions: The array containing the atoms coordinates.
-            
-            INTEGER, INTENT(IN) :: mode 
-            LOGICAL, INTENT(IN) :: nptmode
-            LOGICAL, INTENT(IN) :: convert
-            INTEGER, INTENT(IN) :: ufile
-            INTEGER, INTENT(OUT) :: natoms
-            DOUBLE PRECISION, DIMENSION(:,:), ALLOCATABLE, INTENT(INOUT)  :: positions
-            CHARACTER*4, DIMENSION(:), ALLOCATABLE, INTENT(INOUT) :: labels
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(INOUT) :: cell
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(INOUT) :: icell
-            INTEGER, INTENT(OUT) :: endf
-
-            CHARACTER*30 dummy1,dummy2
-            INTEGER i
-
-            IF (mode.eq.0) THEN
-               ! Discard this timesnapshot
-               DO i=1,natoms+2
-                  READ(ufile,*,IOSTAT=endf) dummy1
-                  IF(endf<0) return
-               END DO
-            ELSE
-               ! Get the snapshot
-            
-               ! Get the atom number
-               READ(ufile,*,IOSTAT=endf) natoms 
-			      IF(endf<0) return
-			   
-		       ! Get the cell
-		       IF ((cell(1,1)==(0.0d0) .OR. cell(2,2)==(0.0d0) .OR. cell(3,3)==(0.0d0)).or.(nptmode)) THEN
-		          ! read the box size
-		          READ(ufile,*,IOSTAT=endf) dummy1,dummy2,cell(1,1),cell(2,2),cell(3,3)
-		          IF(endf<0) return
-		          ! convert the box if necessary
-		          IF(convert) cell=cell*bohr
-		          CALL inv3x3(cell,icell) 
-		       ELSE
-		          READ(ufile, '(A)') dummy1
-               ENDIF
-
-               IF (.not.(ALLOCATED(labels))) ALLOCATE(labels(natoms))
-               IF (.not.(ALLOCATED(positions))) ALLOCATE(positions(3,natoms))
-               
-               DO i=1,natoms ! label, x, y, z
-                  READ(ufile,*,IOSTAT=endf) labels(i),positions(1,i),positions(2,i),positions(3,i)
-                  IF(endf<0) return
-               END DO
-               ! convert if necessary
-		       IF(convert) positions=positions*bohr
-            ENDIF
-            endf=0
-         END SUBROUTINE xyz_read
+      SUBROUTINE xyz_read(ufile,natoms,header,labels,positions,endf)
+         INTEGER, INTENT(OUT) :: natoms
+         DOUBLE PRECISION, DIMENSION(:,:), ALLOCATABLE, INTENT(INOUT)  :: positions
+         CHARACTER(LEN=4), DIMENSION(:), ALLOCATABLE, INTENT(INOUT) :: labels
+         CHARACTER(LEN=1024), INTENT(OUT) :: header
+         INTEGER, INTENT(IN) :: ufile
+         INTEGER, INTENT(OUT) :: endf
+         INTEGER i
          
-         SUBROUTINE xyz_write(ufile,natoms,cell,ts,labels,positions,sh,sd,sa)
-            INTEGER, INTENT(IN) :: ufile
-            INTEGER, INTENT(IN) :: natoms
-            DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell
-            INTEGER, INTENT(IN) :: ts
-            CHARACTER*4, DIMENSION(natoms), INTENT(INOUT) :: labels
-            DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
-            DOUBLE PRECISION, DIMENSION(natoms), INTENT(IN) :: sh, sd, sa
-            
-            INTEGER i
+         READ(ufile,*,IOSTAT=endf) natoms
+         IF(endf>0) STOP "*** Error occurred while reading file. ***"
+         IF(endf<0) return
+         
+         ! Get the snapshot header
+         READ(ufile,'(A)',IOSTAT=endf) header
+         IF(endf>0) STOP "*** Error occurred while reading file. ***"
+         IF(endf<0) return
+         IF ( ALLOCATED(labels) .and. SIZE(labels)/=natoms ) DEALLOCATE(labels) ! atom number changed
+         IF (.not.(ALLOCATED(labels))) ALLOCATE(labels(natoms))
+         IF ( ALLOCATED(positions) .and. SIZE(positions)/=natoms ) DEALLOCATE(positions) ! atom number changed
+         IF (.not.(ALLOCATED(positions))) ALLOCATE(positions(3,natoms))
+         DO i=1,natoms ! label, x, y, z
+            READ(ufile,*,IOSTAT=endf) labels(i),positions(1,i),positions(2,i),positions(3,i)
+            IF(endf>0) STOP "*** Error occurred while reading file. ***"
+            IF(endf<0) return
+         END DO
+         endf=0
+      END SUBROUTINE xyz_read
+		
+      SUBROUTINE xyz_write(ufile,natoms,header,labels,positions)
+         INTEGER, INTENT(IN) :: ufile, natoms
+         CHARACTER(LEN=1024), INTENT(IN) :: header
+         CHARACTER(LEN=4), DIMENSION(natoms), INTENT(IN) :: labels
+         DOUBLE PRECISION, DIMENSION(3,natoms), INTENT(IN) :: positions
+         INTEGER i
+         ! header
+         WRITE(ufile,"(I4)") natoms
+         WRITE(ufile,"(A)") trim(header)
+         ! body
+         DO i=1,natoms
+            WRITE(ufile,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)") &
+                  trim(labels(i)), " ", positions(1,i), " ", &
+                  positions(2,i), " ", positions(3,i)
+         ENDDO
+      END SUBROUTINE xyz_write
+		
+      ! A few utility functions
+      SUBROUTINE pbcdist(cell_h, cell_ih, ri, rj, r)
+! Calculates the distance between two position vectors (with PBC).
+!
+! Note that minimum image convention is used, so only the image of
+! atom j that is the shortest distance from atom i is considered.
+!
+! Also note that while this may not work if the simulation
+! box is highly skewed from orthorhombic, as
+! in this case it is possible to return a distance less than the
+! nearest neighbour distance. However, this will not be of
+! importance unless the cut-off radius is more than half the
+! width of the shortest face-face distance of the simulation box,
+! which should never be the case.
+!
+! Args:
+!    cell_h: The simulation box cell vector matrix.
+!    cell_ih: The inverse of the simulation box cell vector matrix.
+!    ri: The position vector of atom i.
+!    rj: The position vector of atom j
+!    r: The distance between the atoms i and j.
+         DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_h
+         DOUBLE PRECISION, DIMENSION(3,3), INTENT(IN) :: cell_ih
+         DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: ri
+         DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: rj
+         DOUBLE PRECISION, INTENT(OUT) :: r
+		
+         INTEGER k
+         ! The separation in a basis where the simulation box
+         ! is a unit cube.
+         DOUBLE PRECISION, DIMENSION(3) :: sij
+         DOUBLE PRECISION, DIMENSION(3) :: rij
 
-            ! header
-            WRITE(ufile,"(I4)") natoms
-            WRITE(ufile,"(a,F11.7,a,F11.7,a,F11.7,a,I10)") &
-                 "# CELL(abc): ",cell(1,1)," ",cell(2,2)," ",cell(3,3)," Step: ",ts
-            ! body
-            DO i=1,natoms
-               WRITE(ufile,"(A2,A1,F11.7,A1,F11.7,A1,F11.7)", advance='no') &
-                    trim(labels(i)), " ", positions(1,i), " ", &
-                    positions(2,i), " ", positions(3,i)
-               WRITE(ufile,"(3(A1,ES20.9E4))", advance='no') " ", sh(i), &
-                       " ", sd(i), " ", sa(i)
-               WRITE(ufile,*)
-            ENDDO
-         END SUBROUTINE xyz_write
-
+         sij = matmul(cell_ih, ri-rj)
+         DO k = 1, 3
+            ! Finds the smallest separation of all the images of atom i and j
+            sij(k) = sij(k) - dnint(sij(k)) ! Minimum Image Convention
+         ENDDO
+         rij = matmul(cell_h, sij)
+         r = dsqrt(dot_product(rij, rij))
+      END SUBROUTINE
+      
       END MODULE xyz
+		
+		
