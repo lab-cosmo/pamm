@@ -50,7 +50,7 @@
       TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:) :: clusters
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pnks
       ! collective variables describing the HB
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph, sad
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:)   :: sa, sd, sh
       ! point in the high-dimensional description
       DOUBLE PRECISION, DIMENSION(3) :: x  ! [nu,mu,r]
@@ -59,7 +59,7 @@
       ! for a faster reading
       ! counters
       INTEGER i,ts
-      LOGICAL convert,dopamm,nptm,weighted
+      LOGICAL convert,dopamm,dosad,nptm,weighted
       INTEGER delta
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions 
       INTEGER nghb ! number of gaussians describing the HB
@@ -87,6 +87,7 @@
       alpha         = 1.0d0
       convert       = .false.
       dopamm        = .false.
+      dosad         = .false.
       nptm          = .false.
       weighted      = .false.   ! don't use wfactor by default
       endf          = 0
@@ -117,6 +118,8 @@
             ccmd = 9
          ELSEIF (cmdbuffer == "-ev") THEN ! delta
             ccmd = 10
+         ELSEIF (cmdbuffer == "-sad") THEN ! hb lifetime statistics
+            dosad = .true.
          ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
             nptm = .true.
          ELSEIF (cmdbuffer == "-w") THEN ! weighted  mode
@@ -222,7 +225,6 @@
       IF (dopamm) THEN
          IF (clusterfile.EQ."NULL") THEN
             ! the user did something wrong in the GM specifications
-            WRITE(*,*) ""
             WRITE(*,*) " Error: insert the file containing the gaussians parameters! "
             CALL helpmessage
             CALL EXIT(-1)
@@ -232,7 +234,12 @@
             ! The first gaussian in the list will be used.
             vghb(1)=1
             nghb=1
-         ENDIF
+         ENDIF         
+      ENDIF
+      IF (dosad .and. .not. dopamm) THEN
+         WRITE(*,*) " Error: cannot compute lifetime statistics without cluster data! "
+         CALL helpmessage
+         CALL EXIT(-1)
       ENDIF
       !!!! END CHECK .. we needed just few things !!!
 
@@ -286,6 +293,10 @@
                spa=0.0d0
                spd=0.0d0
                sph=0.0d0
+               IF (dosad) THEN
+                  ALLOCATE(sad(natoms,natoms))
+                  sad=0.0d0
+               ENDIF
             ENDIF
 
             IF (nptm .or. cell(1,1) == 0.0d0) THEN 
@@ -304,6 +315,7 @@
             
             ! here is the core of hbpamm
             ! we have to generate all the possible [nu,mu,r]
+            IF (dosad) sad = 0.0d0
             DO ih=1,natoms ! loop over hydrogen types
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
                DO id=1,natoms ! loop over donor types
@@ -334,6 +346,11 @@
                         sph(:,ih) = sph(:,ih) + pnks(:)
                         spa(:,ia) = spa(:,ia) + pnks(:)
                         spd(:,id) = spd(:,id) + pnks(:)
+                        IF (dosad) THEN
+                           DO i=1,nghb
+                             sad(ia,id) = sad(ia,id) + pnks(i)
+                           ENDDO
+                        ENDIF
                      ELSE
                         ! Pre-PAMM mode : write out x=[nu,mu,r] and the associated wfactor
                         WRITE(*,"(3(A1,ES21.8E4))",ADVANCE = "NO")  " ",x(1)," ",x(2)," ",x(3)
@@ -345,21 +362,33 @@
             ENDDO
    
             IF(dopamm)THEN
-               ! sum over the gaussians of interest
-               sa=0.0d0
-               sd=0.0d0
-               sh=0.0d0
-               DO i=1,nghb
-                  sh(:)=sh(:)+sph(vghb(i),:)
-                  sd(:)=sd(:)+spd(vghb(i),:)
-                  sa(:)=sa(:)+spa(vghb(i),:)
-               ENDDO
-               ! write results to a formatted output
-               ! use positions as a dummy vector to store sh, sd, sa
-               positions(1,:) = sh(:)
-               positions(2,:) = sd(:)
-               positions(3,:) = sa(:)
-               CALL xyz_write(6,natoms,header,labels,positions)
+               IF (dosad) THEN
+                  DO id=1,natoms ! loop over donor types
+                     IF (IAND(masktypes(id),TYPE_DONOR).EQ.0) CYCLE
+                     DO ia=1,natoms ! loop over acceptor types
+                        IF (IAND(masktypes(ia),TYPE_ACCEPTOR).EQ.0 &
+                            .OR. (ia.EQ.id)) CYCLE
+                        WRITE(*,'(A1,ES13.5E4)', ADVANCE="NO") " ", sad(ia,id) 
+                     ENDDO
+                  ENDDO
+                  WRITE(*,*) ""
+               ELSE
+                  ! sum over the gaussians of interest
+                  sa=0.0d0
+                  sd=0.0d0
+                  sh=0.0d0
+                  DO i=1,nghb
+                     sh(:)=sh(:)+sph(vghb(i),:)
+                     sd(:)=sd(:)+spd(vghb(i),:)
+                     sa(:)=sa(:)+spa(vghb(i),:)
+                  ENDDO
+                  ! write results to a formatted output
+                  ! use positions as a dummy vector to store sh, sd, sa
+                  positions(1,:) = sh(:)
+                  positions(2,:) = sd(:)
+                  positions(3,:) = sa(:)
+                  CALL xyz_write(6,natoms,header,labels,positions)               
+               ENDIF
             ENDIF
          ENDIF
       ENDDO
@@ -412,6 +441,8 @@
             WRITE(*,*) "                          containing Gaussian clusters data "
             WRITE(*,*) "   -gh 1,2,...          : Indices of the gaussian(s) that describe the HB [default:1]"
             WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
+            WRITE(*,*) "   -sad                 : Computes and print HB statistics for each donor/acceptor  "
+            WRITE(*,*) "                          pair. Will generate a HUGE output file! "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 

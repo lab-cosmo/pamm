@@ -33,6 +33,8 @@ The PAMM analysis consists of three steps.
    `-ct` discards triplets with a value of mu greater than the 
    cutoff value specified, and `-w` asks to compute a re-normalization
    weight that accounts for the trivial phase space volume factor.
+   The program tries to infer the cell parameters from the header of the
+   `xyz` file, expecting the format `# CELL x y z`.
 
 2. **Optimization of the PAMM model.**
    Next, one can run the PAMM analysis on the set of HB parameters:
@@ -81,4 +83,17 @@ grep H h2o.hda | awk '{print $2}' | histogram -xi 0 -xf 3 -n 300 -t 0.05 -whard 
 grep O h2o.hda | awk '{print $3,$4}' | ndhistogram -d 2 -xi 0,0 -xf 4,4 \
            -n 200,200 -t 0.05,0.05 -whard -g -adaptive 1.0 > h2o.sasd
 ```
+
+`hbpamm` also make it possible to compute *all* the HB counts between pairs of 
+acceptors and donors, by specifying the `-sad` option. This generates a huge file,
+that can however be used to evaluate the hydrogen-bond dynamical relaxation function
+(*Luzar & Chandler, Nature 1996*). Again, using the `autocorr` program from
+the [toolbox](http://github.com/epfl-cosmo/toolbox) library one can compute this by
+
+```bash
+../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf h2o.pamm -sad < h2o-blyp-piglet.xyz > h2o.sad
+for i in `seq 1 $(head -n 1 h2o.sad | wc -w)`; do awk -v i=$i '{print $i}' h2o.sad; done | \
+        autocorr -maxlag 150 -runlength $(wc -l h2o.sad) > h2o.hh
+```
+
 
