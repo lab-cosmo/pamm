@@ -1,4 +1,5 @@
-# PAMM library and tools
+PAMM library and tools
+======================
 
 This repository contains a simple Fortran90 implementation of 
 the Probabilistic Analysis of Molecular Motifs algorithm. 
@@ -12,23 +13,29 @@ will be generated inside `bin/`. `test/` contains a simple
 example of the usage of these programs. 
 
 
-## Compilation and installation
+Compilation and installation
+----------------------------
 
 Compilation should be trivial, requiring only a recent version
 of `gfortran` and LAPACK libraries. You can adjust the compiler
 and the path of the libraries modifying `src/Makefile`. You
 should then be able to compile the library with the commands
 
+```bash
     cd src/
     make
+```
 
 The executables will be generated inside the `bin/` directory.
 Make sure to copy them in your path, or to add the folder to
 your path environment variable:
 
+```bash
     export PATH=$PATH:$PWD/bin/
+```
 
-## Getting started
+Getting started
+---------------
 
 An example of the usage of `pamm` and `hbpamm` can be found
 in the `test/` directory.

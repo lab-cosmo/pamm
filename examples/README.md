@@ -54,11 +54,12 @@ The PAMM analysis consists of three steps.
 
 3. **Post-processing the trajectory.**
    The set of Gaussian clusters obtained by PAMM can then be used to 
-   search the trajectory file for HB configurations. `hbpamm` accumulates
-   the number of such HBs that each atom is involved into, and prints
-   an `xyz` formatted file in which the first column contains sH (the number
-   of HBs in which the atom takes the role of the hydrogen), the second 
-   sD (the number of HB in which the atom is the donor) and the third
+   search the trajectory file for HB configurations. 
+
+   `hbpamm` accumulates the number of such HBs that each atom is involved into, 
+   and prints an `xyz` formatted file in which the first column contains sH 
+   (the number of HBs in which the atom takes the role of the hydrogen), the 
+   second sD (the number of HB in which the atom is the donor) and the third
    sA (number of acceptor HBs). Options are the same as for the first
    step, plus a specification of the cluster file:
 
@@ -72,7 +73,7 @@ The PAMM analysis consists of three steps.
 The data in `h2o.hda` can be post-processed further, to obtain for instance
 an histogram of the probability of having hydrogen atoms involved in 
 more than one HB, or the joint probability of sA and sD. To this aim,
-one can use the histogram codes that is part of the [http://github.com/epfl-cosmo/toolbox](toolbox) 
+one can use the histogram codes that is part of the [toolbox](http://github.com/epfl-cosmo/toolbox) 
 post-processing and utilities suite. 
 
 ```bash
