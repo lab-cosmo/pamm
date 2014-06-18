@@ -23,9 +23,9 @@ The PAMM analysis consists of three steps.
    and the donor-acceptor distance r for each O-H...O triplet in each
    snapshot. This is done using
  
-   ```bash
-    ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w < h2o-blyp-piglet.xyz > h2o.nmr
-   ```
+    ```bash
+     ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w < h2o-blyp-piglet.xyz > h2o.nmr
+    ```
 
    `-td` specifies the atom type(s) that are to be tested as donors, 
    `-th` specifies the label that identifies hydrogen atoms, and `-ta`
@@ -39,9 +39,9 @@ The PAMM analysis consists of three steps.
 2. **Optimization of the PAMM model.**
    Next, one can run the PAMM analysis on the set of HB parameters:
  
-   ```bash
-   ../bin/pamm -d 3 -w -o h2o -ngrid 2000 < h2o.nmr
-   ```
+    ```bash
+    ../bin/pamm -d 3 -w -o h2o -ngrid 2000 < h2o.nmr
+    ```
 
    Note that most parameters in PAMM are selected automatically to 
    give reasonable defaults. Here we specify the number of grid points
@@ -65,9 +65,9 @@ The PAMM analysis consists of three steps.
    sA (number of acceptor HBs). Options are the same as for the first
    step, plus a specification of the cluster file:
 
-   ```bash
-   ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf h2o.pamm < h2o-blyp-piglet.xyz > h2o.hda
-   ```
+    ```bash
+    ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf h2o.pamm < h2o-blyp-piglet.xyz > h2o.hda
+    ```
    `hbpamm` automatically selects the first cluster as the one that 
    represents the HB, but one can choose another using the `-gh` option.
  
@@ -86,7 +86,9 @@ grep O h2o.hda | awk '{print $3,$4}' | ndhistogram -d 2 -xi 0,0 -xf 4,4 \
 
 `hbpamm` also make it possible to compute *all* the HB counts between pairs of 
 acceptors and donors, by specifying the `-sad` option. This generates a huge file,
-that can however be used to evaluate the hydrogen-bond dynamical relaxation function
+that contain on each column the total number of HBs at any given time for each
+A/D pair. 
+This can be used to evaluate the hydrogen-bond dynamical relaxation function
 (*Luzar & Chandler, Nature 1996*). Again, using the `autocorr` program from
 the [toolbox](http://github.com/epfl-cosmo/toolbox) library one can compute this by
 
