@@ -68,6 +68,7 @@ The PAMM analysis consists of three steps.
     ```bash
     ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf h2o.pamm < h2o-blyp-piglet.xyz > h2o.hda
     ```
+
     `hbpamm` automatically selects the first cluster as the one that 
     represents the HB, but one can choose another using the `-gh` option.
   
