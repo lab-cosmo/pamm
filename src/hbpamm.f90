@@ -48,7 +48,6 @@
       ! Gaussian-mixture model
       INTEGER Nk ! number of gaussians in the mixture
       TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:) :: clusters
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pks
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pnks
       ! collective variables describing the HB
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph
@@ -330,7 +329,6 @@
                         ! PAMM mode. We apply here the gaussian mixture model.
                         ! call lipbamm and compute the PAMM probability
                         CALL pamm_p(x, pnks, nk, clusters, alpha)
-                        ! CALL GetP(3,x,wfactor,alpha,Nk,clusters,pks,pnks)
                         ! sum the probabilities from the gaussians describing the HB
                         sph(:,ih) = sph(:,ih) + pnks(:)
                         spa(:,ia) = spa(:,ia) + pnks(:)
@@ -370,7 +368,7 @@
       DEALLOCATE(labels)
       DEALLOCATE(masktypes)
       IF (dopamm) THEN
-         DEALLOCATE(clusters,pks,pnks)
+         DEALLOCATE(clusters,pnks)
          DEALLOCATE(spa, sph, spd, sa, sh, sd)
       ENDIF
 

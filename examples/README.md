@@ -15,7 +15,7 @@ of the hydrogen bond network.
 
 The PAMM analysis consists of three steps.
 
-1. **Evaluation of the descriptors of the hydrogen bond**
+1. **Evaluation of the descriptors of the hydrogen bond.**
 First, one needs to analyze the trajectory to compute the values of
 the proton transfer coordinate nu, the symmetric stretch coordinate mu
 and the donor-acceptor distance r for each O-H...O triplet in each
@@ -32,7 +32,7 @@ specifies the atom type(s) that are to be tested as acceptors.
 cutoff value specified, and `-w` asks to compute a re-normalization
 weight that accounts for the trivial phase space volume factor.
 
-2. **Optimization of the PAMM model**
+2. **Optimization of the PAMM model.**
 Next, one can run the PAMM analysis on the set of HB parameters:
 
 ```bash
@@ -50,5 +50,31 @@ probability density and with the cluster index for each point.
 `h2o.pamm` contains the list of clusters that have been identified,
 represented by Gaussians with the given mean and covariance.
 
-3. **Post-processing the trajectory**
+3. **Post-processing the trajectory.**
+The set of Gaussian clusters obtained by PAMM can then be used to 
+search the trajectory file for HB configurations. `hbpamm` accumulates
+the number of such HBs that each atom is involved into, and prints
+an `xyz` formatted file in which the first column contains sH (the number
+of HBs in which the atom takes the role of the hydrogen), the second 
+sD (the number of HB in which the atom is the donor) and the third
+sA (number of acceptor HBs). Options are the same as for the first
+step, plus a specification of the cluster file:
+
+```bash
+    ../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf h2o.pamm < h2o-blyp-piglet.xyz > h2o.hda
+```
+`hbpamm` automatically selects the first cluster as the one that 
+represents the HB, but one can choose another using the `-gh` option.
+
+The data in `h2o.hda` can be post-processed further, to obtain for instance
+an histogram of the probability of having hydrogen atoms involved in 
+more than one HB, or the joint probability of sA and sD. To this aim,
+one can use the histogram codes that is part of the [http://github.com/epfl-cosmo/toolbox](toolbox) 
+post-processing and utilities suite. 
+
+```bash
+    grep H h2o.hda | awk '{print $2}' | histogram -xi 0 -xf 3 -n 300 -t 0.05 -whard > h2o.hb
+    grep O h2o.hda | awk '{print $3,$4}' | ndhistogram -d 2 -xi 0,0 -xf 4,4 \
+               -n 200,200 -t 0.05,0.05 -whard -g -adaptive 1.0 > h2o.sasd
+```
 

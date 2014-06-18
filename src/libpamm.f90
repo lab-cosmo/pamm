@@ -141,7 +141,7 @@
          TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:), INTENT(OUT)  :: clusters         
 
          CHARACTER(LEN=1024) :: dummybuffer         
-         INTEGER k,i,j,D
+         INTEGER k,D
 
          ! skip the first two comment lines , for now...         
          READ(fileid,'(A)') dummybuffer
