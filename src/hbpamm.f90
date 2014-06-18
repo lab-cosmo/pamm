@@ -59,7 +59,7 @@
       ! for a faster reading
       ! counters
       INTEGER i,ts
-      LOGICAL convert,dopamm,nptm,readgauss,weighted!,verbose
+      LOGICAL convert,dopamm,nptm,weighted
       INTEGER delta
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions 
       INTEGER nghb ! number of gaussians describing the HB
@@ -89,7 +89,6 @@
       dopamm        = .false.
       nptm          = .false.
       weighted      = .false.   ! don't use wfactor by default
-      readgauss     = .true.
       endf          = 0
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -262,22 +261,9 @@
             ! unit=5  --> read frome the standard input
             CALL xyz_read(5,natoms,header,labels,positions,endf)
             IF(endf<0) EXIT ! time to go!
-            IF (readgauss) THEN ! first step, must allocate stuff
-               readgauss = .false.
-               ! inizialize the mask types and Gaussian structures
-               IF (dopamm) THEN
-                  ! PAMM mode
-                  ! Read gaussian parameters from the gaussian file
-                  OPEN(UNIT=12,FILE=clusterfile,STATUS='OLD',ACTION='READ')
-                  ! read the gaussian model informations from a file.
-                  CALL readclusters(12,nk,clusters)
-                  CLOSE(UNIT=12)
-                  ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
-                  ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
-                  spa=0.0d0
-                  spd=0.0d0
-                  sph=0.0d0
-               ENDIF
+
+            IF (.not. ALLOCATED(masktypes)) THEN ! first step, must allocate stuff
+               ! inizialize the mask types
                ALLOCATE(masktypes(natoms))
                masktypes=TYPE_NONE
                DO i=1,natoms
@@ -287,6 +273,21 @@
                   IF(testtype(labels(i),vta)) masktypes(i)=IOR(masktypes(i),TYPE_ACCEPTOR)
                ENDDO
             ENDIF
+
+            IF (dopamm .and. .not. ALLOCATED(spa)) THEN
+               ! PAMM mode
+               ! Read gaussian parameters from the gaussian file
+               OPEN(UNIT=12,FILE=clusterfile,STATUS='OLD',ACTION='READ')
+               ! read the gaussian model informations from a file.
+               CALL readclusters(12,nk,clusters)
+               CLOSE(UNIT=12)
+               ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
+               ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
+               spa=0.0d0
+               spd=0.0d0
+               sph=0.0d0
+            ENDIF
+
             IF (nptm .or. cell(1,1) == 0.0d0) THEN 
                ! NPT mode: this means variable cell!
                ! Try to read the cell parameters the header in input stream
