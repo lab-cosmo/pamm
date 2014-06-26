@@ -40,7 +40,7 @@ The PAMM analysis consists of three steps.
     Next, one can run the PAMM analysis on the set of HB parameters:
  
     ```bash
-    ../bin/pamm -d 3 -w -o h2o -ngrid 2000 < h2o.nmr
+    ../bin/pamm -d 3 -w -o h2o -ngrid 2000 -nms 100 < h2o.nmr
     ```
 
     Note that most parameters in PAMM are selected automatically to 

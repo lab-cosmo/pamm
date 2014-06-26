@@ -1,4 +1,4 @@
-! This file contain the main program for the PAMM clustering. 
+! This file contain the main program for the PAMM clustering.
 ! Starting from a set of data points in high dimension it will first perform
 ! a non-parametric partitioning of the probability density and return the
 ! Nk gaussians better describing the clusters.
@@ -44,11 +44,11 @@
       INTEGER ngrid                                         ! Number of samples extracted using minmax
 
       INTEGER jmax,ii,jj
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm, msmu
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
       INTEGER seed                                            ! seed for the random number generator
-      
+
       ! variable to set the covariance matrix
       DOUBLE PRECISION tmppks,normpks
 
@@ -57,15 +57,16 @@
       ! Array containing the input data pints
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: x , y
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot,qspath
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, qspath
 
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
       INTEGER ccmd                  ! Index used to control the input parameters
-      LOGICAL verbose ! flag for verbosity
+      INTEGER nmsopt   ! number of mean-shift optimizations of the cluster centers
+      LOGICAL verbose  ! flag for verbosity
       LOGICAL weighted ! flag for using weigheted data
       INTEGER isep1, isep2, par_count  ! temporary indices for parsing command line arguments
-      DOUBLE PRECISION tau,tau2
+      DOUBLE PRECISION tau, tau2, msw
 
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
 
@@ -74,6 +75,7 @@
       outputfile="out"
       ccmd=0              ! no parameters specified
       Nk=0                ! number of gaussians
+      nmsopt=0            ! number of mean-shift refinements
       ngrid=-1          ! number of samples extracted with minmax
       seed=12345          ! seed for the random number generator
       tau=-1              ! quick shift cut-off
@@ -93,8 +95,10 @@
             ccmd = 4
          ELSEIF (cmdbuffer == "-tau") THEN    ! threshold to differentiate different clusters
             ccmd = 5
-         ELSEIF (cmdbuffer == "-ngrid") THEN   ! N of grid points 
+         ELSEIF (cmdbuffer == "-ngrid") THEN   ! N of grid points
             ccmd = 7
+         ELSEIF (cmdbuffer == "-nms") THEN    ! N of mean-shift steps
+            ccmd = 6
          ELSEIF (cmdbuffer == "-ref") THEN    ! point from wich calculate the distances to order
             ccmd = 8                          ! the gaussians in the output
          ELSEIF (cmdbuffer == "-w") THEN      ! use weights
@@ -119,14 +123,16 @@
                xref(1)=-1.0d0
             ELSEIF (ccmd == 4) THEN ! read the seed
                READ(cmdbuffer,*) seed
+            ELSEIF (ccmd == 6) THEN ! read the seed
+               READ(cmdbuffer,*) nmsopt
             ELSEIF (ccmd == 5) THEN ! cut-off for quick-shift
                READ(cmdbuffer,*) tau
             ELSEIF (ccmd == 7) THEN ! number of grid points
                READ(cmdbuffer,*) ngrid
-            ELSEIF (ccmd == 8) THEN 
+            ELSEIF (ccmd == 8) THEN
                IF (D<0) STOP "Dimensionality (-d) must be precede the reference point (-red). "
                par_count = 1
-               isep1 = 0                  
+               isep1 = 0
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) xref(par_count)
@@ -159,7 +165,7 @@
       ENDIF
 
       ! get the data from standard input
-      CALL readinput(D, weighted, nsamples, x, normwj, wj) 
+      CALL readinput(D, weighted, nsamples, x, normwj, wj)
 
       ! If not specified, the number voronoi polyhedras
       ! are set to the square of the total number of points
@@ -169,7 +175,7 @@
       ALLOCATE(pnlist(ngrid+1),nlist(nsamples))
       ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid),sigma2(ngrid))
       ALLOCATE(idxroot(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
-      ALLOCATE(diff(D))
+      ALLOCATE(diff(D), msmu(D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -202,14 +208,14 @@
 
       IF(tau.EQ.-1)THEN
          ! set automatically the mean shift tau set to 5*<sig>
-         tau2=25.0d0*SUM(sigma2)/ngrid
-         tau=dsqrt(tau2)
+         tau2=SUM(sigma2)/ngrid
+         tau=5.0d0*dsqrt(tau2)
       ENDIF
       tau2=tau*tau ! we always work with squared distances....
 
       IF(verbose) write(*,*) "Computing kernel density on reference points."
       IF(verbose) write(*,*) "Tau : ", tau
-      
+
       ! computes the KDE on the Voronoi centers using the neighbour list
       probnmm = 0.0d0
       DO i=1,ngrid
@@ -287,9 +293,22 @@
          ALLOCATE(clusters(k)%mean(D))
          ALLOCATE(clusters(k)%cov(D,D))
          ALLOCATE(clusters(k)%icov(D,D))
+
          clusters(k)%mean=y(:,qspath(k))
+
+         ! optionally do a few mean-shift steps to find a better estimate of the cluster mode
+         DO j=1,nmsopt
+            msmu=0.0d0
+            tmppks=0.0d0
+            DO i=1,ngrid
+               msw =  probnmm(i)*exp(-0.5*sum((y(:,i)-clusters(k)%mean)*(y(:,i)-clusters(k)%mean))/(tau2/25))
+               msmu = msmu + msw*y(:,i)
+               tmppks = tmppks + msw
+            ENDDO
+            clusters(k)%mean = msmu / tmppks
+         ENDDO
+
          clusters(k)%cov = 0.0d0
-          
          tmppks=0.0d0
          DO i=1,ngrid
             IF(idxroot(i).NE.qspath(k)) CYCLE
@@ -309,15 +328,15 @@
 
       ! oreder gaussians from the closest to the reference point
       CALL sortclusters(Nk, clusters, xref)
-      
-      
+
+
       ! write a 2-lines header
       WRITE(comment,*) "# PAMM clusters analysis. NSamples: ", nsamples, " NGrid: ", &
                 ngrid, " QSTau: ", tau, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance "
 
       OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
-      
-      CALL writeclusters(12, comment, nk, clusters) 
+
+      CALL writeclusters(12, comment, nk, clusters)
       CLOSE(UNIT=12)
       DEALLOCATE(clusters)
       DEALLOCATE(x,wj)
@@ -359,6 +378,8 @@
          WRITE(*,*) "                            output.pamm (cluster parameters) "
          WRITE(*,*) "   -tau tau          : Quick shift cutoff [automatic] "
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
+         WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width tau/5 to"
+         WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -ref X            : Reference point for ordering the clusters [ (-1,0,0,...) ]"
          WRITE(*,*) "   -v                : Verbose output "
@@ -370,7 +391,7 @@
          INTEGER, INTENT(IN) :: D
          LOGICAL, INTENT(IN) :: fweight
          INTEGER, INTENT(OUT) :: nsamples
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xj            
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xj
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: wj
          DOUBLE PRECISION, INTENT(OUT) :: totw
 
@@ -378,30 +399,30 @@
          INTEGER, PARAMETER :: nbuff = 100000
          DOUBLE PRECISION :: vbuff(D,nbuff), wbuff(nbuff)
          DOUBLE PRECISION, ALLOCATABLE :: vtmp(:,:), wtmp(:)
-         
+
          INTEGER io_status, counter
 
          nsamples = 0
          totw = 0.0d0
          counter = 0
-         
-         ! initial dummy allocation 
+
+         ! initial dummy allocation
          ALLOCATE(xj(D,1),wj(1),vtmp(D,1),wtmp(1))
          xj=0.0d0
          totw=0.0d0
-         DO            
+         DO
             IF(fweight) THEN
-               READ(5,*, IOSTAT=io_status) vbuff(:,counter+1), wbuff(counter+1)                                   
-            ELSE               
+               READ(5,*, IOSTAT=io_status) vbuff(:,counter+1), wbuff(counter+1)
+            ELSE
                READ(5,*, IOSTAT=io_status) vbuff(:,counter+1)
                wbuff(counter+1)=1.0d0
             ENDIF
             totw=totw+wbuff(counter+1)
             IF(io_status<0 .or. io_status==5008) EXIT    ! also intercepts a weird error given by some compilers when reading past of EOF
             IF(io_status>0) STOP "*** Error occurred while reading file. ***"
-            
+
             counter=counter+1
-            
+
             ! grow the arrays and dump the buffers
             IF(counter.EQ.nbuff) THEN
                DEALLOCATE(wtmp,vtmp)
@@ -410,12 +431,12 @@
                vtmp(:,1:nsamples) = xj
                wtmp(nsamples+1:nsamples+counter) = wbuff
                vtmp(:,nsamples+1:nsamples+counter) = vbuff
-               
+
                DEALLOCATE(wj, xj)
                ALLOCATE(wj(nsamples+counter), xj(D,nsamples+counter))
                wj=wtmp
                xj=vtmp
-               
+
                nsamples=nsamples+counter
                counter=0
             ENDIF
@@ -428,16 +449,16 @@
             vtmp(:,1:nsamples) = xj
             wtmp(nsamples+1:nsamples+counter) = wbuff(1:counter)
             vtmp(:,nsamples+1:nsamples+counter) = vbuff(:,1:counter)
-            
+
             DEALLOCATE(wj, xj)
             ALLOCATE(wj(nsamples+counter), xj(D,nsamples+counter))
             wj=wtmp
             xj=vtmp
-            
+
             nsamples=nsamples+counter
-            counter=0               
+            counter=0
          ENDIF
-         
+
       END SUBROUTINE readinput
 
       SUBROUTINE mkgrid(D,nsamples,ngrid,x,y,npvoronoi,iminij)
@@ -449,9 +470,9 @@
          !    ngrid: number of grid points
          !    x: array containing the data samples
          !    y: array that will contain the grid points
-         !    npvoronoi: array cotaing the number of samples inside the Voronoj polyhedron of each grid point 
+         !    npvoronoi: array cotaing the number of samples inside the Voronoj polyhedron of each grid point
          !    iminij: array containg the neighbor list for data samples
-         
+
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: nsamples
          INTEGER, INTENT(IN) :: ngrid
@@ -585,18 +606,18 @@
             !    sig2: sig**2
             !    vc: voronoi center's vector
             !    vp: point's vector
-            
+
             INTEGER, INTENT(IN) :: D
             DOUBLE PRECISION, INTENT(IN) :: sig2
             DOUBLE PRECISION, INTENT(IN) :: vc(D)
             DOUBLE PRECISION, INTENT(IN) :: vp(D)
-            
+
                                        ! put here ** -D/2
             fkernel=(1/( (twopi*sig2)**(dble(D)/2) ))* &
                     dexp(-sum((vc-vp)*(vc-vp))*0.5/sig2)
       END FUNCTION fkernel
-      
-      
+
+
       SUBROUTINE sortclusters(nk,clusters,prif)
          ! Sort the gaussians from the closest to prif
          ! Bubble-sort ordering is implemented here
@@ -607,7 +628,7 @@
          !    prif: reference point
 
          INTEGER, INTENT(IN) :: nk
-         TYPE(gauss_type), DIMENSION(nk), INTENT(INOUT) :: clusters      
+         TYPE(gauss_type), DIMENSION(nk), INTENT(INOUT) :: clusters
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: prif
 
          TYPE(gauss_type) tmpgauss
@@ -615,7 +636,7 @@
          INTEGER j,i
          LOGICAL :: swapped = .TRUE.
 
-         ! calculate the distances of the means from the reference 
+         ! calculate the distances of the means from the reference
          DO i=1,nk
             distances(i)=dot_product(clusters(i)%mean-prif,clusters(i)%mean-prif)
          ENDDO
@@ -638,5 +659,5 @@
             IF (.NOT. swapped) EXIT
          ENDDO
       END SUBROUTINE sortclusters
-      
+
    END PROGRAM pamm
