@@ -165,7 +165,7 @@
 
       END SUBROUTINE readclusters
 
-      SUBROUTINE writeclusters(outf,comments, nk, clusters) !!MCDEL, D,nsamples,nminmax,tau,Nk,clusters,lpks)
+      SUBROUTINE writeclusters(outf,comments, nk, clusters) 
          ! Write out the gaussian model informations to a file. The file format
          ! is as follows:
          !

@@ -66,7 +66,7 @@
       LOGICAL verbose  ! flag for verbosity
       LOGICAL weighted ! flag for using weigheted data
       INTEGER isep1, isep2, par_count  ! temporary indices for parsing command line arguments
-      DOUBLE PRECISION tau, tau2, msw
+      DOUBLE PRECISION lambda, lambda2, msw
 
       INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
 
@@ -78,7 +78,7 @@
       nmsopt=0            ! number of mean-shift refinements
       ngrid=-1          ! number of samples extracted with minmax
       seed=12345          ! seed for the random number generator
-      tau=-1              ! quick shift cut-off
+      lambda=-1              ! quick shift cut-off
       verbose = .false.   ! no verbosity
       weighted= .false.   ! don't use the weights
       D=-1
@@ -87,25 +87,25 @@
       !!!!!!! Command line parser !!!!!!!!!!!!!
       DO i = 1, IARGC()
          CALL GETARG(i, cmdbuffer)
-         IF (cmdbuffer == "-o") THEN      ! output file
+         IF (cmdbuffer == "-o") THEN           ! output file
             ccmd = 2
-         ELSEIF (cmdbuffer == "-d") THEN      ! dimensionality
+         ELSEIF (cmdbuffer == "-d") THEN       ! dimensionality
             ccmd = 9
-         ELSEIF (cmdbuffer == "-seed") THEN   ! seed for the random number genarator
+         ELSEIF (cmdbuffer == "-seed") THEN    ! seed for the random number genarator
             ccmd = 4
-         ELSEIF (cmdbuffer == "-tau") THEN    ! threshold to differentiate different clusters
+         ELSEIF (cmdbuffer == "-l") THEN       ! threshold to differentiate different clusters
             ccmd = 5
          ELSEIF (cmdbuffer == "-ngrid") THEN   ! N of grid points
             ccmd = 7
-         ELSEIF (cmdbuffer == "-nms") THEN    ! N of mean-shift steps
+         ELSEIF (cmdbuffer == "-nms") THEN     ! N of mean-shift steps
             ccmd = 6
-         ELSEIF (cmdbuffer == "-ref") THEN    ! point from wich calculate the distances to order
-            ccmd = 8                          ! the gaussians in the output
-         ELSEIF (cmdbuffer == "-w") THEN      ! use weights
+         ELSEIF (cmdbuffer == "-ref") THEN     ! point from wich calculate the distances to order
+            ccmd = 8                           ! the gaussians in the output
+         ELSEIF (cmdbuffer == "-w") THEN       ! use weights
             weighted = .true.
-         ELSEIF (cmdbuffer == "-v") THEN      ! verbosity flag
+         ELSEIF (cmdbuffer == "-v") THEN       ! verbosity flag
             verbose = .true.
-         ELSEIF (cmdbuffer == "-h") THEN      ! help flag
+         ELSEIF (cmdbuffer == "-h") THEN       ! help flag
             CALL helpmessage
             CALL EXIT(-1)
          ELSE
@@ -126,7 +126,7 @@
             ELSEIF (ccmd == 6) THEN ! read the seed
                READ(cmdbuffer,*) nmsopt
             ELSEIF (ccmd == 5) THEN ! cut-off for quick-shift
-               READ(cmdbuffer,*) tau
+               READ(cmdbuffer,*) lambda
             ELSEIF (ccmd == 7) THEN ! number of grid points
                READ(cmdbuffer,*) ngrid
             ELSEIF (ccmd == 8) THEN
@@ -206,15 +206,15 @@
          ENDDO
       ENDDO
 
-      IF(tau.EQ.-1)THEN
-         ! set automatically the mean shift tau set to 5*<sig>
-         tau2=SUM(sigma2)/ngrid
-         tau=5.0d0*dsqrt(tau2)
+      IF(lambda.EQ.-1)THEN
+         ! set automatically the mean shift lambda set to 5*<sig>
+         lambda2=SUM(sigma2)/ngrid
+         lambda=5.0d0*dsqrt(lambda2)
       ENDIF
-      tau2=tau*tau ! we always work with squared distances....
+      lambda2=lambda*lambda ! we always work with squared distances....
 
       IF(verbose) write(*,*) "Computing kernel density on reference points."
-      IF(verbose) write(*,*) "Tau : ", tau
+      IF(verbose) write(*,*) "Lambda : ", lambda
 
       ! computes the KDE on the Voronoi centers using the neighbour list
       probnmm = 0.0d0
@@ -245,7 +245,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-               qs_next(ngrid,qspath(counter),tau2,probnmm,distmm)
+               qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
                IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
                counter=counter+1
                qspath(counter)=idxroot(qspath(counter-1))
@@ -301,7 +301,7 @@
             msmu=0.0d0
             tmppks=0.0d0
             DO i=1,ngrid
-               msw =  probnmm(i)*exp(-0.5*sum((y(:,i)-clusters(k)%mean)*(y(:,i)-clusters(k)%mean))/(tau2/25))
+               msw =  probnmm(i)*exp(-0.5*sum((y(:,i)-clusters(k)%mean)*(y(:,i)-clusters(k)%mean))/(lambda2/25))
                msmu = msmu + msw*y(:,i)
                tmppks = tmppks + msw
             ENDDO
@@ -332,7 +332,7 @@
 
       ! write a 2-lines header
       WRITE(comment,*) "# PAMM clusters analysis. NSamples: ", nsamples, " NGrid: ", &
-                ngrid, " QSTau: ", tau, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance "
+                ngrid, " QSLambda: ", lambda, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance "
 
       OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
 
@@ -359,7 +359,7 @@
          !
 
          WRITE(*,*) ""
-         WRITE(*,*) " USAGE: pamm [-h] -d D [-w] [-o output] [-ngrid ngrid] [-tau tau] "
+         WRITE(*,*) " USAGE: pamm [-h] -d D [-w] [-o output] [-ngrid ngrid] [-l lambda] "
          WRITE(*,*) "              [-seed seedrandom] [-rif -1,0,0,...] [-v] "
          WRITE(*,*) ""
          WRITE(*,*) " Applies the PAMM clustering to a high-dimensional data set. "
@@ -376,9 +376,9 @@
          WRITE(*,*) "   -o output         : Prefix for output files [out]. This will produce : "
          WRITE(*,*) "                            output.grid (clusterized grid points) "
          WRITE(*,*) "                            output.pamm (cluster parameters) "
-         WRITE(*,*) "   -tau tau          : Quick shift cutoff [automatic] "
+         WRITE(*,*) "   -l lambda         : Quick shift cutoff [automatic] "
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
-         WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width tau/5 to"
+         WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to"
          WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -ref X            : Reference point for ordering the clusters [ (-1,0,0,...) ]"
@@ -568,19 +568,19 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      INTEGER FUNCTION qs_next(ngrid,idx,tau,probnmm,distmm)
+      INTEGER FUNCTION qs_next(ngrid,idx,lambda,probnmm,distmm)
          ! Return the index of the closest point higher in P
          !
          ! Args:
          !    ngrid: number of grid points
          !    idx: current point
-         !    tau: cut-off in the jump
+         !    lambda: cut-off in the jump
          !    probnmm: density estimations
          !    distmm: distances matrix
 
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: tau
+         DOUBLE PRECISION, INTENT(IN) :: lambda
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
 
@@ -591,7 +591,7 @@
          qs_next=idx
          DO j=1,ngrid
             IF(probnmm(j)>probnmm(idx))THEN
-               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.tau))THEN
+               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda))THEN
                   dmin=distmm(idx,j)
                   qs_next=j
                ENDIF
