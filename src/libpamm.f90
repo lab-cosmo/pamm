@@ -76,6 +76,7 @@
          xcx = dot_product(dv,tmpv)
 
          gauss_logeval = gpars%lnorm - 0.5d0*xcx
+         write(*,*) gauss_logeval
       END FUNCTION gauss_logeval
 
       DOUBLE PRECISION FUNCTION gauss_eval(gpars, x)
@@ -116,7 +117,7 @@
          
          pnks=0.0d0
          pnormpk=0.0d0 ! normalization factor (mixture weight)
-
+         
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
             pnks(k) = (gauss_eval(clusters(k),x)*clusters(k)%weight)**palpha

@@ -2,6 +2,8 @@
 ! Starting from a set of data points in high dimension it will first perform
 ! a non-parametric partitioning of the probability density and return the
 ! Nk gaussians better describing the clusters.
+! Can also be run in post-processing mode, where it will read tuples and 
+! classify them based on a set of Gaussians read from the specified input.
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
@@ -24,16 +26,12 @@
 ! TORT OR OTHERWISE, ARISIng FROM, OUT OF OR IN CONNECTION WITH THE
 ! SOFTWARE OR THE USE OR OTHER DEALIngS IN THE SOFTWARE.
 !
-! Functions:
-!    readgaussfromfile: Get the gaussian paramters from file
-!    helpmessage: Banner containing the help message
-!    ordergaussians: Order gaussians
 
       PROGRAM pamm
       USE libpamm
       IMPLICIT NONE
 
-      CHARACTER(LEN=1024) :: outputfile                       ! The output file prefix
+      CHARACTER(LEN=1024) :: outputfile, clusterfile          ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: xref(:)                ! Reference point needed to find out the important cluster
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: diff     ! temp vector used to store distances
@@ -44,7 +42,7 @@
       INTEGER ngrid                                         ! Number of samples extracted using minmax
 
       INTEGER jmax,ii,jj
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm, msmu
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm, msmu, pcluster, px
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
       INTEGER seed                                            ! seed for the random number generator
@@ -63,16 +61,19 @@
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
       INTEGER ccmd                  ! Index used to control the input parameters
       INTEGER nmsopt   ! number of mean-shift optimizations of the cluster centers
-      LOGICAL verbose  ! flag for verbosity
+      LOGICAL verbose, fpost  ! flag for verbosity
       LOGICAL weighted ! flag for using weigheted data
       INTEGER isep1, isep2, par_count  ! temporary indices for parsing command line arguments
-      DOUBLE PRECISION lambda, lambda2, msw
+      DOUBLE PRECISION lambda, lambda2, msw, alpha
 
-      INTEGER i,j,k,counter,dummyi1 ! Counters and dummy variable
+      INTEGER i,j,k,counter,dummyi1,endf ! Counters and dummy variable
 
 
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile="out"
+      clusterfile="NULL"
+      fpost=.false.
+      alpha=1.0d0
       ccmd=0              ! no parameters specified
       Nk=0                ! number of gaussians
       nmsopt=0            ! number of mean-shift refinements
@@ -81,6 +82,7 @@
       lambda=-1              ! quick shift cut-off
       verbose = .false.   ! no verbosity
       weighted= .false.   ! don't use the weights
+      
       D=-1
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -89,6 +91,10 @@
          CALL GETARG(i, cmdbuffer)
          IF (cmdbuffer == "-o") THEN           ! output file
             ccmd = 2
+         ELSEIF (cmdbuffer == "-gf") THEN ! file containing gaussian parmeters
+            ccmd = 3
+         ELSEIF (cmdbuffer == "-a") THEN  ! cluster smearing
+            ccmd = 1
          ELSEIF (cmdbuffer == "-d") THEN       ! dimensionality
             ccmd = 9
          ELSEIF (cmdbuffer == "-seed") THEN    ! seed for the random number genarator
@@ -116,6 +122,11 @@
                CALL EXIT(-1)
             ELSEIF (ccmd == 2) THEN ! output file
                outputfile=trim(cmdbuffer)
+            ELSEIF (ccmd == 3) THEN ! gaussian file
+               fpost=.true.
+               clusterfile=trim(cmdbuffer)
+            ELSEIF (ccmd == 1) THEN ! read the cluster smearing
+               READ(cmdbuffer,*) alpha
             ELSEIF (ccmd == 9) THEN
                READ(cmdbuffer,*) D
                ALLOCATE(xref(D))
@@ -123,7 +134,7 @@
                xref(1)=-1.0d0
             ELSEIF (ccmd == 4) THEN ! read the seed
                READ(cmdbuffer,*) seed
-            ELSEIF (ccmd == 6) THEN ! read the seed
+            ELSEIF (ccmd == 6) THEN ! read the number of mean-shift steps
                READ(cmdbuffer,*) nmsopt
             ELSEIF (ccmd == 5) THEN ! cut-off for quick-shift
                READ(cmdbuffer,*) lambda
@@ -164,6 +175,31 @@
          CALL EXIT(-1)
       ENDIF
 
+      ! fpost will be true just specifying the -gf flag
+      IF (fpost) THEN ! run in post-processing mode
+         IF (clusterfile.EQ."NULL") THEN
+            ! the user did something wrong in the GM specifications
+            WRITE(*,*) " Error: insert the file containing the gaussians parameters! "
+            CALL helpmessage
+            CALL EXIT(-1)
+         ENDIF         
+         OPEN(UNIT=12,FILE=clusterfile,STATUS='OLD',ACTION='READ')
+         ! read the gaussian model informations from a file.
+         CALL readclusters(12,nk,clusters)
+         CLOSE(12)
+         ALLOCATE(pcluster(nk), px(clusters(1)%D))
+         
+         DO WHILE (.true.)
+           READ(*,*,IOSTAT=endf) px
+           IF(endf>0) STOP "*** Error occurred while reading file. ***"
+           IF(endf<0) EXIT
+           CALL pamm_p(px, pcluster, nk, clusters, alpha)
+           WRITE(*,*) "px", px
+           WRITE(*,*) "pcls", pcluster
+         ENDDO
+         CALL EXIT(-1)
+      ENDIF
+      
       ! get the data from standard input
       CALL readinput(D, weighted, nsamples, x, normwj, wj)
 
