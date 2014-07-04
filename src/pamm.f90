@@ -194,8 +194,7 @@
            IF(endf>0) STOP "*** Error occurred while reading file. ***"
            IF(endf<0) EXIT
            CALL pamm_p(px, pcluster, nk, clusters, alpha)
-           WRITE(*,*) "px", px
-           WRITE(*,*) "pcls", pcluster
+           WRITE(*,*) pcluster
          ENDDO
          CALL EXIT(-1)
       ENDIF
