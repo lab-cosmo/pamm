@@ -112,7 +112,7 @@
          INTEGER k
 
          palpha=1.0d0
-         IF (.not. PRESENT(alpha)) palpha = alpha
+         IF (PRESENT(alpha)) palpha = alpha
          
          pnks=0.0d0
          pnormpk=0.0d0 ! normalization factor (mixture weight)

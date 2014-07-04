@@ -24,7 +24,7 @@ FFLAGS=-O3 -g -Wall -Wno-maybe-uninitialized
 LDFLAGS=-llapack
 MODULES=libpamm.f90 xyz.f90
 OBJECTS=$(MODULES:.f90=.o)
-TOOLS=pamm hbpamm
+TOOLS=pamm hbpamm wirepamm
 
 .PHONY: all clean $(TOOLS)
 all: $(TOOLS)
