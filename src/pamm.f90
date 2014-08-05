@@ -419,6 +419,13 @@
          WRITE(*,*) "   -ref X            : Reference point for ordering the clusters [ (-1,0,0,...) ]"
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
+         WRITE(*,*) " Post-processing mode: this reads high-dim data and computes the "
+         WRITE(*,*) " cluster probabilities associated with them, given the output of a "
+         WRITE(*,*) " previous PAMM analysis. "
+         WRITE(*,*) ""
+         WRITE(*,*) "   -gf               : File to read reference Gaussian clusters from"
+         WRITE(*,*) "   -a                : Additional smearing of clusters "
+         WRITE(*,*) ""
       END SUBROUTINE helpmessage
 
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
