@@ -249,7 +249,6 @@
       lambda2=lambda*lambda ! we always work with squared distances....
 
       IF(verbose) write(*,*) "Computing kernel density on reference points."
-      IF(verbose) write(*,*) "Lambda : ", lambda
 
       ! computes the KDE on the Voronoi centers using the neighbour list
       probnmm = 0.0d0
@@ -269,6 +268,7 @@
       ENDDO
 
       IF(verbose) write(*,*) "Running quick shift"
+      IF(verbose) write(*,*) "Lambda: ", lambda
 
       idxroot=0
       ! Start quick shift
