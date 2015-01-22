@@ -226,14 +226,10 @@
          IM=M
          info = 0
          error = 0
-         IPIV(1) = 0
-         IPIV(2) = 0
-         IPIV(3) = 0
+         IPIV(:) = 0
          ! call lapack
          call DGETRF(D,D,IM,D,IPIV,info)
-         WORK(1) = 0.0d0
-         WORK(2) = 0.0d0
-         WORK(3) = 0.0d0
+         WORK(:) = 0.0d0
          ! call lapack
          call DGETRI(D,IM,D,IPIV,WORK,D,info)
       END SUBROUTINE
