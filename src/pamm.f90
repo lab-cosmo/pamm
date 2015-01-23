@@ -469,8 +469,8 @@
             IF(counter.EQ.nbuff) THEN
                DEALLOCATE(wtmp,vtmp)
                ALLOCATE(wtmp(nsamples+counter), vtmp(D,nsamples+counter))
-               wtmp(1:nsamples) = wj
-               vtmp(:,1:nsamples) = xj
+               if(nsamples>0) wtmp(1:nsamples) = wj
+               if (nsamples>0) vtmp(:,1:nsamples) = xj
                wtmp(nsamples+1:nsamples+counter) = wbuff
                vtmp(:,nsamples+1:nsamples+counter) = vbuff
 
