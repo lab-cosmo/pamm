@@ -439,7 +439,7 @@
             WRITE(*,*) " Mixture model analysis options: "
             WRITE(*,*) "   -gf Gaussians_file   : Activates the analysis and specifies the file "
             WRITE(*,*) "                          containing Gaussian clusters data "
-            WRITE(*,*) "   -gh 1,2,...          : Indices of the gaussian(s) that describe the HB [default:1]"
+            WRITE(*,*) "   -ghb 1,2,...          : Indices of the gaussian(s) that describe the HB [default:1]"
             WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
             WRITE(*,*) "   -sad                 : Computes and print HB statistics for each donor/acceptor  "
             WRITE(*,*) "                          pair. Will generate a HUGE output file! "

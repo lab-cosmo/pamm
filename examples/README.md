@@ -70,7 +70,7 @@ The PAMM analysis consists of three steps.
     ```
 
     `hbpamm` automatically selects the first cluster as the one that 
-    represents the HB, but one can choose another using the `-gh` option.
+    represents the HB, but one can choose another using the `-ghb` option.
   
  
 The data in `h2o.hda` can be post-processed further, to obtain for instance
