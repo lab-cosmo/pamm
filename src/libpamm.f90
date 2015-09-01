@@ -90,9 +90,9 @@
          gauss_eval = dexp(gauss_logeval(gpars,x))
       END FUNCTION gauss_eval
       
-      SUBROUTINE pamm_p(x, pnks, nk, clusters, alpha) ! D,x,weight,alpha,nk,clusters,pks,pnks)
-         ! Computes for a configuration x the posterior probabilities for it to belong
-         ! to each of the PAMM clusters. 
+      SUBROUTINE pamm_p(x, pnks, nk, clusters, sig, alpha) 
+         ! Computes for a configuration x the posterior probabilities 
+         ! for it to belong to each of the PAMM clusters. 
          !
          ! Args:
          !    x: The point in wich calculate the probabilities
@@ -101,21 +101,26 @@
          !    clusters: The array containing the structures with the gaussians parameters
          !    pks: The array containing the gaussians Pk
          !    pnks: The conditional probability of the point p given k
-
+         !    bgsig: Background to be added to the mixture probability
+         
          INTEGER, INTENT(IN) :: nk
          TYPE(gauss_type), INTENT(IN) :: clusters(nk)
          DOUBLE PRECISION, INTENT(IN) :: x(clusters(1)%d)
          DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha
+         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: sig
          DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
 
-         DOUBLE PRECISION pnormpk, palpha, mxpk !normalization factor         
+         DOUBLE PRECISION pnormpk, palpha, mxpk, bgsig        
          INTEGER k
-
+         
          palpha=1.0d0
+         bgsig=0.00000001d0
          IF (PRESENT(alpha)) palpha = alpha
+         IF (PRESENT(sig)) bgsig = sig
          
          pnks=0.0d0
-         pnormpk=0.0d0 ! normalization factor (mixture weight)
+         ! normalization factor (mixture weight)
+         pnormpk=0.0d0 + bgsig ! add a background
          
          mxpk=-1d100
          DO k=1,nk
@@ -131,7 +136,8 @@
             pnormpk = pnormpk+pnks(k)
          ENDDO
          ! skip cases in which the probability is tooooo tiny
-         IF (pnormpk.NE.0.0d0) pnks = pnks/pnormpk ! normalization
+         ! IF (pnormpk.NE.0.0d0) 
+         pnks = pnks/pnormpk ! normalize
       END SUBROUTINE pamm_p
 
       

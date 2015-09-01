@@ -48,7 +48,7 @@
       INTEGER seed                                            ! seed for the random number generator
 
       ! variable to set the covariance matrix
-      DOUBLE PRECISION tmppks,normpks
+      DOUBLE PRECISION tmppks,normpks,bgsig
 
       ! Array of Gaussians containing the gaussians parameters
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
@@ -74,12 +74,13 @@
       clusterfile="NULL"
       fpost=.false.
       alpha=1.0d0
+      bgsig=0.0000001d0
       ccmd=0              ! no parameters specified
       Nk=0                ! number of gaussians
       nmsopt=0            ! number of mean-shift refinements
-      ngrid=-1          ! number of samples extracted with minmax
+      ngrid=-1            ! number of samples extracted with minmax
       seed=12345          ! seed for the random number generator
-      lambda=-1              ! quick shift cut-off
+      lambda=-1           ! quick shift cut-off
       verbose = .false.   ! no verbosity
       weighted= .false.   ! don't use the weights
       
@@ -107,6 +108,8 @@
             ccmd = 6
          ELSEIF (cmdbuffer == "-ref") THEN     ! point from wich calculate the distances to order
             ccmd = 8                           ! the gaussians in the output
+         ELSEIF (cmdbuffer == "-bgs") THEN     ! add a background to the probability mixture
+            ccmd = 10
          ELSEIF (cmdbuffer == "-w") THEN       ! use weights
             weighted = .true.
          ELSEIF (cmdbuffer == "-v") THEN       ! verbosity flag
@@ -140,6 +143,8 @@
                READ(cmdbuffer,*) lambda
             ELSEIF (ccmd == 7) THEN ! number of grid points
                READ(cmdbuffer,*) ngrid
+            ELSEIF (ccmd == 10) THEN ! read bgsig
+               READ(cmdbuffer,*) bgsig
             ELSEIF (ccmd == 8) THEN
                IF (D<0) STOP "Dimensionality (-d) must be precede the reference point (-red). "
                par_count = 1
@@ -193,7 +198,7 @@
            READ(*,*,IOSTAT=endf) px
            IF(endf>0) STOP "*** Error occurred while reading file. ***"
            IF(endf<0) EXIT
-           CALL pamm_p(px, pcluster, nk, clusters, alpha)
+           CALL pamm_p(px, pcluster, nk, clusters, bgsig, alpha)
            WRITE(*,*) pcluster
          ENDDO
          CALL EXIT(-1)

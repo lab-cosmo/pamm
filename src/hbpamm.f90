@@ -54,7 +54,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:)   :: sa, sd, sh
       ! point in the high-dimensional description
       DOUBLE PRECISION, DIMENSION(3) :: x  ! [nu,mu,r]
-      DOUBLE PRECISION rah,rdh,wfactor     ! distances and weight 
+      DOUBLE PRECISION rah,rdh,wfactor,bgsig  ! distances and weight 
       INTEGER ia,id,ih ! simples indexes
       ! for a faster reading
       ! counters
@@ -91,6 +91,7 @@
       nptm          = .false.
       weighted      = .false.   ! don't use wfactor by default
       endf          = 0
+      bgsig         = 0.00000001d0 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 !!!!!!!!!!!!! Command line parser !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -118,6 +119,8 @@
             ccmd = 9
          ELSEIF (cmdbuffer == "-ev") THEN ! delta
             ccmd = 10
+         ELSEIF (cmdbuffer == "-bgs") THEN ! background to add to the probability mixture
+            ccmd = 11
          ELSEIF (cmdbuffer == "-sad") THEN ! hb lifetime statistics
             dosad = .true.
          ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
@@ -208,6 +211,8 @@
                READ(cmdbuffer(isep1+1:),*) vghb(par_count)
             ELSEIF (ccmd == 10) THEN ! delta
                READ(cmdbuffer,*) delta
+            ELSEIF (ccmd == 11) THEN ! background to add to prob. mixture
+               READ(cmdbuffer,*) bgsig
             ENDIF
          ENDIF
       ENDDO
@@ -341,7 +346,7 @@
                      IF (dopamm) THEN
                         ! PAMM mode. We apply here the gaussian mixture model.
                         ! call lipbamm and compute the PAMM probability
-                        CALL pamm_p(x, pnks, nk, clusters, alpha)
+                        CALL pamm_p(x, pnks, nk, clusters, bgsig, alpha)
                         ! sum the probabilities from the gaussians describing the HB
                         sph(:,ih) = sph(:,ih) + pnks(:)
                         spa(:,ia) = spa(:,ia) + pnks(:)
@@ -409,6 +414,7 @@
             WRITE(*,*) " SYNTAX: hbpamm -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
             WRITE(*,*) "                [-h] [-l lx,ly,lz] [-w] [-npt] [-ct mucutoff] [-ev delta] "
             WRITE(*,*) "                [-gf clusterfile] [-ghb 1,2,..] [-a smoothing_factor] "
+            WRITE(*,*) "                [-bgs 0.00005]"
             WRITE(*,*) "                 < input.xyz > output "
             WRITE(*,*) ""
             WRITE(*,*) " Description:  "
@@ -437,12 +443,14 @@
             WRITE(*,*) " in the XYZ input. "
             WRITE(*,*) ""
             WRITE(*,*) " Mixture model analysis options: "
-            WRITE(*,*) "   -gf Gaussians_file   : Activates the analysis and specifies the file "
-            WRITE(*,*) "                          containing Gaussian clusters data "
+            WRITE(*,*) "   -gf Gaussians_file    : Activates the analysis and specifies the file "
+            WRITE(*,*) "                           containing Gaussian clusters data "
             WRITE(*,*) "   -ghb 1,2,...          : Indices of the gaussian(s) that describe the HB [default:1]"
-            WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
-            WRITE(*,*) "   -sad                 : Computes and print HB statistics for each donor/acceptor  "
-            WRITE(*,*) "                          pair. Will generate a HUGE output file! "
+            WRITE(*,*) "   -a   smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
+            WRITE(*,*) "   -bgs sigma            : Background to be added to the mixture probability "
+            WRITE(*,*) "                           (Default value: 0.00000001)  "
+            WRITE(*,*) "   -sad                  : Computes and print HB statistics for each donor/acceptor  "
+            WRITE(*,*) "                           pair. Will generate a HUGE output file! "
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
