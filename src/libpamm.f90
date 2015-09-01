@@ -1,4 +1,4 @@
-! ITE(*,*) "CHECK COV", vmpars%cov/ar Motifs - Utility Library 
+! (PERIODIC) Probabilistic Analysis of Molecular Motifs - Utility Library 
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
