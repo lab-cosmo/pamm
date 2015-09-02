@@ -234,7 +234,7 @@
          pnks = pnks/pnormpk ! normalize
       END SUBROUTINE pamm_p
 
-      SUBROUTINE pamm_p_vm(x, pnks, nk, clusters, alpha) ! D,x,weight,alpha,nk,clusters,pks,pnks)
+      SUBROUTINE pamm_p_vm(x, pnks, nk, clusters, sig, alpha) ! D,x,weight,alpha,nk,clusters,pks,pnks)
          ! Computes for a configuration x the posterior probabilities for it to belong
          ! to each of the PAMM clusters. 
          !
@@ -250,16 +250,19 @@
          TYPE(vm_type), INTENT(IN) :: clusters(nk)
          DOUBLE PRECISION, INTENT(IN) :: x(clusters(1)%d)
          DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha
+         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: sig
          DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
 
-         DOUBLE PRECISION pnormpk, palpha, mxpk !normalization factor         
+         DOUBLE PRECISION pnormpk, palpha, mxpk, bgsig !normalization factor         
          INTEGER k
 
          palpha=1.0d0
+         bgsig=0.00000001d0
          IF (PRESENT(alpha)) palpha = alpha
+         IF (PRESENT(sig)) bgsig = sig
          
          pnks=0.0d0
-         pnormpk=0.0d0 ! normalization factor (mixture weight)
+         pnormpk=0.0d0 + bgsig ! normalization factor (mixture weight)
          
          mxpk=-1d100
          DO k=1,nk

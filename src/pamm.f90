@@ -236,7 +236,7 @@
               IF(endf<0) EXIT
               
               ! compute the pamm probability for the point px
-              CALL pamm_p_vm(px, pcluster, nk, vmclusters, alpha)
+              CALL pamm_p_vm(px, pcluster, nk, vmclusters, bgsig, alpha)
               !!! decomment if you want to print out
               !!! just the number of the cluster with 
               !!! the higher probability 
@@ -258,7 +258,7 @@
               READ(*,*,IOSTAT=endf) px
               IF(endf>0) STOP "*** Error occurred while reading file. ***"
               IF(endf<0) EXIT
-              CALL pamm_p(px, pcluster, nk, clusters, alpha)
+              CALL pamm_p(px, pcluster, nk, clusters, bgsig, alpha)
               dummyi1=1
               DO i=1,nk
                  IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
