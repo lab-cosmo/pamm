@@ -45,14 +45,14 @@
       INTEGER ngrid                                           ! Number of samples extracted using minmax
 
       INTEGER jmax,ii,jj
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, wj, probnmm, &
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, probnmm, &
                                                      msmu, tmpmsmu, pcluster, px
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
       INTEGER seed                                            ! seed for the random number generator
 
       ! variable to set the covariance matrix
-      DOUBLE PRECISION tmppks,normpks,bgsig
+      DOUBLE PRECISION tmppks,normpks
     
       ! Array of Von Mises distributions
       TYPE(vm_type), ALLOCATABLE, DIMENSION(:) :: vmclusters
@@ -71,22 +71,22 @@
       LOGICAL verbose, fpost                      ! flag for verbosity
       LOGICAL weighted                            ! flag for using weigheted data
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
-      DOUBLE PRECISION lambda, lambda2, msw, alpha, dummd1,dummd2
+      DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1,dummd2
 
-      INTEGER i,j,k,counter,dummyi1,endf          ! Counters and dummy variable
-
+      INTEGER i,j,k,ikde,counter,dummyi1,endf ! Counters and dummy variable
 
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile="out"
       clusterfile="NULL"
       fpost=.false.
       alpha=1.0d0
-      bgsig=0.0000001d0
+      zeta=0.0d0
       ccmd=0              ! no parameters specified
       Nk=0                ! number of gaussians
       nmsopt=0            ! number of mean-shift refinements
       ngrid=-1            ! number of samples extracted with minmax
       seed=12345          ! seed for the random number generator
+      kderr=0.1           ! target fractional error for KDE smoothing
       lambda=-1           ! quick shift cut-off
       verbose = .false.   ! no verbosity
       weighted= .false.   ! don't use the weights
@@ -106,6 +106,8 @@
             ccmd = 1
          ELSEIF (cmdbuffer == "-d") THEN       ! dimensionality
             ccmd = 9
+         ELSEIF (cmdbuffer == "-kde") THEN       ! dimensionality
+            ccmd = 10
          ELSEIF (cmdbuffer == "-seed") THEN    ! seed for the random number genarator
             ccmd = 4
          ELSEIF (cmdbuffer == "-l") THEN       ! threshold to differentiate different clusters
@@ -116,8 +118,8 @@
             ccmd = 6
          ELSEIF (cmdbuffer == "-ref") THEN     ! point from wich calculate the distances to order
             ccmd = 8                           ! the gaussians in the output
-         ELSEIF (cmdbuffer == "-bgs") THEN     ! add a background to the probability mixture
-            ccmd = 10
+         ELSEIF (cmdbuffer == "-z") THEN       ! add a background to the probability mixture
+            ccmd = 12
          ELSEIF (cmdbuffer == "-w") THEN       ! use weights
             weighted = .true.
          ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
@@ -133,14 +135,16 @@
                WRITE(*,*) " No parameters specified!"
                CALL helpmessage
                CALL EXIT(-1)
-            ELSEIF (ccmd == 2) THEN ! output file
+            ELSEIF (ccmd == 2) THEN            ! output file
                outputfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 3) THEN ! model file
+            ELSEIF (ccmd == 3) THEN            ! model file
                fpost=.true.
                clusterfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 1) THEN ! read the cluster smearing
+            ELSEIF (ccmd == 1) THEN            ! read the cluster smearing
                READ(cmdbuffer,*) alpha
-            ELSEIF (ccmd == 9) THEN ! read the dimensionality
+            ELSEIF (ccmd == 10) THEN           ! read the cluster smearing
+               READ(cmdbuffer,*) kderr
+            ELSEIF (ccmd == 9) THEN            ! read the dimensionality
                READ(cmdbuffer,*) D
                ALLOCATE(xref(D))
                ALLOCATE(period(D))
@@ -155,10 +159,11 @@
                READ(cmdbuffer,*) lambda
             ELSEIF (ccmd == 7) THEN ! number of grid points
                READ(cmdbuffer,*) ngrid
-            ELSEIF (ccmd == 10) THEN ! read bgsig
-               READ(cmdbuffer,*) bgsig
+            ELSEIF (ccmd == 12) THEN ! read zeta 
+               READ(cmdbuffer,*) zeta
             ELSEIF (ccmd == 8) THEN
-               IF (D<0) STOP "Dimensionality (-d) must precede the reference point (-red). "
+               IF (D<0) STOP &
+      "Dimensionality (-d) must precede the ref. point (-red)."
                par_count = 1
                isep1 = 0
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
@@ -198,7 +203,8 @@
       IF (ccmd.EQ.0) THEN
          ! ccmd==0 : no parameters inserted
          WRITE(*,*) ""
-         WRITE(*,*) " Could not interpret command line arguments. Please check for errors!"
+         WRITE(*,*) &
+  " Could not interpret command line arguments. Please check for errors!"
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
@@ -218,7 +224,8 @@
       IF (fpost) THEN 
          IF (clusterfile.EQ."NULL") THEN
             ! the user did something wrong in the GM specifications
-            WRITE(*,*) " Error: insert the file containing the gaussians parameters! "
+            WRITE(*,*) &
+          " Error: insert the file containing the cluster parameters! "
             CALL helpmessage
             CALL EXIT(-1)
          ENDIF         
@@ -236,7 +243,7 @@
               IF(endf<0) EXIT
               
               ! compute the pamm probability for the point px
-              CALL pamm_p_vm(px, pcluster, nk, vmclusters, bgsig, alpha)
+              CALL pamm_p_vm(px, pcluster, nk, vmclusters, alpha, zeta)
               !!! decomment if you want to print out
               !!! just the number of the cluster with 
               !!! the higher probability 
@@ -258,7 +265,7 @@
               READ(*,*,IOSTAT=endf) px
               IF(endf>0) STOP "*** Error occurred while reading file. ***"
               IF(endf<0) EXIT
-              CALL pamm_p(px, pcluster, nk, clusters, bgsig, alpha)
+              CALL pamm_p(px, pcluster, nk, clusters, alpha, zeta)
               dummyi1=1
               DO i=1,nk
                  IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
@@ -287,7 +294,7 @@
       ! points and the dimensionality
       ALLOCATE(iminij(nsamples))
       ALLOCATE(pnlist(ngrid+1),nlist(nsamples))
-      ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid),sigma2(ngrid))
+      ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid),sigma2(ngrid),rgrid(ngrid))
       ALLOCATE(idxroot(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
       ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
 
@@ -305,31 +312,34 @@
       IF(verbose) write(*,*) "Generating neighbour list"
       CALL getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
 
-      ! Definition of the similarity matrix between grid points
+      ! Definition of the distance matrix between grid points
       distmm=0.0d0
-      sigma2=1e10 ! adaptive sigma of the kernel density estimator
+      rgrid=1d100 ! "voronoi radius" of grid points (squared)
       IF(verbose) write(*,*) "Computing similarity matrix"
       DO i=1,ngrid
+
          DO j=1,i-1
             ! distance between two voronoi centers
+            ! also computes the nearest neighbor distance (squared) for each grid point
             distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
-            if (distmm(i,j) < sigma2(i)) sigma2(i) = distmm(i,j)
+            if (distmm(i,j) < rgrid(i)) rgrid(i) = distmm(i,j)
             ! the symmetrical one
             distmm(j,i) = distmm(i,j)
-            if (distmm(i,j) < sigma2(j)) sigma2(j) = distmm(i,j)
+            if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)  
          ENDDO
       ENDDO
       
-      ! to be improved ... 
       IF(lambda.EQ.-1)THEN
          ! set automatically the mean shift lambda set to 5*<sig>
-         lambda2=SUM(sigma2)/ngrid
+         lambda2=SUM(rgrid)/ngrid
          lambda=5.0d0*dsqrt(lambda2)
       ENDIF
       lambda2=lambda*lambda ! we always work with squared distances....
 
-      IF(verbose) write(*,*) "Computing kernel density on reference points."
-      IF(verbose) write(*,*) "Lambda : ", lambda
+      sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
+      ikde = 0
+100   IF(verbose) write(*,*) &
+            "Computing kernel density on reference points."
 
       ! computes the KDE on the Voronoi centers using the neighbour list
       probnmm = 0.0d0
@@ -339,7 +349,7 @@
             ! do not compute KDEs for points that belong to far away Voronoj
             IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
 
-            ! cycle just inside the polyhedra thanx to the neighbour list
+            ! cycle just inside the polyhedra using the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
                probnmm(i)=probnmm(i)+ wj(nlist(k))* &
                           fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
@@ -347,9 +357,32 @@
          ENDDO
          probnmm(i)=probnmm(i)/normwj
       ENDDO
+      
+      ! compute sigma2 from the number of points in the 
+      ! neighborhood of each grid point. the rationale is that 
+      ! integrating over a Gaussian kernel with variance sigma2
+      ! will cover a volume Vi=(2\pi sigma2)^(D/2).  
+      ! If the estimate probability density on grid point i is pi
+      ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
+      ! The number of points is then normwj*ri, and we can take this to 
+      ! correspond to the mean of a binomial distribution. The (squared) relative error
+      ! is then err2=(1-ri)/(ri normwj) so
+      ! kderr^2 *normwj + 1 = 1/ri so
+      ! Vi = 1/[pi*(1+kderr^2 normwj)] so 
+      ! sigma2 = 1/(2pi) 1/rad[D/2](pi*(1+kderr^2 normwj))
+      DO j=1,ngrid
+         write(*,*) "Update grid point ", j, sigma2(j)
+         sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
+         ! kernel density estimation cannot become smaller than the distance with the nearest grid point
+         if (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
+         write(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j)         
+      ENDDO
+      ikde = ikde+1
+      if (ikde<5) GOTO 100 ! seems one could actually iterate to self-consistency....
 
       ! CLUSTERING, local maxima search
       IF(verbose) write(*,*) "Running quick shift"
+      IF(verbose) write(*,*) "Lambda: ", lambda
 
       idxroot=0
       ! Start quick shift
@@ -390,11 +423,10 @@
             qspath(Nk)=idxroot(i)
             dummyi1=Nk
          ENDIF
-         ! write out the point, the cluster number and the weight
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
-         WRITE(11,"(A1,I4,A1,ES15.4E4)") " ", dummyi1 , " ", probnmm(i)
+         WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , " ", probnmm(i), " ", sigma2(i) 
          ! accumulate the normalization factor for the pks
          normpks=normpks+probnmm(i)
       ENDDO
@@ -523,7 +555,7 @@
       DEALLOCATE(xref,period)
       DEALLOCATE(idxroot,qspath,distmm)
       DEALLOCATE(pnlist,nlist,iminij)
-      DEALLOCATE(y,npvoronoi,probnmm,sigma2)
+      DEALLOCATE(y,npvoronoi,probnmm,sigma2,rgrid)
       DEALLOCATE(diff,msmu,tmpmsmu)
 
       CALL EXIT(0)
@@ -540,8 +572,9 @@
          !
 
          WRITE(*,*) ""
-         WRITE(*,*) " USAGE: pamm [-h] -d D [-p 6.28,6.28,...] [-w] [-o output] [-ngrid ngrid]"
-         WRITE(*,*) "             [-l lambda] [-seed seedrandom] [-rif -1,0,0,...] [-v] "
+         WRITE(*,*) " USAGE: pamm [-h] -d D [-p 6.28,6.28,...] [-w] [-o output] [-ngrid ngrid] "
+         WRITE(*,*) "             [-l lambda] [-kde err] [-z zeta_factor] [-a smoothing_factor] "
+         WRITE(*,*) "             [-seed seedrandom] [-rif -1,0,0,...] [-v] "
          WRITE(*,*) ""
          WRITE(*,*) " Applies the PAMM clustering to a high-dimensional data set. "
          WRITE(*,*) " It is mandatory to specify the dimensionality of the data, which "
@@ -558,6 +591,7 @@
          WRITE(*,*) "                            output.grid (clusterized grid points) "
          WRITE(*,*) "                            output.pamm (cluster parameters) "
          WRITE(*,*) "   -l lambda         : Quick shift cutoff [automatic] "
+         WRITE(*,*) "   -kde err          : Target fractional error for KDE smoothing [0.1]"
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to"
          WRITE(*,*) "                       optimize cluster centers [0] "
@@ -572,6 +606,7 @@
          WRITE(*,*) ""
          WRITE(*,*) "   -gf               : File to read reference Gaussian clusters from"
          WRITE(*,*) "   -a                : Additional smearing of clusters "
+         WRITE(*,*) "   -z zeta_factor : Probabilities below this threshold are counted as 'no cluster' [default:0]"
          WRITE(*,*) ""
       END SUBROUTINE helpmessage
 

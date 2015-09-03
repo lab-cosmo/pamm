@@ -129,7 +129,6 @@
          gauss_eval = dexp(gauss_logeval(gpars,x))
       END FUNCTION gauss_eval
       
-      ! probably this is no more needed
       DOUBLE PRECISION FUNCTION vm_r2(vmpars, x)
          ! Evaluate the distance frome the center of the basin
          ! taking into account the periodicity of the data
@@ -158,7 +157,6 @@
          vm_r2=2.0d0*(tmpsum1+tmpsum2)
       END FUNCTION vm_r2
       
-      ! probably this is no more needed
       DOUBLE PRECISION FUNCTION vm_logeval(vmpars, x)
          ! Return the logarithm of the multivariate Von Mises density distrib
          !
@@ -184,37 +182,36 @@
          vm_eval = dexp(vm_logeval(vmpars,x))
       END FUNCTION vm_eval
 
-      SUBROUTINE pamm_p(x, pnks, nk, clusters, sig, alpha) ! D,x,weight,alpha,nk,clusters,pks,pnks)
+      SUBROUTINE pamm_p(x, pnks, nk, clusters, alpha, zeta)
          ! Computes for a configuration x the posterior probabilities for it to belong
          ! to each of the PAMM clusters. 
          !
          ! Args:
          !    x: The point in wich calculate the probabilities
          !    alpha: The smoothing factor (defaults to one)
+         !    zeta: The "null-hypothesis" weight (probabilities below this value will evaluate as "no cluster")
+         !          defaults to zero
          !    nk: The number of gaussians in the mixture
          !    clusters: The array containing the structures with the gaussians parameters
          !    pks: The array containing the gaussians Pk
          !    pnks: The conditional probability of the point p given k
-         !    bgsig: Background to be added to the mixture probability
          
          INTEGER, INTENT(IN) :: nk
          TYPE(gauss_type), INTENT(IN) :: clusters(nk)
          DOUBLE PRECISION, INTENT(IN) :: x(clusters(1)%d)
-         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha
-         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: sig
+         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha, zeta
          DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
 
-         DOUBLE PRECISION pnormpk, palpha, mxpk, bgsig        
+         DOUBLE PRECISION pnormpk, palpha, pzeta, mxpk !normalization factor         
          INTEGER k
          
          palpha=1.0d0
-         bgsig=0.00000001d0
          IF (PRESENT(alpha)) palpha = alpha
-         IF (PRESENT(sig)) bgsig = sig
          
+         pzeta=0.0d0
+         IF (PRESENT(zeta)) pzeta = zeta
          pnks=0.0d0
-         ! normalization factor (mixture weight)
-         pnormpk=0.0d0 + bgsig ! add a background
+         pnormpk=pzeta ! normalization factor (mixture weight)
          
          mxpk=-1d100
          DO k=1,nk
@@ -222,7 +219,7 @@
             pnks(k) = gauss_logeval(clusters(k),x)            
             if (pnks(k).gt.mxpk) mxpk=pnks(k)
          ENDDO
-         
+        
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
             pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha
@@ -230,17 +227,18 @@
             pnormpk = pnormpk+pnks(k)
          ENDDO
          ! skip cases in which the probability is tooooo tiny
-         ! IF (pnormpk.NE.0.0d0) 
-         pnks = pnks/pnormpk ! normalize
+         IF (pnormpk.NE.0.0d0) pnks = pnks/pnormpk ! normalize
       END SUBROUTINE pamm_p
 
-      SUBROUTINE pamm_p_vm(x, pnks, nk, clusters, sig, alpha) ! D,x,weight,alpha,nk,clusters,pks,pnks)
+      SUBROUTINE pamm_p_vm(x, pnks, nk, clusters, alpha, zeta)
          ! Computes for a configuration x the posterior probabilities for it to belong
          ! to each of the PAMM clusters. 
          !
          ! Args:
          !    x: The point in wich calculate the probabilities
          !    alpha: The smoothing factor (defaults to one)
+         !    zeta: The "null-hypothesis" weight (probabilities below this value will evaluate as "no cluster")
+         !          defaults to zero
          !    nk: The number of gaussians in the mixture
          !    clusters: The array containing the structures with the gaussians parameters
          !    pks: The array containing the gaussians Pk
@@ -249,20 +247,19 @@
          INTEGER, INTENT(IN) :: nk
          TYPE(vm_type), INTENT(IN) :: clusters(nk)
          DOUBLE PRECISION, INTENT(IN) :: x(clusters(1)%d)
-         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha
-         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: sig
+         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha, zeta
          DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
 
-         DOUBLE PRECISION pnormpk, palpha, mxpk, bgsig !normalization factor         
+         DOUBLE PRECISION pnormpk, palpha, pzeta, mxpk !normalization factor         
          INTEGER k
 
          palpha=1.0d0
-         bgsig=0.00000001d0
          IF (PRESENT(alpha)) palpha = alpha
-         IF (PRESENT(sig)) bgsig = sig
-         
+
+         pzeta=0.0d0
+         IF (PRESENT(zeta)) pzeta = zeta
          pnks=0.0d0
-         pnormpk=0.0d0 + bgsig ! normalization factor (mixture weight)
+         pnormpk=pzeta ! normalization factor (mixture weight)
          
          mxpk=-1d100
          DO k=1,nk
@@ -280,51 +277,7 @@
          ! skip cases in which the probability is tooooo tiny
          IF (pnormpk.NE.0.0d0) pnks = pnks/pnormpk ! normalization
       END SUBROUTINE pamm_p_vm
- 
-      SUBROUTINE pamm_p_vm2(x, pnks, nk, clusters, alpha) ! D,x,weight,alpha,nk,clusters,pks,pnks)
-         ! Computes for a configuration x the posterior probabilities for it to belong
-         ! to each of the PAMM clusters. 
-         !
-         ! Args:
-         !    x: The point in wich calculate the probabilities
-         !    alpha: The smoothing factor (defaults to one)
-         !    nk: The number of gaussians in the mixture
-         !    clusters: The array containing the structures with the gaussians parameters
-         !    pks: The array containing the gaussians Pk
-         !    pnks: The conditional probability of the point p given k
 
-         INTEGER, INTENT(IN) :: nk
-         TYPE(vm_type), INTENT(IN) :: clusters(nk)
-         DOUBLE PRECISION, INTENT(IN) :: x(clusters(1)%d)
-         DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha
-         DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
-
-         DOUBLE PRECISION pnormpk, palpha, mxpk !normalization factor         
-         INTEGER k
-
-         palpha=1.0d0
-         IF (PRESENT(alpha)) palpha = alpha
-
-         pnks=0.0d0
-         pnormpk=0.0d0 ! normalization factor (mixture weight)
-
-         mxpk=-1d100
-         DO k=1,nk
-            ! optionally apply a smoothing based on alpha
-            pnks(k) = vm_logeval(clusters(k),x)
-            if (pnks(k).gt.mxpk) mxpk=pnks(k)
-         ENDDO
-
-         DO k=1,nk
-            ! optionally apply a smoothing based on alpha
-            pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha
-            ! calculate the mixture weight
-         ENDDO
-         ! skip cases in which the probability is tooooo tiny
-         IF (pnormpk.NE.0.0d0) pnks = pnks ! normalization
-      END SUBROUTINE pamm_p_vm2
-
-      
       SUBROUTINE readclusters(fileid,Nk,clusters)
          ! Load the gaussian clusters from the stream fileid
          !

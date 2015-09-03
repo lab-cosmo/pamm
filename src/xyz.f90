@@ -40,7 +40,7 @@
          
          READ(ufile,*,IOSTAT=endf) natoms
          IF(endf>0) STOP "*** Error occurred while reading file. ***"
-         IF(endf<0) return
+         IF(endf<0 .or. natoms==0) return
          
          ! Get the snapshot header
          READ(ufile,'(A)',IOSTAT=endf) header
@@ -48,7 +48,7 @@
          IF(endf<0) return
          IF ( ALLOCATED(labels) .and. SIZE(labels)/=natoms ) DEALLOCATE(labels) ! atom number changed
          IF (.not.(ALLOCATED(labels))) ALLOCATE(labels(natoms))
-         IF ( ALLOCATED(positions) .and. SIZE(positions)/=natoms ) DEALLOCATE(positions) ! atom number changed
+         IF ( ALLOCATED(positions) .and. SIZE(positions)/=natoms*3 ) DEALLOCATE(positions) ! atom number changed
          IF (.not.(ALLOCATED(positions))) ALLOCATE(positions(3,natoms))
          DO i=1,natoms ! label, x, y, z
             READ(ufile,*,IOSTAT=endf) labels(i),positions(1,i),positions(2,i),positions(3,i)
