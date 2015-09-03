@@ -43,7 +43,7 @@
       !system parameters
       INTEGER natoms
       DOUBLE PRECISION cell(3,3), icell(3,3)
-      DOUBLE PRECISION alpha, mucutoff
+      DOUBLE PRECISION alpha, mucutoff, zeta
       
       ! Gaussian-mixture model
       INTEGER Nk ! number of gaussians in the mixture
@@ -85,6 +85,7 @@
       delta         = 1         ! read every step 
       cell          = 0.0d0  
       alpha         = 1.0d0
+      zeta          = 0.0d0
       convert       = .false.
       dopamm        = .false.
       dosad         = .false.
@@ -118,6 +119,8 @@
             ccmd = 9
          ELSEIF (cmdbuffer == "-ev") THEN ! delta
             ccmd = 10
+         ELSEIF (cmdbuffer == "-z") THEN ! smoothing factor, alpha
+            ccmd = 11
          ELSEIF (cmdbuffer == "-sad") THEN ! hb lifetime statistics
             dosad = .true.
          ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
@@ -152,6 +155,8 @@
                READ(cmdbuffer(isep1+1:),*) cell(par_count,par_count)
             ELSEIF (ccmd == 4) THEN ! smoothing factor, alpha
                READ(cmdbuffer,*) alpha
+            ELSEIF (ccmd == 11) THEN ! zero factor, zeta
+               READ(cmdbuffer,*) zeta
             ELSEIF (ccmd == 5) THEN ! cutoff in the mu=d(AH)+d(dH) distance
                READ(cmdbuffer,*) mucutoff
             ELSEIF (ccmd == 6) THEN ! acceptor types
@@ -159,7 +164,8 @@
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   IF (par_count .ge. MAXPARS) &
-                     STOP "*** Too many acceptor types specified on command line. ***"
+                     STOP &
+         "*** Too many acceptor types specified on command line. ***"
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) vta(par_count)
                   par_count = par_count + 1
@@ -171,7 +177,8 @@
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   IF (par_count .ge. MAXPARS) &
-                     STOP "*** Too many donor types specified on command line. ***"
+                     STOP &
+       "*** Too many donor types specified on command line. ***"
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) vtd(par_count)
                   par_count = par_count + 1
@@ -183,7 +190,8 @@
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   IF (par_count .ge. MAXPARS) &
-                     STOP "*** Too many hydrogen types specified on command line. ***"
+                     STOP &
+          "*** Too many hydrogen types specified on command line. ***"
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) vth(par_count)
                   par_count = par_count + 1
@@ -199,7 +207,8 @@
                isep1 = 0                  
                DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
                   IF (par_count .ge. MAXPARS) &
-                     STOP "*** Too many HB clusters specified on command line. ***"
+                     STOP &
+            "*** Too many HB clusters specified on command line. ***"
                   isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
                   READ(cmdbuffer(isep1+1:isep2-1),*) vghb(par_count)
                   par_count = par_count + 1
@@ -268,7 +277,8 @@
             ! unit=5  --> read frome the standard input
             CALL xyz_read(5,natoms,header,labels,positions,endf)
             IF(endf<0) EXIT ! time to go!
-
+           
+            IF (ALLOCATED(masktypes).and.SIZE(masktypes)/=natoms) DEALLOCATE(masktypes)
             IF (.not. ALLOCATED(masktypes)) THEN ! first step, must allocate stuff
                ! inizialize the mask types
                ALLOCATE(masktypes(natoms))
@@ -288,6 +298,12 @@
                ! read the gaussian model informations from a file.
                CALL readclusters(12,nk,clusters)
                CLOSE(UNIT=12)
+            ENDIF
+            IF (ALLOCATED(spa) .and. SIZE(sa)/=natoms) THEN ! reallocate everything upon natoms change
+               DEALLOCATE(spa,spd,sph,sa,sd,sh,pnks)
+               IF (dosad) DEALLOCATE(sad)
+            ENDIF
+            IF (dopamm  .and. .not. ALLOCATED(spa)) THEN
                ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
                ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
                spa=0.0d0
@@ -298,7 +314,7 @@
                   sad=0.0d0
                ENDIF
             ENDIF
-
+            
             IF (nptm .or. cell(1,1) == 0.0d0) THEN 
                ! NPT mode: this means variable cell!
                ! Try to read the cell parameters the header in input stream
@@ -341,7 +357,7 @@
                      IF (dopamm) THEN
                         ! PAMM mode. We apply here the gaussian mixture model.
                         ! call lipbamm and compute the PAMM probability
-                        CALL pamm_p(x, pnks, nk, clusters, alpha)
+                        CALL pamm_p(x, pnks, nk, clusters, alpha, zeta)
                         ! sum the probabilities from the gaussians describing the HB
                         sph(:,ih) = sph(:,ih) + pnks(:)
                         spa(:,ia) = spa(:,ia) + pnks(:)
@@ -387,7 +403,7 @@
                   positions(1,:) = sh(:)
                   positions(2,:) = sd(:)
                   positions(3,:) = sa(:)
-                  CALL xyz_write(6,natoms,header,labels,positions)               
+                  CALL xyz_write(6,natoms,header,labels,positions)     
                ENDIF
             ENDIF
          ENDIF
@@ -409,6 +425,7 @@
             WRITE(*,*) " SYNTAX: hbpamm -ta A1,A2,... -td D1,D2,... -th H1,H2,... "
             WRITE(*,*) "                [-h] [-l lx,ly,lz] [-w] [-npt] [-ct mucutoff] [-ev delta] "
             WRITE(*,*) "                [-gf clusterfile] [-ghb 1,2,..] [-a smoothing_factor] "
+            WRITE(*,*) "                [-z zeta_factor] "
             WRITE(*,*) "                 < input.xyz > output "
             WRITE(*,*) ""
             WRITE(*,*) " Description:  "
@@ -440,7 +457,8 @@
             WRITE(*,*) "   -gf Gaussians_file   : Activates the analysis and specifies the file "
             WRITE(*,*) "                          containing Gaussian clusters data "
             WRITE(*,*) "   -ghb 1,2,...          : Indices of the gaussian(s) that describe the HB [default:1]"
-            WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
+            WRITE(*,*) "   -a smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
+            WRITE(*,*) "   -z zeta_factor : Probabilities below this threshold are counted as 'no cluster' [default:0]"
             WRITE(*,*) "   -sad                 : Computes and print HB statistics for each donor/acceptor  "
             WRITE(*,*) "                          pair. Will generate a HUGE output file! "
             WRITE(*,*) ""
