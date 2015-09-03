@@ -371,11 +371,11 @@
       ! Vi = 1/[pi*(1+kderr^2 normwj)] so 
       ! sigma2 = 1/(2pi) 1/rad[D/2](pi*(1+kderr^2 normwj))
       DO j=1,ngrid
-         write(*,*) "Update grid point ", j, sigma2(j)
+         IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
          sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
          ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-         if (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
-         write(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j)         
+         IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
+         IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j)         
       ENDDO
       ikde = ikde+1
       if (ikde<5) GOTO 100 ! seems one could actually iterate to self-consistency....
@@ -842,6 +842,37 @@
                     
       END FUNCTION fkernel
 
+      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,probnmm,vp,vgrid)
+            ! Calculate the (normalized) gaussian kernel
+            ! in an arbitrary point
+            !
+            ! Args:
+            !    ngrid: number of grid point
+            !    D: dimensionality
+            !    period: periodicity
+            !    sig2: sig**2
+            !    probnmm: probability of the grid points
+            !    vp: point's vector
+            !    vgrid: grid points
+
+            INTEGER, INTENT(IN) :: D
+            INTEGER, INTENT(IN) :: ngrid
+            DOUBLE PRECISION, INTENT(IN) :: period(D)
+            DOUBLE PRECISION, INTENT(IN) :: sig2
+            DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+            DOUBLE PRECISION, INTENT(IN) :: vp(D)
+            DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
+            
+            INTEGER j
+            DOUBLE PRECISION res 
+            
+            res=0.0d0        
+            DO j=1,ngrid
+               res=res+(probnmm(j)/( (twopi*sig2)**(dble(D)/2) ))* &
+                    dexp(-pammr2(D,period,vgrid(:,j),vp)*0.5/sig2)  
+            ENDDO
+            genkernel=res/ngrid        
+      END FUNCTION genkernel
 
       SUBROUTINE sortclusters(nk,clusters,prif)
          ! Sort the gaussians from the closest to prif
