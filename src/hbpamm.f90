@@ -54,7 +54,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:)   :: sa, sd, sh
       ! point in the high-dimensional description
       DOUBLE PRECISION, DIMENSION(3) :: x  ! [nu,mu,r]
-      DOUBLE PRECISION rah,rdh,wfactor     ! distances and weight 
+      DOUBLE PRECISION rah,rdh,wfactor  ! distances and weight 
       INTEGER ia,id,ih ! simples indexes
       ! for a faster reading
       ! counters
@@ -454,8 +454,8 @@
             WRITE(*,*) " in the XYZ input. "
             WRITE(*,*) ""
             WRITE(*,*) " Mixture model analysis options: "
-            WRITE(*,*) "   -gf Gaussians_file   : Activates the analysis and specifies the file "
-            WRITE(*,*) "                          containing Gaussian clusters data "
+            WRITE(*,*) "   -gf Gaussians_file    : Activates the analysis and specifies the file "
+            WRITE(*,*) "                           containing Gaussian clusters data "
             WRITE(*,*) "   -ghb 1,2,...          : Indices of the gaussian(s) that describe the HB [default:1]"
             WRITE(*,*) "   -a smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
             WRITE(*,*) "   -z zeta_factor : Probabilities below this threshold are counted as 'no cluster' [default:0]"
