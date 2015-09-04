@@ -63,7 +63,6 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: x , y
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, qspath
-
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
       INTEGER ccmd                                ! Index used to control the input parameters
@@ -371,11 +370,11 @@
       ! Vi = 1/[pi*(1+kderr^2 normwj)] so 
       ! sigma2 = 1/(2pi) 1/rad[D/2](pi*(1+kderr^2 normwj))
       DO j=1,ngrid
-         IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
+         !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
          sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
          ! kernel density estimation cannot become smaller than the distance with the nearest grid point
          IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
-         IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j)         
+         !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j)         
       ENDDO
       ikde = ikde+1
       if (ikde<5) GOTO 100 ! seems one could actually iterate to self-consistency....
@@ -394,7 +393,7 @@
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
                qs_next(D,period,ngrid,qspath(counter),rgrid(qspath(counter)), & 
-               probnmm,distmm,y,sigma2(qspath(counter)))
+               probnmm,distmm,y,sigma2(qspath(counter)),kderr)
               !qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -526,12 +525,12 @@
       ENDDO
 
       IF(periodic)THEN
-         ! write gaussians
+         ! write the VM distributions
          ! write a 2-lines header containig a bit of information
          WRITE(comment,*) "# PAMM(PERIODIC) clusters analysis. NSamples: ", nsamples, " NGrid: ", &
                    ngrid, " QSLambda: ", lambda, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance "
 
-         OPEN(UNIT=12,FILE=trim(outputfile)//".pammp",STATUS='REPLACE',ACTION='WRITE')
+         OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
          ! also here we should sort in some way the clusters
          CALL writevmclusters(12, comment, nk, vmclusters)
          CLOSE(UNIT=12)
@@ -793,7 +792,7 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda,probnmm,distmm,y,sig2)
+      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda,probnmm,distmm,y,sig2,kderr)
          ! Return the index of the closest point higher in P
          !
          ! Args:
@@ -806,13 +805,13 @@
          INTEGER, INTENT(IN) :: D,ngrid
          DOUBLE PRECISION, DIMENSION(D) :: period
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda,sig2
+         DOUBLE PRECISION, INTENT(IN) :: lambda,sig2,kderr
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y ! grid points
 
          INTEGER i,j,np
-         DOUBLE PRECISION dmin,fkde
+         DOUBLE PRECISION dmin,fkde,fkder
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: nppoints
          
          LOGICAL testlower
@@ -826,10 +825,10 @@
                                                  ! dmin=distmm(idx,j)
                   
                   !! This is a really rough trial...
-                  IF(distmm(idx,j)<lambda*2.0d0)THEN
-                     np=15
+                  IF(distmm(idx,j)<lambda*2.5d0)THEN
+                     np=10
                   ELSE
-                     np=30
+                     np=20
                   ENDIF
                   ALLOCATE(nppoints(D,np))
                   ! extract NP points between the extremes
@@ -837,12 +836,19 @@
                   
                   testlower=.FALSE.
                   ! test if there is a valley
+                  ! I have some problem with the normalization when computing the kernel
+                  ! so for now I recompute the value of the prob in idx
+                  fkder=genkernel(ngrid,D,period,sig2,probnmm,y(:,idx),y)
                   DO i=1,np
-                     fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,j),y)
-                     IF(fkde<probnmm(idx)) testlower=.TRUE. ! maybe it is a valley
+                     fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,i),y)
+                     IF(fkde<(fkder*(1-kderr))) testlower=.TRUE. ! maybe it is a valley
                   ENDDO
                   
-                  IF(.NOT.(testlower)) qs_next=j
+                  IF(.NOT. testlower) THEN 
+                     qs_next=j
+                     dmin=distmm(idx,j)
+                  ENDIF
+                  
                   DEALLOCATE(nppoints)
                ENDIF
             ENDIF
@@ -863,7 +869,7 @@
             DOUBLE PRECISION, INTENT(IN) :: vc(D)
             DOUBLE PRECISION, INTENT(IN) :: vp(D)
 
-                                       ! put here ** -D/2
+
             fkernel=(1/( (twopi*sig2)**(dble(D)/2) ))* &
                     dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
                     
@@ -891,14 +897,16 @@
             DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
             
             INTEGER j
-            DOUBLE PRECISION res 
+            DOUBLE PRECISION res!,norm
             
-            res=0.0d0        
+            res=0.0d0
+            !norm=0.0d0    
             DO j=1,ngrid
                res=res+(probnmm(j)/( (twopi*sig2)**(dble(D)/2) ))* &
-                    dexp(-pammr2(D,period,vgrid(:,j),vp)*0.5/sig2)  
+                   dexp(-0.5d0*pammr2(D,period,vgrid(:,j),vp)/sig2)
+               !norm=norm+probnmm(j)
             ENDDO
-            genkernel=res/ngrid        
+            genkernel=res/ngrid 
       END FUNCTION genkernel
       
       SUBROUTINE getNpoint(D,period,np,r1,r2,listpoints)
