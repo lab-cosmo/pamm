@@ -382,7 +382,7 @@
 
       ! CLUSTERING, local maxima search
       IF(verbose) write(*,*) "Running quick shift"
-      IF(verbose) write(*,*) "Lambda: ", lambda
+!!!!!!      IF(verbose) write(*,*) "Lambda: ", lambda
 
       idxroot=0
       ! Start quick shift
@@ -393,7 +393,9 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-               qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
+               qs_next(D,period,ngrid,qspath(counter),rgrid(qspath(counter)), & 
+               probnmm,distmm,y,sigma2(qspath(counter)))
+              !qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -791,7 +793,7 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      INTEGER FUNCTION qs_next(ngrid,idx,lambda,probnmm,distmm)
+      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda,probnmm,distmm,y,sig2)
          ! Return the index of the closest point higher in P
          !
          ! Args:
@@ -801,22 +803,47 @@
          !    probnmm: density estimations
          !    distmm: distances matrix
 
-         INTEGER, INTENT(IN) :: ngrid
+         INTEGER, INTENT(IN) :: D,ngrid
+         DOUBLE PRECISION, DIMENSION(D) :: period
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda
+         DOUBLE PRECISION, INTENT(IN) :: lambda,sig2
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
+         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y ! grid points
 
-         INTEGER j
-         DOUBLE PRECISION dmin
+         INTEGER i,j,np
+         DOUBLE PRECISION dmin,fkde
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: nppoints
+         
+         LOGICAL testlower
 
          dmin=1.0d10
          qs_next=idx
+         
          DO j=1,ngrid
             IF(probnmm(j)>probnmm(idx))THEN
-               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda))THEN
-                  dmin=distmm(idx,j)
-                  qs_next=j
+               IF(distmm(idx,j).LT.dmin) THEN ! IF ((distmm(idx,j).LT.dmin).AND. (distmm(idx,j).LT.lambda))THEN
+                                                 ! dmin=distmm(idx,j)
+                  
+                  !! This is a really rough trial...
+                  IF(distmm(idx,j)<lambda*2.0d0)THEN
+                     np=15
+                  ELSE
+                     np=30
+                  ENDIF
+                  ALLOCATE(nppoints(D,np))
+                  ! extract NP points between the extremes
+                  CALL getNpoint(D,period,np,y(:,idx),y(:,j),nppoints)
+                  
+                  testlower=.FALSE.
+                  ! test if there is a valley
+                  DO i=1,np
+                     fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,j),y)
+                     IF(fkde<probnmm(idx)) testlower=.TRUE. ! maybe it is a valley
+                  ENDDO
+                  
+                  IF(.NOT.(testlower)) qs_next=j
+                  DEALLOCATE(nppoints)
                ENDIF
             ENDIF
          ENDDO
@@ -873,6 +900,34 @@
             ENDDO
             genkernel=res/ngrid        
       END FUNCTION genkernel
+      
+      SUBROUTINE getNpoint(D,period,np,r1,r2,listpoints)
+         ! Get np points in a segment given the extremes
+         !
+         ! Args:
+         !    D          : Dimensionality of a point
+         !    period     : periodicity in each dimension
+         !    np         : number of points to be generated
+         !    r1         : first extreme
+         !    r2         : second extreme
+         !    listpoints : array of np points
+         
+         INTEGER, INTENT(IN) :: D,np
+         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: r1,r2,period
+         DOUBLE PRECISION, DIMENSION(D,np), INTENT(OUT) :: listpoints
+
+         DOUBLE PRECISION v12(D)
+         INTEGER i
+
+         v12=0.0d0
+         CALL pammrij(D,period,r2,r1,v12)
+         v12=v12/(np+1)
+         
+         listpoints=0.0d0
+         DO i=1,np
+            listpoints(:,i)= r1 + float(i)*v12
+         ENDDO
+      END SUBROUTINE getNpoint
 
       SUBROUTINE sortclusters(nk,clusters,prif)
          ! Sort the gaussians from the closest to prif
