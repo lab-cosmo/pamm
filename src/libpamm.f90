@@ -316,7 +316,7 @@
       END SUBROUTINE readclusters
       
       SUBROUTINE readvmclusters(fileid,Nk,clusters)
-         ! Load the gaussian clusters from the stream fileid
+         ! Load the VM distributions from the stream fileid
          !
          ! Args:
          !    fileid: the file containing the gaussians parameters
@@ -330,7 +330,7 @@
          CHARACTER(LEN=1024) :: dummybuffer         
          INTEGER k,D
 
-         ! skip the first two comment lines , for now...         
+         ! skip the first two comment lines        
          READ(fileid,'(A)') dummybuffer
          DO WHILE ( dummybuffer(1:1) == '#' ) 
             READ(fileid,'(A)') dummybuffer
@@ -348,7 +348,9 @@
            ! read first the mean
            READ(fileid,*) clusters(k)%weight, clusters(k)%mean, &
                           clusters(k)%cov, clusters(k)%period
-           ! call the routine to prepare the gaussians
+                          ! this probably should be changed
+                          ! by reading the period from the header
+           ! call the routine to prepare the VM distribution
            CALL vm_prepare(clusters(k))
          ENDDO
 

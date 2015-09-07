@@ -379,7 +379,7 @@
       ikde = ikde+1
       if (ikde<5) GOTO 100 ! seems one could actually iterate to self-consistency....
 
-      ! CLUSTERING, local maxima search
+      ! CLUSTERING, single out the local maxima 
       IF(verbose) write(*,*) "Running quick shift"
 !!!!!!      IF(verbose) write(*,*) "Lambda: ", lambda
 
@@ -394,7 +394,6 @@
             idxroot(qspath(counter))= &
                qs_next(D,period,ngrid,qspath(counter),rgrid(qspath(counter)), & 
                probnmm,distmm,y,sigma2(qspath(counter)),kderr)
-              !qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -793,14 +792,21 @@
       END SUBROUTINE getnlist
 
       INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda,probnmm,distmm,y,sig2,kderr)
-         ! Return the index of the closest point higher in P
+         ! Return the index of the closest point higher in P there are no minima in
+         ! between
          !
          ! Args:
-         !    ngrid: number of grid points
-         !    idx: current point
-         !    lambda: cut-off in the jump
-         !    probnmm: density estimations
-         !    distmm: distances matrix
+         !    D      :    dimensionality
+         !    period :    periodicity
+         !    ngrid  :    number of grid points
+         !    idx    :    current point
+         !    lambda :    estimate of the NN ditance
+         !    probnmm:    prob density estimations
+         !    distmm :    distances matrix
+         !    y      :    grid points
+         !    sig2   :    variance to be used in the KDE when doing the minima search
+         !    kderr  :    relative error to get rid of the noise in accepting/rejecting
+         !                a minimum
 
          INTEGER, INTENT(IN) :: D,ngrid
          DOUBLE PRECISION, DIMENSION(D) :: period
@@ -821,10 +827,9 @@
          
          DO j=1,ngrid
             IF(probnmm(j)>probnmm(idx))THEN
-               IF(distmm(idx,j).LT.dmin) THEN ! IF ((distmm(idx,j).LT.dmin).AND. (distmm(idx,j).LT.lambda))THEN
-                                                 ! dmin=distmm(idx,j)
-                  
+               IF(distmm(idx,j).LT.dmin) THEN
                   !! This is a really rough trial...
+                  ! NEW with floor and proportions
                   IF(distmm(idx,j)<lambda*2.5d0)THEN
                      np=10
                   ELSE
@@ -838,10 +843,16 @@
                   ! test if there is a valley
                   ! I have some problem with the normalization when computing the kernel
                   ! so for now I recompute the value of the prob in idx
-                  fkder=genkernel(ngrid,D,period,sig2,probnmm,y(:,idx),y)
+                  fkder=genkernel(ngrid,D,period,sig2,y(:,idx),y, & 
+                                  nsamples,x,wj,pnlist,nlist,normwj)
+                  
                   DO i=1,np
-                     fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,i),y)
-                     IF(fkde<(fkder*(1-kderr))) testlower=.TRUE. ! maybe it is a valley
+                     fkde=genkernel(ngrid,D,period,sig2,nppoints(:,i),y, & 
+                                    nsamples,x,wj,pnlist,nlist,normwj)
+                     IF(fkde<(fkder*(1-kderr))) THEN
+                        testlower=.TRUE. ! maybe it is a valley
+                        EXIT
+                     ENDIF
                   ENDDO
                   
                   IF(.NOT. testlower) THEN 
@@ -871,11 +882,12 @@
 
 
             fkernel=(1/( (twopi*sig2)**(dble(D)/2) ))* &
-                    dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
+                    dexp(-pammr2(D,period,vc,vp)*0.5d0/sig2)
                     
       END FUNCTION fkernel
 
-      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,probnmm,vp,vgrid)
+      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,vp,vgrid, & 
+                                          nsamples,x,wj,pnlist,nlist,normwj)
             ! Calculate the (normalized) gaussian kernel
             ! in an arbitrary point
             !
@@ -888,25 +900,40 @@
             !    vp: point's vector
             !    vgrid: grid points
 
-            INTEGER, INTENT(IN) :: D
-            INTEGER, INTENT(IN) :: ngrid
+            INTEGER, INTENT(IN) :: D,nsamples,ngrid
             DOUBLE PRECISION, INTENT(IN) :: period(D)
-            DOUBLE PRECISION, INTENT(IN) :: sig2
-            DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+            DOUBLE PRECISION, INTENT(IN) :: sig2,normwj
+            !DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
             DOUBLE PRECISION, INTENT(IN) :: vp(D)
             DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
+            DOUBLE PRECISION, INTENT(IN) :: x(D,nsamples)
+            DOUBLE PRECISION, INTENT(IN) :: wj(nsamples)
+            INTEGER, DIMENSION(ngrid+1), INTENT(OUT) :: pnlist
+            INTEGER, DIMENSION(nsamples), INTENT(OUT) :: nlist
             
-            INTEGER j
-            DOUBLE PRECISION res!,norm
+            INTEGER j,k
+            !DOUBLE PRECISION res!,norm
+            !
+            !res=0.0d0
+            !!norm=0.0d0    
+            !DO j=1,ngrid
+            !   res=res+(probnmm(j)/( (twopi*sig2)**(dble(D)/2) ))* &
+            !       dexp(-0.5d0*pammr2(D,period,vgrid(:,j),vp)/sig2)
+            !   !norm=norm+probnmm(j)
+            !ENDDO            
+            !genkernel=res/ngrid 
             
-            res=0.0d0
-            !norm=0.0d0    
-            DO j=1,ngrid
-               res=res+(probnmm(j)/( (twopi*sig2)**(dble(D)/2) ))* &
-                   dexp(-0.5d0*pammr2(D,period,vgrid(:,j),vp)/sig2)
-               !norm=norm+probnmm(j)
+            genkernel=0.0d0
+            DO j=1,ngrid    
+               ! do not compute KDEs for points that belong to far away Voronoj
+               IF (pammr2(D,period,vgrid(:,j),vp)/sig2>36.0d0) CYCLE
+               ! cycle just inside the polyhedra using the neighbour list trick
+               DO k=pnlist(j)+1,pnlist(j+1)
+                  genkernel = genkernel+ wj(nlist(k))* &
+                              fkernel(D,period,sig2,vp,x(:,nlist(k)))
+               ENDDO
             ENDDO
-            genkernel=res/ngrid 
+            genkernel=genkernel/normwj
       END FUNCTION genkernel
       
       SUBROUTINE getNpoint(D,period,np,r1,r2,listpoints)
