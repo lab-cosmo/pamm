@@ -601,9 +601,8 @@
          DOUBLE PRECISION, DIMENSION(D) :: rij
          
          rij = (ri-rj)
-         
          DO k = 1, D
-            IF (period(k)==0.0d0) CONTINUE
+            IF (period(k)==0.0d0) CYCLE    
             ! scaled lenght
             rij(k) = rij(k)/period(k)
             ! Finds the smallest separation between the images of the atom i and j
@@ -611,8 +610,7 @@
             ! Rescale back the lenght
             rij(k) = rij(k)*period(k)
          ENDDO
-         pammr2 = dot_product(rij, rij)
-         
+         pammr2 = dot_product(rij, rij)       
       END FUNCTION pammr2
       
       SUBROUTINE pammrij(D,period,ri,rj,rij)
@@ -627,7 +625,7 @@
          rij = (ri-rj)
          
          DO k = 1, D
-            IF (period(k)==0.0d0) CONTINUE
+            IF (period(k)==0.0d0) CYCLE
             ! scaled lenght
             rij(k) = rij(k)/period(k)
             ! Finds the smallest separation between the images of the atom i and j

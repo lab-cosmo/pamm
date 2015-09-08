@@ -284,7 +284,7 @@
       ! CLUSTERING MODE
       ! get the data from standard input
       CALL readinput(D, weighted, nsamples, x, normwj, wj)
-
+           
       ! If not specified, the number voronoi polyhedras
       ! are set to the square of the total number of points
       IF (ngrid.EQ.-1) ngrid=int(sqrt(float(nsamples)))
@@ -730,6 +730,7 @@
                ENDIF
             ENDDO
             y(:,i) = x(:, jmax)
+
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
          ENDDO
@@ -838,14 +839,13 @@
                   ALLOCATE(nppoints(D,np))
                   ! extract NP points between the extremes
                   CALL getNpoint(D,period,np,y(:,idx),y(:,j),nppoints)
-                  
+                                 
                   testlower=.FALSE.
                   ! test if there is a valley
                   ! I have some problem with the normalization when computing the kernel
                   ! so for now I recompute the value of the prob in idx
                   fkder=genkernel(ngrid,D,period,sig2,y(:,idx),y, & 
-                                  nsamples,x,wj,pnlist,nlist,normwj)
-                  
+                                  nsamples,x,wj,pnlist,nlist,normwj)             
                   DO i=1,np
                      fkde=genkernel(ngrid,D,period,sig2,nppoints(:,i),y, & 
                                     nsamples,x,wj,pnlist,nlist,normwj)
