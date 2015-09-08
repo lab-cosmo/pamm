@@ -394,6 +394,8 @@
             idxroot(qspath(counter))= &
                qs_next(D,period,ngrid,qspath(counter),rgrid(qspath(counter)), & 
                probnmm,distmm,y,sigma2(qspath(counter)),kderr)
+            !idxroot(qspath(counter))= &
+            !   qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)    
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -849,7 +851,7 @@
                   DO i=1,np
                      fkde=genkernel(ngrid,D,period,sig2,nppoints(:,i),y, & 
                                     nsamples,x,wj,pnlist,nlist,normwj)
-                     IF(fkde<(fkder*(1-kderr))) THEN
+                     IF(fkde<(fkder*(1-kderr*2.0d0))) THEN
                         testlower=.TRUE. ! maybe it is a valley
                         EXIT
                      ENDIF
@@ -866,6 +868,37 @@
          ENDDO
       END FUNCTION qs_next
 
+!      INTEGER FUNCTION qs_next(ngrid,idx,lambda,probnmm,distmm)
+!         ! Return the index of the closest point higher in P
+!         !
+!         ! Args:
+!         !    ngrid: number of grid points
+!         !    idx: current point
+!         !    lambda: cut-off in the jump
+!         !    probnmm: density estimations
+!         !    distmm: distances matrix
+!
+!         INTEGER, INTENT(IN) :: ngrid
+!         INTEGER, INTENT(IN) :: idx
+!         DOUBLE PRECISION, INTENT(IN) :: lambda
+!         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+!         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
+!
+!         INTEGER j
+!         DOUBLE PRECISION dmin
+!
+!         dmin=1.0d10
+!         qs_next=idx
+!         DO j=1,ngrid
+!            IF(probnmm(j)>probnmm(idx))THEN
+!               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda))THEN
+!                  dmin=distmm(idx,j)
+!                  qs_next=j
+!               ENDIF
+!            ENDIF
+!         ENDDO
+!      END FUNCTION qs_next
+      
       DOUBLE PRECISION FUNCTION fkernel(D,period,sig2,vc,vp)
             ! Calculate the (normalized) gaussian kernel
             !
@@ -935,6 +968,38 @@
             ENDDO
             genkernel=genkernel/normwj
       END FUNCTION genkernel
+      
+      DOUBLE PRECISION FUNCTION gk(ngrid,D,period,sig2,vp,vgrid,probnmm,normwj)
+            ! Calculate the (normalized) gaussian kernel
+            ! in an arbitrary point
+            !
+            ! Args:
+            !    ngrid: number of grid point
+            !    D: dimensionality
+            !    period: periodicity
+            !    sig2: sig**2
+            !    probnmm: probability of the grid points
+            !    vp: point's vector
+            !    vgrid: grid points
+
+            INTEGER, INTENT(IN) :: D,ngrid
+            DOUBLE PRECISION, INTENT(IN) :: period(D)
+            DOUBLE PRECISION, INTENT(IN) :: sig2,normwj
+            DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+            DOUBLE PRECISION, INTENT(IN) :: vp(D)
+            DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
+            
+            INTEGER j
+            DOUBLE PRECISION res
+            
+            res=0.0d0
+            DO j=1,ngrid
+               res=res+(probnmm(j)*normwj/( (twopi*sig2)**(dble(D)/2) ))* &
+                   dexp(-0.5d0*pammr2(D,period,vgrid(:,j),vp)/sig2)
+            ENDDO            
+            gk=res/normwj 
+
+      END FUNCTION gk
       
       SUBROUTINE getNpoint(D,period,np,r1,r2,listpoints)
          ! Get np points in a segment given the extremes
