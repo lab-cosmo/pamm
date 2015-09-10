@@ -846,11 +846,14 @@
                   ! test if there is a valley
                   ! I have some problem with the normalization when computing the kernel
                   ! so for now I recompute the value of the prob in idx
-                  fkder=genkernel(ngrid,D,period,sig2,y(:,idx),y, & 
-                                  nsamples,x,wj,pnlist,nlist,normwj)             
+                  !!fkder=genkernel(ngrid,D,period,sig2,y(:,idx),y, & 
+                  !!                nsamples,x,wj,pnlist,nlist,normwj)             
+                  !!DO i=1,np
+                  !!   fkde=genkernel(ngrid,D,period,sig2,nppoints(:,i),y, & 
+                  !!                  nsamples,x,wj,pnlist,nlist,normwj)
+                  fkder=genkernel(ngrid,D,period,sig2,probnmm,y(:,idx),y)       
                   DO i=1,np
-                     fkde=genkernel(ngrid,D,period,sig2,nppoints(:,i),y, & 
-                                    nsamples,x,wj,pnlist,nlist,normwj)
+                     fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,i),y)
                      IF(fkde<(fkder*(1-kderr*2.0d0))) THEN
                         testlower=.TRUE. ! maybe it is a valley
                         EXIT
@@ -919,57 +922,47 @@
                     
       END FUNCTION fkernel
 
-      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,vp,vgrid, & 
-                                          nsamples,x,wj,pnlist,nlist,normwj)
-            ! Calculate the (normalized) gaussian kernel
-            ! in an arbitrary point
-            !
-            ! Args:
-            !    ngrid: number of grid point
-            !    D: dimensionality
-            !    period: periodicity
-            !    sig2: sig**2
-            !    probnmm: probability of the grid points
-            !    vp: point's vector
-            !    vgrid: grid points
+!      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,vp,vgrid, & 
+!                                          nsamples,x,wj,pnlist,nlist,normwj)
+!            ! Calculate the (normalized) gaussian kernel
+!            ! in an arbitrary point
+!            !
+!            ! Args:
+!            !    ngrid: number of grid point
+!            !    D: dimensionality
+!            !    period: periodicity
+!            !    sig2: sig**2
+!            !    probnmm: probability of the grid points
+!            !    vp: point's vector
+!            !    vgrid: grid points
+!
+!            INTEGER, INTENT(IN) :: D,nsamples,ngrid
+!            DOUBLE PRECISION, INTENT(IN) :: period(D)
+!            DOUBLE PRECISION, INTENT(IN) :: sig2,normwj
+!            !DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+!            DOUBLE PRECISION, INTENT(IN) :: vp(D)
+!            DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
+!            DOUBLE PRECISION, INTENT(IN) :: x(D,nsamples)
+!            DOUBLE PRECISION, INTENT(IN) :: wj(nsamples)
+!            INTEGER, DIMENSION(ngrid+1), INTENT(OUT) :: pnlist
+!            INTEGER, DIMENSION(nsamples), INTENT(OUT) :: nlist
+!            
+!            INTEGER j,k
+!                        
+!            genkernel=0.0d0
+!            DO j=1,ngrid    
+!               ! do not compute KDEs for points that belong to far away Voronoj
+!               IF (pammr2(D,period,vgrid(:,j),vp)/sig2>36.0d0) CYCLE
+!               ! cycle just inside the polyhedra using the neighbour list trick
+!               DO k=pnlist(j)+1,pnlist(j+1)
+!                  genkernel = genkernel+ wj(nlist(k))* &
+!                              fkernel(D,period,sig2,vp,x(:,nlist(k)))
+!               ENDDO
+!            ENDDO
+!            genkernel=genkernel/normwj
+!      END FUNCTION genkernel
 
-            INTEGER, INTENT(IN) :: D,nsamples,ngrid
-            DOUBLE PRECISION, INTENT(IN) :: period(D)
-            DOUBLE PRECISION, INTENT(IN) :: sig2,normwj
-            !DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
-            DOUBLE PRECISION, INTENT(IN) :: vp(D)
-            DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
-            DOUBLE PRECISION, INTENT(IN) :: x(D,nsamples)
-            DOUBLE PRECISION, INTENT(IN) :: wj(nsamples)
-            INTEGER, DIMENSION(ngrid+1), INTENT(OUT) :: pnlist
-            INTEGER, DIMENSION(nsamples), INTENT(OUT) :: nlist
-            
-            INTEGER j,k
-            !DOUBLE PRECISION res!,norm
-            !
-            !res=0.0d0
-            !!norm=0.0d0    
-            !DO j=1,ngrid
-            !   res=res+(probnmm(j)/( (twopi*sig2)**(dble(D)/2) ))* &
-            !       dexp(-0.5d0*pammr2(D,period,vgrid(:,j),vp)/sig2)
-            !   !norm=norm+probnmm(j)
-            !ENDDO            
-            !genkernel=res/ngrid 
-            
-            genkernel=0.0d0
-            DO j=1,ngrid    
-               ! do not compute KDEs for points that belong to far away Voronoj
-               IF (pammr2(D,period,vgrid(:,j),vp)/sig2>36.0d0) CYCLE
-               ! cycle just inside the polyhedra using the neighbour list trick
-               DO k=pnlist(j)+1,pnlist(j+1)
-                  genkernel = genkernel+ wj(nlist(k))* &
-                              fkernel(D,period,sig2,vp,x(:,nlist(k)))
-               ENDDO
-            ENDDO
-            genkernel=genkernel/normwj
-      END FUNCTION genkernel
-      
-      DOUBLE PRECISION FUNCTION gk(ngrid,D,period,sig2,vp,vgrid,probnmm,normwj)
+      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,probnmm,vp,vgrid)
             ! Calculate the (normalized) gaussian kernel
             ! in an arbitrary point
             !
@@ -984,22 +977,19 @@
 
             INTEGER, INTENT(IN) :: D,ngrid
             DOUBLE PRECISION, INTENT(IN) :: period(D)
-            DOUBLE PRECISION, INTENT(IN) :: sig2,normwj
+            DOUBLE PRECISION, INTENT(IN) :: sig2
             DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
             DOUBLE PRECISION, INTENT(IN) :: vp(D)
             DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
             
             INTEGER j
-            DOUBLE PRECISION res
-            
-            res=0.0d0
-            DO j=1,ngrid
-               res=res+(probnmm(j)*normwj/( (twopi*sig2)**(dble(D)/2) ))* &
-                   dexp(-0.5d0*pammr2(D,period,vgrid(:,j),vp)/sig2)
-            ENDDO            
-            gk=res/normwj 
 
-      END FUNCTION gk
+            genkernel=0.0d0
+            DO j=1,ngrid    
+               genkernel = genkernel+probnmm(j)*fkernel(D,period,sig2,vp,vgrid(:,j))
+            ENDDO
+            genkernel=genkernel/ngrid
+      END FUNCTION genkernel
       
       SUBROUTINE getNpoint(D,period,np,r1,r2,listpoints)
          ! Get np points in a segment given the extremes
