@@ -30,7 +30,10 @@
 
       PROGRAM pamm
       USE libpamm
+      
       IMPLICIT NONE
+      
+      DOUBLE PRECISION,PARAMETER :: INF=2**30d0
 
       CHARACTER(LEN=1024) :: outputfile, clusterfile          ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: xref(:)                ! Reference point needed to find out the important cluster
@@ -49,6 +52,8 @@
                                                      msmu, tmpmsmu, pcluster, px
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: newneighl,pnewnlist ! neigh list used to build the graph of the neighbours in the grid
+
       INTEGER seed                                            ! seed for the random number generator
 
       ! variable to set the covariance matrix
@@ -73,7 +78,8 @@
       DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1,dummd2
 
       INTEGER i,j,k,ikde,counter,dummyi1,endf ! Counters and dummy variable
-
+      
+      
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile="out"
       clusterfile="NULL"
@@ -293,6 +299,9 @@
       ! points and the dimensionality
       ALLOCATE(iminij(nsamples))
       ALLOCATE(pnlist(ngrid+1),nlist(nsamples))
+      ALLOCATE(pnewnlist(ngrid+1),newneighl(ngrid*3000)) ! ngrid*3000 is an arbitrary choice
+                                                         ! ... if all the points have more than 3000 neighbours
+                                                         ! we will be in a trouble!
       ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid),sigma2(ngrid),rgrid(ngrid))
       ALLOCATE(idxroot(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
       ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
@@ -340,11 +349,35 @@
 100   IF(verbose) write(*,*) &
             "Computing kernel density on reference points."
 
-      ! computes the KDE on the Voronoi centers using the neighbour list
-      probnmm = 0.0d0
+      ! 1. computes the KDE on the Voronoi centers using the neighbour list
+      probnmm=0.0d0
+      
+      ! 2. here it also builds the neighbourd GRAPH : a node is connected to all its neighbours
+      newneighl=0 ! initialize to zero the neighbour list
+      pnewnlist(1)=0
       DO i=1,ngrid
+         ! a neighbour list works as follows:
+         ! pn(i) = pointer to the vector NL. 
+         ! The indices of neighbours of  i  range from  pn(i)+1  to  pn(i+1)
+         
+         ! initialization
+         ! the previous index contains the NL index of last neighbour of the previous particle
+         ! we use that as starting point
+         pnewnlist(i+1)=pnewnlist(i)+1
+         newneighl(pnewnlist(i+1))=i ! just an initializition, then we will change it
          DO j=1,ngrid
-
+            !! the radius in which to look for neighbour is hard coded for now
+            IF (distmm(i,j)<2.0d0*rgrid(i)) THEN
+               IF (i.NE.j) THEN
+                  IF (newneighl(pnewnlist(i+1)).NE.i) &
+                     ! The first time that a neighbour has been found
+                     ! we don't move the pointer, we just modify the neighbour list
+                     pnewnlist(i+1)=pnewnlist(i+1)+1
+                  newneighl(pnewnlist(i+1))=j
+               ENDIF
+            ENDIF
+            
+            
             ! do not compute KDEs for points that belong to far away Voronoj
             IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
 
@@ -353,6 +386,8 @@
                probnmm(i)=probnmm(i)+ wj(nlist(k))* &
                           fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
             ENDDO
+            
+            
          ENDDO
          probnmm(i)=probnmm(i)/normwj
       ENDDO
@@ -379,12 +414,11 @@
       ikde = ikde+1
       if (ikde<5) GOTO 100 ! seems one could actually iterate to self-consistency....
 
-      ! CLUSTERING, single out the local maxima 
+      ! Were the KDE is done and we also the graph of the neighbours
+      ! We can start the clustering (quick shift), to single out the local maxima 
       IF(verbose) write(*,*) "Running quick shift"
-!!!!!!      IF(verbose) write(*,*) "Lambda: ", lambda
 
       idxroot=0
-      ! Start quick shift
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
          qspath=0
@@ -392,10 +426,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-               qs_next(D,period,ngrid,qspath(counter),rgrid(qspath(counter)), & 
-               probnmm,distmm,y,sigma2(qspath(counter)),kderr)
-            !idxroot(qspath(counter))= &
-            !   qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)    
+               qs_next(ngrid,qspath(counter),probnmm,distmm,pnewnlist,newneighl,kderr)  
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -559,6 +590,7 @@
       DEALLOCATE(pnlist,nlist,iminij)
       DEALLOCATE(y,npvoronoi,probnmm,sigma2,rgrid)
       DEALLOCATE(diff,msmu,tmpmsmu)
+      DEALLOCATE(pnewnlist,newneighl)
 
       CALL EXIT(0)
       ! end of the main programs
@@ -753,6 +785,97 @@
          ENDDO
       END SUBROUTINE mkgrid
 
+      SUBROUTINE dijkstra(ngrid,pnlist,nlist,distmm,source,ending,geopath)
+         ! Get the geodesic path between source and ending
+         !
+         
+         INTEGER, INTENT(IN) :: ngrid,source,ending
+         INTEGER, DIMENSION(ngrid+1), INTENT(IN) :: pnlist
+         INTEGER, DIMENSION(ngrid*3000), INTENT(IN) :: nlist
+         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
+         INTEGER, DIMENSION(ngrid+1), INTENT(OUT) :: geopath
+
+         INTEGER i,u,chksize
+        
+         INTEGER, DIMENSION(ngrid) :: prev,checklist
+         DOUBLE PRECISION, DIMENSION(ngrid) :: dist
+         DOUBLE PRECISION altdist
+         ! initialization
+         DO i=1,ngrid
+            dist(i)=INF ! Distance from source to source
+            prev(i)=-1      ! Previous node in optimal path initialization
+         ENDDO
+         
+         dist(source)=0.0d0
+         
+         checklist=0 ! set of visited nodes.
+         chksize=0 ! number of visited nodes.
+         u=0
+         DO WHILE(u.NE.ending) 
+            u=getmindist(dist,checklist) ! the first one will be source
+            ! add u to checklist of visited nodes
+            ! if u==ending, we are done here
+            IF(u.EQ.ending) EXIT
+            chksize=chksize+1
+            checklist(chksize)=u
+            ! cycle inside the neighbourhood of u
+            DO i=pnlist(u)+1,pnlist(u+1)
+               ! here we relax the distances
+               altdist=dist(u)+distmm(u,nlist(i))
+               IF(altdist<dist(nlist(i)))THEN
+                  dist(nlist(i))=altdist
+                  prev(nlist(i))=u
+               ENDIF
+            ENDDO
+         ENDDO
+         
+         ! return the geodesic path from source to ending
+         ! source and ending won't be present in geopath
+         geopath=0
+         i=1
+         u=ending
+         DO WHILE(u.NE.source)
+            i=i+1
+            geopath(i)=prev(u)
+            u=prev(u)
+         ENDDO
+         geopath(1)=i ! the first position of geopath is a pointer to the end of the vector
+      END SUBROUTINE dijkstra 
+      
+      INTEGER FUNCTION getmindist(dist,checklist)
+         ! Get the index corresponding to the minumum value
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: dist
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: checklist
+         INTEGER i
+         DOUBLE PRECISION tmpdist
+         
+         tmpdist=INF
+         getmindist=0
+         ! initialization
+         DO i=1,ngrid
+            IF(dist(i)<tmpdist .AND. (.NOT. isinthere(ngrid,checklist,i)))THEN
+               ! we also check we did not visited yet that node
+               tmpdist=dist(i)
+               getmindist=i
+            ENDIF
+         ENDDO
+      END FUNCTION getmindist
+      
+      LOGICAL FUNCTION isinthere(ngrid,indeces,idx)
+         ! Tell if idx is present in the vector indeces
+         
+         INTEGER, INTENT(IN) :: ngrid,idx
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: indeces
+
+         INTEGER i
+          
+         isinthere=.FALSE.
+         ! initialization
+         DO i=1,ngrid
+            IF(indeces(i)==idx) isinthere=.TRUE.! found
+         ENDDO
+      END FUNCTION isinthere
+
       SUBROUTINE getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
          ! Build a neighbours list: for every voronoi center keep track of his
          ! neighboroud that correspond to all the points inside the voronoi
@@ -761,7 +884,7 @@
          ! Args:
          !    nsamples: total points number
          !    ngrid: number of voronoi polyhedra
-         !    weights: array cotaing the number of points inside each voroni polyhedra
+         !    npvoronoi: array cotaing the number of points inside each voroni polyhedra
          !    iminij: array containg to wich polyhedra every point belong to
          !    pnlist: pointer to neighbours list
          !    nlist: neighbours list
@@ -794,78 +917,118 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda,probnmm,distmm,y,sig2,kderr)
-         ! Return the index of the closest point higher in P there are no minima in
-         ! between
+!      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda,probnmm,distmm,y,sig2,kderr)
+!         ! Return the index of the closest point higher in P there are no minima in
+!         ! between
+!         !
+!         ! Args:
+!         !    D      :    dimensionality
+!         !    period :    periodicity
+!         !    ngrid  :    number of grid points
+!         !    idx    :    current point
+!         !    lambda :    estimate of the NN ditance
+!         !    probnmm:    prob density estimations
+!         !    distmm :    distances matrix
+!         !    y      :    grid points
+!         !    sig2   :    variance to be used in the KDE when doing the minima search
+!         !    kderr  :    relative error to get rid of the noise in accepting/rejecting
+!         !                a minimum
+!
+!         INTEGER, INTENT(IN) :: D,ngrid
+!         DOUBLE PRECISION, DIMENSION(D) :: period
+!         INTEGER, INTENT(IN) :: idx
+!         DOUBLE PRECISION, INTENT(IN) :: lambda,sig2,kderr
+!         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+!         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
+!         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y ! grid points
+!
+!         INTEGER i,j,np
+!         DOUBLE PRECISION dmin,fkde,fkder
+!         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: nppoints
+!         
+!         LOGICAL testlower
+!
+!         dmin=1.0d10
+!         qs_next=idx
+!         
+!         DO j=1,ngrid
+!            IF(probnmm(j)>probnmm(idx))THEN
+!               IF(distmm(idx,j).LT.dmin) THEN
+!                  !! This is a really rough trial...
+!                  ! NEW with floor and proportions
+!                  IF(distmm(idx,j)<lambda*2.5d0)THEN
+!                     np=10
+!                  ELSE
+!                     np=20
+!                  ENDIF
+!                  ALLOCATE(nppoints(D,np))
+!                  ! extract NP points between the extremes
+!                  CALL getNpoint(D,period,np,y(:,idx),y(:,j),nppoints)
+!                                 
+!                  testlower=.FALSE.
+!                  fkder=genkernel(ngrid,D,period,sig2,probnmm,y(:,idx),y)       
+!                  DO i=1,np
+!                     fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,i),y)
+!                     IF(fkde<(fkder*(1-kderr*2.0d0))) THEN
+!                        testlower=.TRUE. ! maybe it is a valley
+!                        EXIT
+!                     ENDIF
+!                  ENDDO
+!                  
+!                  IF(.NOT. testlower) THEN 
+!                     qs_next=j
+!                     dmin=distmm(idx,j)
+!                  ENDIF
+!                  
+!                  DEALLOCATE(nppoints)
+!               ENDIF
+!            ENDIF
+!         ENDDO
+!      END FUNCTION qs_next
+
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,pnlist,nlist,kderr)
+         ! Return the index of the closest point higher in P
          !
          ! Args:
-         !    D      :    dimensionality
-         !    period :    periodicity
-         !    ngrid  :    number of grid points
-         !    idx    :    current point
-         !    lambda :    estimate of the NN ditance
-         !    probnmm:    prob density estimations
-         !    distmm :    distances matrix
-         !    y      :    grid points
-         !    sig2   :    variance to be used in the KDE when doing the minima search
-         !    kderr  :    relative error to get rid of the noise in accepting/rejecting
-         !                a minimum
+         !    ngrid: number of grid points
+         !    idx: current point
+         !    probnmm: density estimations
+         !    distmm: distances matrix
 
-         INTEGER, INTENT(IN) :: D,ngrid
-         DOUBLE PRECISION, DIMENSION(D) :: period
+         INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda,sig2,kderr
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y ! grid points
+         INTEGER, DIMENSION(ngrid+1), INTENT(IN) :: pnlist
+         INTEGER, DIMENSION(ngrid*3000), INTENT(IN) :: nlist
+         DOUBLE PRECISION, INTENT(IN) :: kderr
 
-         INTEGER i,j,np
-         DOUBLE PRECISION dmin,fkde,fkder
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: nppoints
-         
+         INTEGER i,j
+         DOUBLE PRECISION dmin
+         INTEGER, DIMENSION(ngrid+1) :: geopath
          LOGICAL testlower
 
          dmin=1.0d10
          qs_next=idx
-         
          DO j=1,ngrid
             IF(probnmm(j)>probnmm(idx))THEN
-               IF(distmm(idx,j).LT.dmin) THEN
-                  !! This is a really rough trial...
-                  ! NEW with floor and proportions
-                  IF(distmm(idx,j)<lambda*2.5d0)THEN
-                     np=10
-                  ELSE
-                     np=20
-                  ENDIF
-                  ALLOCATE(nppoints(D,np))
-                  ! extract NP points between the extremes
-                  CALL getNpoint(D,period,np,y(:,idx),y(:,j),nppoints)
-                                 
+               IF(distmm(idx,j).LT.dmin)THEN
+                  ! we jump if there is not a valley in the geodesic path between the two point
+                  ! get the geodesic path
+                  CALL dijkstra(ngrid,pnlist,nlist,distmm,idx,j,geopath)
+                  ! check the presence of a valley
                   testlower=.FALSE.
-                  ! test if there is a valley
-                  ! I have some problem with the normalization when computing the kernel
-                  ! so for now I recompute the value of the prob in idx
-                  !!fkder=genkernel(ngrid,D,period,sig2,y(:,idx),y, & 
-                  !!                nsamples,x,wj,pnlist,nlist,normwj)             
-                  !!DO i=1,np
-                  !!   fkde=genkernel(ngrid,D,period,sig2,nppoints(:,i),y, & 
-                  !!                  nsamples,x,wj,pnlist,nlist,normwj)
-                  fkder=genkernel(ngrid,D,period,sig2,probnmm,y(:,idx),y)       
-                  DO i=1,np
-                     fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,i),y)
-                     IF(fkde<(fkder*(1-kderr*2.0d0))) THEN
-                        testlower=.TRUE. ! maybe it is a valley
+                  DO i=2,geopath(1)
+                     IF(probnmm(geopath(i))<(probnmm(idx)*(1-kderr*2.0d0))) THEN
+                        testlower=.TRUE. ! there is a valley
                         EXIT
-                     ENDIF
+                     ENDIF                  
                   ENDDO
-                  
-                  IF(.NOT. testlower) THEN 
-                     qs_next=j
+                  IF(.NOT. testlower)THEN 
+                     ! no valley : JUMP! 
                      dmin=distmm(idx,j)
+                     qs_next=j
                   ENDIF
-                  
-                  DEALLOCATE(nppoints)
                ENDIF
             ENDIF
          ENDDO
@@ -921,103 +1084,6 @@
                     dexp(-pammr2(D,period,vc,vp)*0.5d0/sig2)
                     
       END FUNCTION fkernel
-
-!      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,vp,vgrid, & 
-!                                          nsamples,x,wj,pnlist,nlist,normwj)
-!            ! Calculate the (normalized) gaussian kernel
-!            ! in an arbitrary point
-!            !
-!            ! Args:
-!            !    ngrid: number of grid point
-!            !    D: dimensionality
-!            !    period: periodicity
-!            !    sig2: sig**2
-!            !    probnmm: probability of the grid points
-!            !    vp: point's vector
-!            !    vgrid: grid points
-!
-!            INTEGER, INTENT(IN) :: D,nsamples,ngrid
-!            DOUBLE PRECISION, INTENT(IN) :: period(D)
-!            DOUBLE PRECISION, INTENT(IN) :: sig2,normwj
-!            !DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
-!            DOUBLE PRECISION, INTENT(IN) :: vp(D)
-!            DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
-!            DOUBLE PRECISION, INTENT(IN) :: x(D,nsamples)
-!            DOUBLE PRECISION, INTENT(IN) :: wj(nsamples)
-!            INTEGER, DIMENSION(ngrid+1), INTENT(OUT) :: pnlist
-!            INTEGER, DIMENSION(nsamples), INTENT(OUT) :: nlist
-!            
-!            INTEGER j,k
-!                        
-!            genkernel=0.0d0
-!            DO j=1,ngrid    
-!               ! do not compute KDEs for points that belong to far away Voronoj
-!               IF (pammr2(D,period,vgrid(:,j),vp)/sig2>36.0d0) CYCLE
-!               ! cycle just inside the polyhedra using the neighbour list trick
-!               DO k=pnlist(j)+1,pnlist(j+1)
-!                  genkernel = genkernel+ wj(nlist(k))* &
-!                              fkernel(D,period,sig2,vp,x(:,nlist(k)))
-!               ENDDO
-!            ENDDO
-!            genkernel=genkernel/normwj
-!      END FUNCTION genkernel
-
-      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,probnmm,vp,vgrid)
-            ! Calculate the (normalized) gaussian kernel
-            ! in an arbitrary point
-            !
-            ! Args:
-            !    ngrid: number of grid point
-            !    D: dimensionality
-            !    period: periodicity
-            !    sig2: sig**2
-            !    probnmm: probability of the grid points
-            !    vp: point's vector
-            !    vgrid: grid points
-
-            INTEGER, INTENT(IN) :: D,ngrid
-            DOUBLE PRECISION, INTENT(IN) :: period(D)
-            DOUBLE PRECISION, INTENT(IN) :: sig2
-            DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
-            DOUBLE PRECISION, INTENT(IN) :: vp(D)
-            DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
-            
-            INTEGER j
-
-            genkernel=0.0d0
-            DO j=1,ngrid    
-               genkernel = genkernel+probnmm(j)*fkernel(D,period,sig2,vp,vgrid(:,j))
-            ENDDO
-            genkernel=genkernel/ngrid
-      END FUNCTION genkernel
-      
-      SUBROUTINE getNpoint(D,period,np,r1,r2,listpoints)
-         ! Get np points in a segment given the extremes
-         !
-         ! Args:
-         !    D          : Dimensionality of a point
-         !    period     : periodicity in each dimension
-         !    np         : number of points to be generated
-         !    r1         : first extreme
-         !    r2         : second extreme
-         !    listpoints : array of np points
-         
-         INTEGER, INTENT(IN) :: D,np
-         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: r1,r2,period
-         DOUBLE PRECISION, DIMENSION(D,np), INTENT(OUT) :: listpoints
-
-         DOUBLE PRECISION v12(D)
-         INTEGER i
-
-         v12=0.0d0
-         CALL pammrij(D,period,r2,r1,v12)
-         v12=v12/(np+1)
-         
-         listpoints=0.0d0
-         DO i=1,np
-            listpoints(:,i)= r1 + float(i)*v12
-         ENDDO
-      END SUBROUTINE getNpoint
 
       SUBROUTINE sortclusters(nk,clusters,prif)
          ! Sort the gaussians from the closest to prif
