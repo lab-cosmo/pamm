@@ -149,7 +149,7 @@
                ALLOCATE(period(D))
                xref=0.0d0
                xref(1)=-1.0d0
-               period=0.0d0
+               period=-1.0d0
             ELSEIF (ccmd == 4) THEN ! read the seed
                READ(cmdbuffer,*) seed
             ELSEIF (ccmd == 6) THEN ! read the number of mean-shift steps
@@ -305,12 +305,13 @@
          WRITE(*,*) "Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
+      write(*,*) "PERIODICITY", period
       CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij)
 
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
       CALL getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
-
+      
       ! Definition of the distance matrix between grid points
       distmm=0.0d0
       rgrid=1d100 ! "voronoi radius" of grid points (squared)
@@ -345,7 +346,7 @@
       DO i=1,ngrid
          DO j=1,ngrid
 
-            ! do not compute KDEs for points that belong to far away Voronoj
+            ! do not compute KDEs for points that belong to far away Voronoi
             IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
 
             ! cycle just inside the polyhedra using the neighbour list
@@ -377,7 +378,7 @@
          !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j)         
       ENDDO
       ikde = ikde+1
-      if (ikde<5) GOTO 100 ! seems one could actually iterate to self-consistency....
+      if (ikde<5) GOTO 100 ! seems one can actually iterate to self-consistency....
 
       ! CLUSTERING, local maxima search
       IF(verbose) write(*,*) "Running quick shift"
@@ -393,7 +394,7 @@
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
                qs_next(D,period,ngrid,qspath(counter),rgrid(qspath(counter)), & 
-               probnmm,distmm,y,sigma2(qspath(counter)),kderr)
+                 probnmm,distmm,y,sigma2(qspath(counter)), kderr)
               !qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -717,6 +718,7 @@
          y(:,1)=x(:,int(RAND()*nsamples))
          dminij = 1.0d99
          iminij = 1
+         write(*,*) "PERIODICITY", period
          DO i=2,ngrid
             dmax = 0.0d0
             DO j=1,nsamples
