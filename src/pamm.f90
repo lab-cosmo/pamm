@@ -305,7 +305,6 @@
          WRITE(*,*) "Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
-      write(*,*) "PERIODICITY", period
       CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij)
 
       ! Generate the neighbour list
@@ -393,8 +392,8 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-               qs_next(D,period,ngrid,qspath(counter),lambda,&! rgrid(qspath(counter)), & 
-                 probnmm,distmm,y,sigma2(qspath(counter)), kderr)
+               qs_next(D,period,ngrid,qspath(counter),&
+                 probnmm,distmm,kderr)
               !qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -793,7 +792,7 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda,probnmm,distmm,y,sig2,kderr)
+      INTEGER FUNCTION qs_next(D,period,ngrid,idx,probnmm,distmm,sig2,kderr)
          ! Return the index of the closest point higher in P
          !
          ! Args:
@@ -806,59 +805,85 @@
          INTEGER, INTENT(IN) :: D,ngrid
          DOUBLE PRECISION, DIMENSION(D) :: period
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda,sig2,kderr
+         DOUBLE PRECISION, INTENT(IN) :: kderr
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y ! grid points
-
-         INTEGER i,j,np
-         DOUBLE PRECISION dmin,fkde,fkder
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: nppoints
          
-         LOGICAL testlower
+
+         INTEGER i,j,np, ndx
+         DOUBLE PRECISION dmin, dab, dac, dbc, dcomb
+         
+         INTEGER, DIMENSION(ngrid) :: path
+         INTEGER :: npath, l0, ia, ib, ic
+         DOUBLE PRECISION, DIMENSION(ngrid) :: dpath, dperp
+         LOGICAL, DIMENSION(ngrid) :: pactive
+         
+         
+         
 
          dmin=1.0d10
          qs_next=idx
+         ndx = idx
          
-         DO j=1,ngrid
-            IF(probnmm(j)>probnmm(idx))THEN               
-           ! write(*,*) dmin,lambda
+         ! find the nearest point with higher probability
+         DO j=1,ngrid         
+            IF(probnmm(j)>probnmm(idx))THEN                          
                IF(distmm(idx,j).LT.dmin .AND. (distmm(idx,j).LT.lambda) ) THEN ! IF ((distmm(idx,j).LT.dmin).AND. (distmm(idx,j).LT.lambda))THEN
-                    
-                                                 ! dmin=distmm(idx,j)
-                  
-!~                   !! This is a really rough trial...
-!~                   IF(distmm(idx,j)<lambda*2.5d0)THEN
-!~                      np=10
-!~                   ELSE
-!~                      np=20
-!~                   ENDIF
-!~                   ALLOCATE(nppoints(D,np))
-!~                   ! extract NP points between the extremes
-!~                   CALL getNpoint(D,period,np,y(:,idx),y(:,j),nppoints)
-!~                   
-!~                   testlower=.FALSE.
-!~                   ! test if there is a valley
-!~                   ! I have some problem with the normalization when computing the kernel
-!~                   ! so for now I recompute the value of the prob in idx
-!~                   write(*,*) "looking along the line"
-!~                   fkder=genkernel(ngrid,D,period,sig2,probnmm,y(:,idx),y)
-!~                   DO i=1,np                     
-!~                      fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,i),y)
-!~                      write(*,*) fkde-fkder
-!~                      IF(fkde<(fkder*(1-kderr))) testlower=.TRUE. ! maybe it is a valley
-!~                   ENDDO
-!~                   
-!~                   IF(.NOT. testlower) THEN 
-                  qs_next=j
+                  ndx=j
                   dmin=distmm(idx,j)
-!~                   ENDIF
-                  
-!~                   DEALLOCATE(nppoints)
                ENDIF
             ENDIF
          ENDDO
          
+         IF (ndx/=idx) THEN
+            ! now we have to check if this new point corresponds to a different basin
+            ! initializes the path to go from the start to the end points.
+            path(1)=idx
+            path(2)=ndx
+            pactive=.TRUE.
+            pactive(1)=.FALSE.
+            pactive(2)=.FALSE.
+            npath=2      
+            qs_next=ndx   
+            DO WHILE (path(npath-1)>0) 
+               l0=1
+               DO WHILE(path(l0)<0) ! select the first "active" segment
+                  l0=l0+1
+               ENDDO
+               ! refines the segment. we look for a point that minimizes (d(a,c)+d(b,c))/d(a,b)-1 + abs(d(a,c)-d(b,c))/d(a,b)
+               dmin=1d100
+               ia = path(l0)
+               ib = path(l0+1)
+               dab=distmm(ia,ib)
+               ic=ia
+               DO i=1,ngrid
+                  IF (pactive(i).eqv..FALSE.) CYCLE
+                  dac=distmm(ia,i)
+                  dbc=distmm(ib,i)
+                  dcomb = (dac+dbc-dab)+dabs(dac-dbc)
+                  IF (dcomb < dmin ) THEN
+                     dmin=dcomb
+                     ic = i
+                  ENDIF
+               ENDDO
+               ! found a new point along the trajectory. shall we keep it?
+               IF (ic /= ia .and. ic /= ib .and. dac<dab .and. dbc<dab) THEN
+                  IF (probnmm(ic)<probnmm(idx)) THEN ! yey! we found a point lower in probability so we should not jump!
+                     qs_next = idx
+                     EXIT
+                  ENDIF
+                  ! add the new point to the path
+                  pactive(ic) = .FALSE.
+                  DO i=npath,l0+1,-1
+                     path(i+1)=path(i)
+                  ENDDO
+                  path(l0+1)=ic
+               ELSE
+                  path(l0) = -path(l0)
+               ENDIF
+
+            ENDDO
+         ENDIF
       END FUNCTION qs_next
 
       DOUBLE PRECISION FUNCTION fkernel(D,period,sig2,vc,vp)
