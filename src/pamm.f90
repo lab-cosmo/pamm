@@ -393,7 +393,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-               qs_next(D,period,ngrid,qspath(counter),rgrid(qspath(counter)), & 
+               qs_next(D,period,ngrid,qspath(counter),lambda,&! rgrid(qspath(counter)), & 
                  probnmm,distmm,y,sigma2(qspath(counter)), kderr)
               !qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
@@ -717,8 +717,7 @@
          ! choose randomly the first point
          y(:,1)=x(:,int(RAND()*nsamples))
          dminij = 1.0d99
-         iminij = 1
-         write(*,*) "PERIODICITY", period
+         iminij = 1         
          DO i=2,ngrid
             dmax = 0.0d0
             DO j=1,nsamples
@@ -731,7 +730,7 @@
                   dmax = dminij(j)
                   jmax = j
                ENDIF
-            ENDDO
+            ENDDO            
             y(:,i) = x(:, jmax)
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
@@ -822,39 +821,44 @@
          qs_next=idx
          
          DO j=1,ngrid
-            IF(probnmm(j)>probnmm(idx))THEN
-               IF(distmm(idx,j).LT.dmin) THEN ! IF ((distmm(idx,j).LT.dmin).AND. (distmm(idx,j).LT.lambda))THEN
+            IF(probnmm(j)>probnmm(idx))THEN               
+           ! write(*,*) dmin,lambda
+               IF(distmm(idx,j).LT.dmin .AND. (distmm(idx,j).LT.lambda) ) THEN ! IF ((distmm(idx,j).LT.dmin).AND. (distmm(idx,j).LT.lambda))THEN
+                    
                                                  ! dmin=distmm(idx,j)
                   
-                  !! This is a really rough trial...
-                  IF(distmm(idx,j)<lambda*2.5d0)THEN
-                     np=10
-                  ELSE
-                     np=20
-                  ENDIF
-                  ALLOCATE(nppoints(D,np))
-                  ! extract NP points between the extremes
-                  CALL getNpoint(D,period,np,y(:,idx),y(:,j),nppoints)
+!~                   !! This is a really rough trial...
+!~                   IF(distmm(idx,j)<lambda*2.5d0)THEN
+!~                      np=10
+!~                   ELSE
+!~                      np=20
+!~                   ENDIF
+!~                   ALLOCATE(nppoints(D,np))
+!~                   ! extract NP points between the extremes
+!~                   CALL getNpoint(D,period,np,y(:,idx),y(:,j),nppoints)
+!~                   
+!~                   testlower=.FALSE.
+!~                   ! test if there is a valley
+!~                   ! I have some problem with the normalization when computing the kernel
+!~                   ! so for now I recompute the value of the prob in idx
+!~                   write(*,*) "looking along the line"
+!~                   fkder=genkernel(ngrid,D,period,sig2,probnmm,y(:,idx),y)
+!~                   DO i=1,np                     
+!~                      fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,i),y)
+!~                      write(*,*) fkde-fkder
+!~                      IF(fkde<(fkder*(1-kderr))) testlower=.TRUE. ! maybe it is a valley
+!~                   ENDDO
+!~                   
+!~                   IF(.NOT. testlower) THEN 
+                  qs_next=j
+                  dmin=distmm(idx,j)
+!~                   ENDIF
                   
-                  testlower=.FALSE.
-                  ! test if there is a valley
-                  ! I have some problem with the normalization when computing the kernel
-                  ! so for now I recompute the value of the prob in idx
-                  fkder=genkernel(ngrid,D,period,sig2,probnmm,y(:,idx),y)
-                  DO i=1,np
-                     fkde=genkernel(ngrid,D,period,sig2,probnmm,nppoints(:,i),y)
-                     IF(fkde<(fkder*(1-kderr))) testlower=.TRUE. ! maybe it is a valley
-                  ENDDO
-                  
-                  IF(.NOT. testlower) THEN 
-                     qs_next=j
-                     dmin=distmm(idx,j)
-                  ENDIF
-                  
-                  DEALLOCATE(nppoints)
+!~                   DEALLOCATE(nppoints)
                ENDIF
             ENDIF
          ENDDO
+         
       END FUNCTION qs_next
 
       DOUBLE PRECISION FUNCTION fkernel(D,period,sig2,vc,vp)
