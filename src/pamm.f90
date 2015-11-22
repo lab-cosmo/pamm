@@ -62,7 +62,10 @@
       ! Array containing the input data pints
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: x , y
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, qspath
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
+      ! cluster connectivity matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj
+      
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
       INTEGER ccmd                                ! Index used to control the input parameters
@@ -294,7 +297,7 @@
       ALLOCATE(iminij(nsamples))
       ALLOCATE(pnlist(ngrid+1),nlist(nsamples))
       ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid),sigma2(ngrid),rgrid(ngrid))
-      ALLOCATE(idxroot(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
+      ALLOCATE(idxroot(ngrid),idcls(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
       ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
@@ -389,12 +392,13 @@
          IF(idxroot(i).NE.0) CYCLE
          qspath=0
          qspath(1)=i
-         counter=1
+         counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
+            write(0,*) idxroot(i), qspath(counter), ngrid
+            
             idxroot(qspath(counter))= &
-               qs_next(D,period,ngrid,qspath(counter),&
-                 probnmm,distmm,kderr)
-              !qs_next(ngrid,qspath(counter),lambda2,probnmm,distmm)
+               qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,kderr)
+            
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -403,7 +407,7 @@
             idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
          ENDDO
       ENDDO
-
+      
       IF(verbose) write(*,*) "Writing out"
       qspath=0
       qspath(1)=idxroot(1)
@@ -424,6 +428,7 @@
             qspath(Nk)=idxroot(i)
             dummyi1=Nk
          ENDIF
+         idcls(i)=dummyi1 ! stores the cluster index
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
@@ -432,6 +437,25 @@
          normpks=normpks+probnmm(i)
       ENDDO
       CLOSE(UNIT=11)
+      
+      ! builds the cluster adjacency matrix
+      write(0,*) "BUILDING ADJ MATRIX", Nk
+      ALLOCATE(clsadj(Nk, Nk))
+      clsadj = 0.0d0
+      DO i=1, Nk
+         DO j=1,i-1
+            clsadj(i,j) = cls_link(ngrid, idcls, distmm, probnmm, rgrid, i, j)
+            clsadj(j,i) = clsadj(i,j)
+         ENDDO
+      ENDDO
+      OPEN(UNIT=11,FILE=trim(outputfile)//".adj",STATUS='REPLACE',ACTION='WRITE')
+      DO i=1, Nk
+         DO j=1, Nk
+            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadj(i,j)
+         ENDDO
+         WRITE(11,*) ""
+      ENDDO
+      CLOSE(11)
       
       ! now we can procede and complete the definition of probability model
       ! now qspath contains the indexes of Nk gaussians
@@ -792,7 +816,144 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      INTEGER FUNCTION qs_next(D,period,ngrid,idx,probnmm,distmm,sig2,kderr)
+      DOUBLE PRECISION FUNCTION cls_link(ngrid, idcls, distmm, probnmm, rgrid, ia, ib)
+         IMPLICIT NONE
+         INTEGER, INTENT(IN) :: ngrid, idcls(ngrid), ia, ib
+         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid, ngrid), probnmm(ngrid), rgrid(ngrid)
+         
+         INTEGER i, j
+         DOUBLE PRECISION mxa, mxb, mxab, pab
+         mxa = 0
+         mxb = 0
+         mxab = 0
+         DO i=1, ngrid
+            IF (idcls(i)/=ia) CYCLE
+            IF (probnmm(i).gt.mxa) mxa = probnmm(i) ! also gets the probability density at the mode of cluster a
+            DO j=1,ngrid
+               IF (idcls(j)/=ib) CYCLE
+               IF (probnmm(j).gt.mxb) mxb = probnmm(j)
+               ! Ok, we've got a matching pair
+               IF (dsqrt(distmm(i,j))<dsqrt(rgrid(i))+dsqrt(rgrid(j))) THEN
+                  ! And they are close together!
+                  pab = (probnmm(i)+probnmm(j))/2
+                  IF (pab .gt. mxab) mxab = pab
+               ENDIF               
+            ENDDO            
+         ENDDO
+         write(0,*) "clusters", ia, ib, mxa, mxb, mxab
+         cls_link = mxab/min(mxa,mxb) 
+      END FUNCTION
+      
+      SUBROUTINE build_path(ngrid, path, i0, i1, npath, distmm, rgrid) 
+         ! builds a "straight" path across the grid, between points ia and ib
+         ! by iteratively refining down to the resolution of the grid
+         IMPLICIT NONE
+         INTEGER, INTENT(IN) :: ngrid, i0, i1
+         INTEGER, INTENT(OUT) :: path(ngrid), npath
+         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid), rgrid(ngrid)
+         
+         
+         INTEGER l0, ia, ib, ic, i
+         DOUBLE PRECISION :: dab, dthresh, dac, dbc, dmin, dcomb
+         LOGICAL, DIMENSION(ngrid) :: pactive      
+         
+         pactive = .TRUE. ! these points can be added to the path         
+         path(1) = i0
+         path(2) = i1
+         pactive(i0) = .FALSE.
+         pactive(i1) = .FALSE.
+         npath = 2
+         
+         WRITE(0,*) "BEGIN PATH SEARCH", i0, i1, dsqrt(rgrid(i0))+dsqrt(rgrid(i1))
+         
+         ! path segments are marked as "inactive" by making the index negative
+         DO WHILE (path(npath-1)>0) 
+            l0 = 1            
+            DO WHILE(path(l0)<0) ! select the first "active" segment
+               l0 = l0+1
+            ENDDO
+            
+            ! refines the segment. we look for a point that minimizes (d(a,c)+d(b,c))/d(a,b)-1 + abs(d(a,c)-d(b,c))/d(a,b)
+            ! abs(d(a,c)-d(b,c))/d(a,b) is a measure of "centrality" of the point
+            ! d(a,c)+d(b,c))/d(a,b)-1 is a measure of how aligned is each point with its neighbors
+                           
+            dmin=1d100
+            ia = path(l0)
+            ib = path(l0+1)
+            dab = dsqrt(distmm(ia,ib))
+            dthresh = dsqrt(rgrid(ia))+dsqrt(rgrid(ib)) ! do not refine below grid granularity
+            ic=ia
+                          
+            DO i=1,ngrid               
+               IF (pactive(i).eqv..FALSE.) CYCLE
+               dac=dsqrt(distmm(ia,i))
+               IF (dac<dthresh .or. dac>dab) CYCLE               ! discard points below the target granularity or too far away
+               dbc=dsqrt(distmm(ib,i))
+               IF (dbc<dthresh .or. dbc>dab) CYCLE              
+               dcomb = (dac+dbc-dab)+dabs(dac-dbc)  ! find a point that is close to the midpoint of ia-ib
+               IF (dcomb < dmin ) THEN
+                  dmin=dcomb
+                  ic = i
+               ENDIF
+            ENDDO
+            
+            ! found a new point to refine the path?
+            IF (ic /= ia .and. ic /= ib) THEN
+            !   IF ((probnmm(ic)-probnmm(idx)/probnmm(idx))<0) &
+            !      write(*,*) "going down", probnmm(ic), probnmm(idx)                  
+               ! add the new point to the path
+               pactive(ic) = .FALSE.
+               DO i=npath,l0+1,-1  ! shifts the path to make space for the new point
+                  path(i+1)=path(i)
+               ENDDO
+               path(l0+1)=ic
+               npath=npath+1            
+            ELSE  ! mark the start point as inactive
+               path(l0) = -path(l0)
+            ENDIF
+         ENDDO
+         path = abs(path)
+      END SUBROUTINE 
+      
+      SUBROUTINE neb_path(ngrid, path, npath, distmm, probnmm, w) 
+         ! "refines" path to look a bit like a maximum probability path going through saddle points
+         IMPLICIT NONE
+         INTEGER, INTENT(IN) :: ngrid, npath
+         INTEGER, INTENT(INOUT) :: path(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid), probnmm(ngrid), w
+         
+         
+         INTEGER i, j, npi
+         DOUBLE PRECISION :: dab, dac, dbc, dmin, dcomb
+         LOGICAL, DIMENSION(ngrid) :: pactive
+         
+         pactive = .TRUE.  ! new points can't be one of those already assigned to the path
+         DO j=1,npath
+            IF (i/=j) pactive(path(i)) = .FALSE.
+         ENDDO
+         DO i=2, npath-1           
+           dmin = 1d100
+           npi = path(i)
+           dab = distmm(path(i-1), path(i+1))
+           DO j=1,ngrid
+              IF (.not. pactive(j)) CYCLE
+              dac = distmm(j, path(i-1))
+              IF (dac>dab) CYCLE
+              dbc = distmm(j, path(i+1))
+              IF (dbc>dab) CYCLE
+              dcomb = (dac+dbc)/dab-1 + abs(dac-dbc)/dab -w * probnmm(j)/probnmm(path(i))
+              IF (dcomb<dmin) THEN ! found a better point, update the path
+                 pactive(npi) = .TRUE.
+                 pactive(j) = .FALSE.
+                 dmin = dcomb
+                 npi =j
+              ENDIF
+           ENDDO
+           path(i) = npi
+         ENDDO
+      END SUBROUTINE
+      
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,rgrid,kderr)
          ! Return the index of the closest point higher in P
          !
          ! Args:
@@ -801,89 +962,71 @@
          !    lambda: cut-off in the jump
          !    probnmm: density estimations
          !    distmm: distances matrix
-
-         INTEGER, INTENT(IN) :: D,ngrid
-         DOUBLE PRECISION, DIMENSION(D) :: period
+         IMPLICIT NONE
+         INTEGER, INTENT(IN) :: ngrid
+         DOUBLE PRECISION, INTENT(IN), DIMENSION(ngrid) :: rgrid
          INTEGER, INTENT(IN) :: idx
          DOUBLE PRECISION, INTENT(IN) :: kderr
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
          
 
-         INTEGER i,j,np, ndx
-         DOUBLE PRECISION dmin, dab, dac, dbc, dcomb
+         INTEGER i, j, ndx
          
-         INTEGER, DIMENSION(ngrid) :: path
-         INTEGER :: npath, l0, ia, ib, ic
-         DOUBLE PRECISION, DIMENSION(ngrid) :: dpath, dperp
-         LOGICAL, DIMENSION(ngrid) :: pactive
-         
-         
-         
-
-         dmin=1.0d10
-         qs_next=idx
+         INTEGER :: npath
+         INTEGER :: path(ngrid)
+         DOUBLE PRECISION :: dmin
+            
+         dmin=1.0d100
          ndx = idx
          
          ! find the nearest point with higher probability
          DO j=1,ngrid         
             IF(probnmm(j)>probnmm(idx))THEN                          
-               IF(distmm(idx,j).LT.dmin .AND. (distmm(idx,j).LT.lambda) ) THEN ! IF ((distmm(idx,j).LT.dmin).AND. (distmm(idx,j).LT.lambda))THEN
+               IF(distmm(idx,j).LT.dmin) THEN 
                   ndx=j
                   dmin=distmm(idx,j)
                ENDIF
             ENDIF
          ENDDO
-         
-         IF (ndx/=idx) THEN
-            ! now we have to check if this new point corresponds to a different basin
-            ! initializes the path to go from the start to the end points.
-            path(1)=idx
-            path(2)=ndx
-            pactive=.TRUE.
-            pactive(1)=.FALSE.
-            pactive(2)=.FALSE.
-            npath=2      
-            qs_next=ndx   
-            DO WHILE (path(npath-1)>0) 
-               l0=1
-               DO WHILE(path(l0)<0) ! select the first "active" segment
-                  l0=l0+1
-               ENDDO
-               ! refines the segment. we look for a point that minimizes (d(a,c)+d(b,c))/d(a,b)-1 + abs(d(a,c)-d(b,c))/d(a,b)
-               dmin=1d100
-               ia = path(l0)
-               ib = path(l0+1)
-               dab=distmm(ia,ib)
-               ic=ia
-               DO i=1,ngrid
-                  IF (pactive(i).eqv..FALSE.) CYCLE
-                  dac=distmm(ia,i)
-                  dbc=distmm(ib,i)
-                  dcomb = (dac+dbc-dab)+dabs(dac-dbc)
-                  IF (dcomb < dmin ) THEN
-                     dmin=dcomb
-                     ic = i
-                  ENDIF
-               ENDDO
-               ! found a new point along the trajectory. shall we keep it?
-               IF (ic /= ia .and. ic /= ib .and. dac<dab .and. dbc<dab) THEN
-                  IF (probnmm(ic)<probnmm(idx)) THEN ! yey! we found a point lower in probability so we should not jump!
-                     qs_next = idx
-                     EXIT
-                  ENDIF
-                  ! add the new point to the path
-                  pactive(ic) = .FALSE.
-                  DO i=npath,l0+1,-1
-                     path(i+1)=path(i)
-                  ENDDO
-                  path(l0+1)=ic
-               ELSE
-                  path(l0) = -path(l0)
+                  
+         qs_next = ndx   
+         IF (ndx/=idx) THEN         
+            npath = 0
+            ! builds a discrete near-linear path between the end points
+            CALL build_path(ngrid, path, idx, ndx, npath, distmm, rgrid) 
+            WRITE(0,*) "FOUND PATH", path(1:npath)
+            ! refine the path aiming for a "maximum probability path" 
+            IF (npath > 2) THEN
+               CALL neb_path(ngrid, path, npath, distmm, probnmm, 0.1d0)
+               WRITE(0,*) "ITER 1 PATH", path(1:npath)
+               CALL neb_path(ngrid, path, npath, distmm, probnmm, 0.1d0)
+               WRITE(0,*) "ITER 2 PATH", path(1:npath)
+            ENDIF            
+            
+            ! check if the path goes downhill to within accuracy
+            DO i=2,npath-1
+            
+               IF ((probnmm(path(i))-probnmm(idx))/ &
+                   (probnmm(path(i))+probnmm(idx))<-3*kderr) THEN ! yey! we found a point lower in probability so we should not jump!
+                  qs_next = idx              
+                  WRITE(0,*) "FOUND SADDLE POINT", idx , probnmm(path(i)) , probnmm(idx)  
+                  EXIT
                ENDIF
-
             ENDDO
-         ENDIF
+            ! check if the path contains crazy jumps
+            DO i=1,npath-1
+               IF (dsqrt( distmm(path(i),path(i+1)) ) >  &
+                  4*(dsqrt(rgrid(path(i)))+dsqrt(rgrid(path(i+1)))) ) THEN
+                  write(0,*) "JUMP ACROSS THE SEA",abs(path(i)),abs(path(i+1)),&
+                     distmm(abs(path(i)),abs(path(i+1))), &
+                     rgrid(abs(path(i))), rgrid(abs(path(i+1)) )
+                  qs_next=idx ! abort jump!
+                  EXIT
+               ENDIF
+            ENDDO     
+         ENDIF         
+         
       END FUNCTION qs_next
 
       DOUBLE PRECISION FUNCTION fkernel(D,period,sig2,vc,vp)
