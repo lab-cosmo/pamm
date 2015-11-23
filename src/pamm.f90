@@ -1010,7 +1010,6 @@
          qs_next = ndx   
          IF (ndx/=idx) THEN         
             npath = 0
-            write (*,*) "building path between ", idx, ndx, probnmm(idx), probnmm(ndx)
             ! builds a discrete near-linear path between the end points
             CALL build_path(ngrid, path, idx, ndx, npath, distmm, rgrid) 
             ! refine the path aiming for a "maximum probability path" 
