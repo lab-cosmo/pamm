@@ -287,6 +287,9 @@
       ! CLUSTERING MODE
       ! get the data from standard input
       CALL readinput(D, weighted, nsamples, x, normwj, wj)
+      IF (weighted) THEN  ! "renormalizes" the weight so we can consider them sort of sample counts
+         wj = wj * nsamples/sum(wj)
+      ENDIF
 
       ! If not specified, the number voronoi polyhedras
       ! are set to the square of the total number of points
@@ -394,10 +397,8 @@
          qspath(1)=i
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-            write(0,*) idxroot(i), qspath(counter), ngrid
-            
             idxroot(qspath(counter))= &
-               qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,kderr)
+               qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,kderr, verbose)
             
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -439,7 +440,7 @@
       CLOSE(UNIT=11)
       
       ! builds the cluster adjacency matrix
-      write(0,*) "BUILDING ADJ MATRIX", Nk
+      IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
       ALLOCATE(clsadj(Nk, Nk))
       clsadj = 0.0d0
       DO i=1, Nk
@@ -562,7 +563,8 @@
       ELSE
          ! write gaussians
          ! oreder gaussians from the closest to the reference point
-         CALL sortclusters(Nk, clusters, xref)
+         !!TODO: must find a better syntax and strategy to sort clusters
+         ! CALL sortclusters(Nk, clusters, xref)
          
          ! write a 2-lines header
          WRITE(comment,*) "# PAMM clusters analysis. NSamples: ", nsamples, " NGrid: ", &
@@ -840,7 +842,6 @@
                ENDIF               
             ENDDO            
          ENDDO
-         write(0,*) "clusters", ia, ib, mxa, mxb, mxab
          cls_link = mxab/min(mxa,mxb) 
       END FUNCTION
       
@@ -863,8 +864,6 @@
          pactive(i0) = .FALSE.
          pactive(i1) = .FALSE.
          npath = 2
-         
-         WRITE(0,*) "BEGIN PATH SEARCH", i0, i1, dsqrt(rgrid(i0))+dsqrt(rgrid(i1))
          
          ! path segments are marked as "inactive" by making the index negative
          DO WHILE (path(npath-1)>0) 
@@ -924,24 +923,42 @@
          
          
          INTEGER i, j, npi
-         DOUBLE PRECISION :: dab, dac, dbc, dmin, dcomb
+         DOUBLE PRECISION :: dab, dac, dbc, dmin, dcomb, wi
          LOGICAL, DIMENSION(ngrid) :: pactive
          
          pactive = .TRUE.  ! new points can't be one of those already assigned to the path
-         DO j=1,npath
-            IF (i/=j) pactive(path(i)) = .FALSE.
+         DO i=1,npath
+            pactive(path(i)) = .FALSE.
          ENDDO
          DO i=2, npath-1           
+           ! "climbing image" mode to try and reach the lowest probability point along the path
+           wi = -w
+           dmin = probnmm(1)
+           npi = 1
+           DO j=2, npath
+               IF (probnmm(j)<dmin) THEN
+                  dmin=probnmm(j)
+                  npi = j
+               ENDIF
+           ENDDO
+           IF (npi==i) wi = w  
+            
            dmin = 1d100
            npi = path(i)
-           dab = distmm(path(i-1), path(i+1))
+           dab = distmm(path(i-1), path(i+1))                      
            DO j=1,ngrid
               IF (.not. pactive(j)) CYCLE
               dac = distmm(j, path(i-1))
               IF (dac>dab) CYCLE
               dbc = distmm(j, path(i+1))
               IF (dbc>dab) CYCLE
-              dcomb = (dac+dbc)/dab-1 + abs(dac-dbc)/dab -w * probnmm(j)/probnmm(path(i))
+              IF (wi<0) THEN
+                 dcomb = (dac+dbc)/dab-1 + abs(dac-dbc)/dab + & 
+                       wi * probnmm(j)/probnmm(path(i))
+              ELSE
+                  dcomb = (dac+dbc)/dab-1 + & 
+                       wi * probnmm(j)/probnmm(path(i))
+              ENDIF
               IF (dcomb<dmin) THEN ! found a better point, update the path
                  pactive(npi) = .TRUE.
                  pactive(j) = .FALSE.
@@ -953,7 +970,7 @@
          ENDDO
       END SUBROUTINE
       
-      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,rgrid,kderr)
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,rgrid,kderr,verbose)
          ! Return the index of the closest point higher in P
          !
          ! Args:
@@ -969,7 +986,7 @@
          DOUBLE PRECISION, INTENT(IN) :: kderr
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-         
+         LOGICAL, INTENT(IN) :: verbose
 
          INTEGER i, j, ndx
          
@@ -983,7 +1000,7 @@
          ! find the nearest point with higher probability
          DO j=1,ngrid         
             IF(probnmm(j)>probnmm(idx))THEN                          
-               IF(distmm(idx,j).LT.dmin) THEN 
+               IF(distmm(idx,j).lt.dmin) THEN 
                   ndx=j
                   dmin=distmm(idx,j)
                ENDIF
@@ -993,15 +1010,15 @@
          qs_next = ndx   
          IF (ndx/=idx) THEN         
             npath = 0
+            write (*,*) "building path between ", idx, ndx, probnmm(idx), probnmm(ndx)
             ! builds a discrete near-linear path between the end points
             CALL build_path(ngrid, path, idx, ndx, npath, distmm, rgrid) 
-            WRITE(0,*) "FOUND PATH", path(1:npath)
             ! refine the path aiming for a "maximum probability path" 
-            IF (npath > 2) THEN
+            IF (npath > 2) THEN  ! does a few iterations for path refinement
                CALL neb_path(ngrid, path, npath, distmm, probnmm, 0.1d0)
-               WRITE(0,*) "ITER 1 PATH", path(1:npath)
+               CALL neb_path(ngrid, path, npath, distmm, probnmm, 0.1d0)               
                CALL neb_path(ngrid, path, npath, distmm, probnmm, 0.1d0)
-               WRITE(0,*) "ITER 2 PATH", path(1:npath)
+               CALL neb_path(ngrid, path, npath, distmm, probnmm, 0.1d0)
             ENDIF            
             
             ! check if the path goes downhill to within accuracy
@@ -1009,19 +1026,33 @@
             
                IF ((probnmm(path(i))-probnmm(idx))/ &
                    (probnmm(path(i))+probnmm(idx))<-3*kderr) THEN ! yey! we found a point lower in probability so we should not jump!
-                  qs_next = idx              
-                  WRITE(0,*) "FOUND SADDLE POINT", idx , probnmm(path(i)) , probnmm(idx)  
+                  qs_next = idx       
+                  IF (verbose) THEN
+                     dmin = 0.0d0
+                     write(*,*) "# SADDLE POINT DETECTED"
+                     write(*,*) 1, dmin, probnmm(path(1)), path(1)
+                     DO j=2,npath                        
+                        dmin = dmin + distmm(path(j),path(j-1))
+                        write(*,*) j, dmin, probnmm(path(j)), path(j)                        
+                     ENDDO
+                  ENDIF
                   EXIT
                ENDIF
             ENDDO
             ! check if the path contains crazy jumps
             DO i=1,npath-1
                IF (dsqrt( distmm(path(i),path(i+1)) ) >  &
-                  4*(dsqrt(rgrid(path(i)))+dsqrt(rgrid(path(i+1)))) ) THEN
-                  write(0,*) "JUMP ACROSS THE SEA",abs(path(i)),abs(path(i+1)),&
-                     distmm(abs(path(i)),abs(path(i+1))), &
-                     rgrid(abs(path(i))), rgrid(abs(path(i+1)) )
+                  6*(dsqrt(rgrid(path(i)))+dsqrt(rgrid(path(i+1)))) ) THEN
                   qs_next=idx ! abort jump!
+                  IF (verbose) THEN
+                     dmin = 0.0d0
+                     write(*,*) "# LONG JUMP DETECTED"
+                     write(*,*) 1, dmin, probnmm(path(1)), path(1)
+                     DO j=2,npath                        
+                        dmin = dmin + distmm(path(j),path(j-1))
+                        write(*,*) j, dmin, probnmm(path(j)), path(j)                        
+                     ENDDO
+                  ENDIF
                   EXIT
                ENDIF
             ENDDO     
