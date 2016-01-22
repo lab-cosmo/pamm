@@ -369,10 +369,10 @@
             sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
             ! kernel density estimation cannot become smaller than the distance with the nearest grid point
             IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
-        !    IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
+            !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
         ENDDO
         ikde = ikde+1
-        if (ikde<5) GOTO 100 ! seems one can actually iterate to self-consistency....
+        if (ikde<2) GOTO 100 ! seems one can actually iterate to self-consistency....
       ENDIF
       
       ! CLUSTERING, local maxima search
@@ -481,11 +481,10 @@
             DO i=1,ngrid
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
                IF(periodic)THEN
-! TODO : check properly if here is better to use sigma2(i) or lambda2 as we were doing previosly
-                  msw = probnmm(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(sigma2(i)/25.0d0))
+                  msw = probnmm(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/25.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = probnmm(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(sigma2(i)/25.0d0))
+                  msw = probnmm(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/25.0d0))
                   CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
                
