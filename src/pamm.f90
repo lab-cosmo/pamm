@@ -33,7 +33,6 @@
       IMPLICIT NONE
 
       CHARACTER(LEN=1024) :: outputfile, clusterfile          ! The output file prefix
-      DOUBLE PRECISION, ALLOCATABLE :: xref(:)                ! Reference point needed to find out the important cluster
       DOUBLE PRECISION, ALLOCATABLE :: period(:)              ! Periodic lenght in each dimension
       LOGICAL periodic                                        ! flag for using periodic data
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
@@ -72,6 +71,7 @@
       INTEGER nmsopt                              ! number of mean-shift optimizations of the cluster centers
       LOGICAL verbose, fpost                      ! flag for verbosity
       LOGICAL weighted                            ! flag for using weigheted data
+      LOGICAL adaptive                            ! flag for adaptively refine the sigmas
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1,dummd2
 
@@ -92,6 +92,7 @@
       lambda=-1           ! quick shift cut-off
       verbose = .false.   ! no verbosity
       weighted= .false.   ! don't use the weights
+      adaptive= .false.   ! don't use the weights
       
       D=-1
       periodic=.false.
@@ -118,12 +119,12 @@
             ccmd = 7
          ELSEIF (cmdbuffer == "-nms") THEN     ! N of mean-shift steps
             ccmd = 6
-         ELSEIF (cmdbuffer == "-ref") THEN     ! point from wich calculate the distances to order
-            ccmd = 8                           ! the gaussians in the output
          ELSEIF (cmdbuffer == "-z") THEN       ! add a background to the probability mixture
             ccmd = 12
          ELSEIF (cmdbuffer == "-w") THEN       ! use weights
             weighted = .true.
+         ELSEIF (cmdbuffer == "-adaptive") THEN  ! refine adptively sigma2
+            adaptive = .true.
          ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
             ccmd = 11
          ELSEIF (cmdbuffer == "-v") THEN       ! verbosity flag
@@ -148,10 +149,7 @@
                READ(cmdbuffer,*) kderr
             ELSEIF (ccmd == 9) THEN            ! read the dimensionality
                READ(cmdbuffer,*) D
-               ALLOCATE(xref(D))
                ALLOCATE(period(D))
-               xref=0.0d0
-               xref(1)=-1.0d0
                period=-1.0d0
             ELSEIF (ccmd == 4) THEN ! read the seed
                READ(cmdbuffer,*) seed
@@ -163,18 +161,6 @@
                READ(cmdbuffer,*) ngrid
             ELSEIF (ccmd == 12) THEN ! read zeta 
                READ(cmdbuffer,*) zeta
-            ELSEIF (ccmd == 8) THEN
-               IF (D<0) STOP &
-      "Dimensionality (-d) must precede the ref. point (-red)."
-               par_count = 1
-               isep1 = 0
-               DO WHILE (index(cmdbuffer(isep1+1:), ',') > 0)
-                  isep2 = index(cmdbuffer(isep1+1:), ',') + isep1
-                  READ(cmdbuffer(isep1+1:isep2-1),*) xref(par_count)
-                  par_count = par_count + 1
-                  isep1=isep2
-               ENDDO
-               READ(cmdbuffer(isep1+1:),*) xref(par_count)
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
                IF (D<0) STOP "Dimensionality (-d) must precede the periodic lenghts (-p). "
                par_count = 1
@@ -193,7 +179,9 @@
                READ(cmdbuffer(isep1+1:),*) period(par_count)
                IF (period(par_count) == 6.28d0) period(par_count) = twopi
                IF (period(par_count) == 3.14d0) period(par_count) = twopi/2.0d0
-               periodic=.true.
+               periodic=.true.   
+               
+               IF (par_count/=D) STOP "Check the number of periods (-p)!"
             ENDIF
          ENDIF
       ENDDO
@@ -238,12 +226,10 @@
             CALL readvmclusters(12,nk,vmclusters)
             CLOSE(12)
             ALLOCATE(pcluster(nk), px(vmclusters(1)%D))
-           
             DO WHILE (.true.) ! read from the stdin
               READ(*,*,IOSTAT=endf) px
               IF(endf>0) STOP "*** Error occurred while reading file. ***"
               IF(endf<0) EXIT
-              
               ! compute the pamm probability for the point px
               CALL pamm_p_vm(px, pcluster, nk, vmclusters, alpha, zeta)
               !!! decomment if you want to print out
@@ -342,49 +328,53 @@
       lambda2=lambda*lambda ! we always work with squared distances....
 
       sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
+      
       ikde = 0
-100   IF(verbose) write(*,*) &
-            "Computing kernel density on reference points."
-
+100   IF(verbose) WRITE(*,*) &
+          "Computing kernel density on reference points."
+      
       ! computes the KDE on the Voronoi centers using the neighbour list
       probnmm = 0.0d0
       DO i=1,ngrid
-         DO j=1,ngrid
-
-            ! do not compute KDEs for points that belong to far away Voronoi
-            IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-
-            ! cycle just inside the polyhedra using the neighbour list
-            DO k=pnlist(j)+1,pnlist(j+1)
-               probnmm(i)=probnmm(i)+ wj(nlist(k))* &
-                          fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
-            ENDDO
-         ENDDO
-         probnmm(i)=probnmm(i)/normwj
+          DO j=1,ngrid
+      
+             ! do not compute KDEs for points that belong to far away Voronoi
+             IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+          
+             ! cycle just inside the polyhedra using the neighbour list
+             DO k=pnlist(j)+1,pnlist(j+1)
+                 probnmm(i)=probnmm(i)+ wj(nlist(k))* &
+                             fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+             ENDDO
+          ENDDO
+          probnmm(i)=probnmm(i)/normwj
+          
       ENDDO
       
-      ! compute sigma2 from the number of points in the 
-      ! neighborhood of each grid point. the rationale is that 
-      ! integrating over a Gaussian kernel with variance sigma2
-      ! will cover a volume Vi=(2\pi sigma2)^(D/2).  
-      ! If the estimate probability density on grid point i is pi
-      ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
-      ! The number of points is then normwj*ri, and we can take this to 
-      ! correspond to the mean of a binomial distribution. The (squared) relative error
-      ! is then err2=(1-ri)/(ri normwj) so
-      ! kderr^2 *normwj + 1 = 1/ri so
-      ! Vi = 1/[pi*(1+kderr^2 normwj)] so 
-      ! sigma2 = 1/(2pi) 1/rad[D/2](pi*(1+kderr^2 normwj))
-      DO j=1,ngrid
-         !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-         sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
-         ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-         IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
-         !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j)         
-      ENDDO
-      ikde = ikde+1
-      if (ikde<5) GOTO 100 ! seems one can actually iterate to self-consistency....
-
+      IF (adaptive) THEN   
+        ! compute sigma2 from the number of points in the 
+        ! neighborhood of each grid point. the rationale is that 
+        ! integrating over a Gaussian kernel with variance sigma2
+        ! will cover a volume Vi=(2\pi sigma2)^(D/2).  
+        ! If the estimate probability density on grid point i is pi
+        ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
+        ! The number of points is then normwj*ri, and we can take this to 
+        ! correspond to the mean of a binomial distribution. The (squared) relative error
+        ! is then err2=(1-ri)/(ri normwj) so
+        ! kderr^2 *normwj + 1 = 1/ri so
+        ! Vi = 1/[pi*(1+kderr^2 normwj)] so 
+        ! sigma2 = 1/(2pi) 1/rad[D/2](pi*(1+kderr^2 normwj))
+        DO j=1,ngrid
+            !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
+            sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
+            ! kernel density estimation cannot become smaller than the distance with the nearest grid point
+            IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
+        !    IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
+        ENDDO
+        ikde = ikde+1
+        if (ikde<5) GOTO 100 ! seems one can actually iterate to self-consistency....
+      ENDIF
+      
       ! CLUSTERING, local maxima search
       IF(verbose) write(*,*) "Running quick shift"
 !!!!!!      IF(verbose) write(*,*) "Lambda: ", lambda
@@ -405,6 +395,8 @@
             qspath(counter)=idxroot(qspath(counter-1))
          ENDDO
          DO j=1,counter
+            ! we found a new root, and we now set this point as the root
+            ! for all the point that are in this qspath 
             idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
          ENDDO
       ENDDO
@@ -444,17 +436,17 @@
       ALLOCATE(clsadj(Nk, Nk))
       clsadj = 0.0d0
       DO i=1, Nk
-         DO j=1,i-1
-            clsadj(i,j) = cls_link(ngrid, idcls, distmm, probnmm, rgrid, i, j)
-            clsadj(j,i) = clsadj(i,j)
-         ENDDO
+          DO j=1,i-1
+              clsadj(i,j) = cls_link(ngrid, idcls, distmm, probnmm, rgrid, i, j)
+              clsadj(j,i) = clsadj(i,j)
+          ENDDO
       ENDDO
       OPEN(UNIT=11,FILE=trim(outputfile)//".adj",STATUS='REPLACE',ACTION='WRITE')
       DO i=1, Nk
-         DO j=1, Nk
-            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadj(i,j)
-         ENDDO
-         WRITE(11,*) ""
+          DO j=1, Nk
+              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadj(i,j)
+          ENDDO
+          WRITE(11,*) ""
       ENDDO
       CLOSE(11)
       
@@ -489,11 +481,14 @@
             DO i=1,ngrid
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
                IF(periodic)THEN
-                  msw = probnmm(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/25.0d0))
+! TODO : check properly if here is better to use sigma2(i) or lambda2 as we were doing previosly
+                  msw = probnmm(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(sigma2(i)/25.0d0))
+                  CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = probnmm(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/25.0d0))
+                  msw = probnmm(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(sigma2(i)/25.0d0))
+                  CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
-               CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
+               
                msmu = msmu + msw*tmpmsmu
                tmppks = tmppks + msw
             ENDDO
@@ -501,7 +496,7 @@
             IF(periodic)THEN
                vmclusters(k)%mean = vmclusters(k)%mean + msmu / tmppks
             ELSE
-               clusters(k)%mean = msmu / tmppks
+               clusters(k)%mean = clusters(k)%mean + msmu / tmppks
             ENDIF
          ENDDO
          
@@ -552,23 +547,19 @@
       IF(periodic)THEN
          ! write the VM distributions
          ! write a 2-lines header containig a bit of information
-         WRITE(comment,*) "# PAMM(PERIODIC) clusters analysis. NSamples: ", nsamples, " NGrid: ", &
-                   ngrid, " QSLambda: ", lambda, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance "
+         WRITE(comment,*) "# PAMMv2 clusters analysis. NSamples: ", nsamples, " NGrid: ", &
+                   ngrid, " QSLambda: ", lambda, ACHAR(10), & 
+                   "# Dimensionality/NClusters//Pk/Mean/Covariance/Period"
 
          OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
-         ! also here we should sort in some way the clusters
          CALL writevmclusters(12, comment, nk, vmclusters)
          CLOSE(UNIT=12)
          DEALLOCATE(vmclusters)
       ELSE
-         ! write gaussians
-         ! oreder gaussians from the closest to the reference point
-         !!TODO: must find a better syntax and strategy to sort clusters
-         ! CALL sortclusters(Nk, clusters, xref)
-         
+         ! write the Gaussians       
          ! write a 2-lines header
-         WRITE(comment,*) "# PAMM clusters analysis. NSamples: ", nsamples, " NGrid: ", &
-                   ngrid, " QSLambda: ", lambda, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance "
+         WRITE(comment,*) "# PAMMv2 clusters analysis. NSamples: ", nsamples, " NGrid: ", &
+                   ngrid, " QSLambda: ", lambda, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance"
          
          OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
          
@@ -579,7 +570,7 @@
       ENDIF
       
       DEALLOCATE(x,wj)
-      DEALLOCATE(xref,period)
+      DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm)
       DEALLOCATE(pnlist,nlist,iminij)
       DEALLOCATE(y,npvoronoi,probnmm,sigma2,rgrid)
@@ -623,7 +614,6 @@
          WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to"
          WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
-         WRITE(*,*) "   -ref X            : Reference point for ordering the clusters [ (-1,0,0,...) ]"
          WRITE(*,*) "   -p P1,...,PD      : Periodicity in each dimension [ (6.28,6.28,6.28,...) ]"
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
@@ -666,12 +656,18 @@
                READ(5,*, IOSTAT=io_status) vbuff(:,counter+1), wbuff(counter+1)
             ELSE
                READ(5,*, IOSTAT=io_status) vbuff(:,counter+1)
-               wbuff(counter+1)=1.0d0
             ENDIF
-            totw=totw+wbuff(counter+1)
+            
             IF(io_status<0 .or. io_status==5008) EXIT    ! also intercepts a weird error given by some compilers when reading past of EOF
             IF(io_status>0) STOP "*** Error occurred while reading file. ***"
 
+            IF(fweight) THEN
+               totw=totw+wbuff(counter+1)
+            ELSE
+               wbuff(counter+1)=1.0d0
+               totw=totw+wbuff(counter+1)
+            ENDIF
+            
             counter=counter+1
 
             ! grow the arrays and dump the buffers
@@ -709,7 +705,6 @@
             nsamples=nsamples+counter
             counter=0
          ENDIF
-
       END SUBROUTINE readinput
 
       SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij)
@@ -1140,47 +1135,5 @@
             listpoints(:,i)= r1 + float(i)*v12
          ENDDO
       END SUBROUTINE getNpoint
-
-      SUBROUTINE sortclusters(nk,clusters,prif)
-         ! Sort the gaussians from the closest to prif
-         ! Bubble-sort ordering is implemented here
-         !
-         ! Args:
-         !    nk: number of gaussian clusters
-         !    clusters: array containing gaussians parameters
-         !    prif: reference point
-
-         INTEGER, INTENT(IN) :: nk
-         TYPE(gauss_type), DIMENSION(nk), INTENT(INOUT) :: clusters
-         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: prif
-
-         TYPE(gauss_type) tmpgauss
-         DOUBLE PRECISION distances(nk),tmpdistance
-         INTEGER j,i
-         LOGICAL :: swapped = .TRUE.
-
-         ! calculate the distances of the means from the reference
-         DO i=1,nk
-            distances(i)=dot_product(clusters(i)%mean-prif,clusters(i)%mean-prif)
-         ENDDO
-         ! now we can sort using the distances
-         ! will use bubble sort
-         DO j=nk-1,1,-1
-            swapped = .FALSE.
-            DO i = 1, j
-               IF (distances(i) > distances(i+1)) THEN
-                  tmpdistance=distances(i)
-                  distances(i)=distances(i+1)
-                  distances(i+1)=tmpdistance
-                  ! swap the clusters
-                  tmpgauss=clusters(i)
-                  clusters(i)=clusters(i+1)
-                  clusters(i+1)=tmpgauss
-                  swapped = .TRUE.
-               END IF
-            END DO
-            IF (.NOT. swapped) EXIT
-         ENDDO
-      END SUBROUTINE sortclusters
 
    END PROGRAM pamm

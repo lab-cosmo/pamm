@@ -237,20 +237,14 @@
             WRITE(*,*) " Error: insert the file containing the gaussians parameters! "
             CALL helpmessage
             CALL EXIT(-1)
-         ELSEIF (vghb(1).EQ.0) THEN
-            ! the user didn't specify indices of clusters that
-            ! describe the HB into the PAMM framework.
-            ! The first gaussian in the list will be used.
-            vghb(1)=1
-            nghb=1
-         ENDIF         
+         ENDIF
       ENDIF
       IF (dosad .and. .not. dopamm) THEN
          WRITE(*,*) " Error: cannot compute lifetime statistics without cluster data! "
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-      !!!! END CHECK .. we needed just few things !!!
+      ! End of the checks.
 
       ! Invert the cell. Needed for PBC.
       CALL invmatrix(3,cell,icell)
@@ -294,10 +288,24 @@
             IF (dopamm .and. .not. ALLOCATED(spa)) THEN
                ! PAMM mode
                ! Read gaussian parameters from the gaussian file
+               ! Non-periodic PAMM version
                OPEN(UNIT=12,FILE=clusterfile,STATUS='OLD',ACTION='READ')
                ! read the gaussian model informations from a file.
                CALL readclusters(12,nk,clusters)
                CLOSE(UNIT=12)
+               IF(clusters(1)%D/=3) STOP "*** This analysis requires a 3D description of the HB! ***"
+               ! The clusters should be sorted out if no specifications on the
+               ! Gaussians describing the HB are given by the user
+               IF (vghb(1).EQ.0) THEN
+                  ! the user didn't specify aniything regarding the indices 
+                  ! of the clusters that should describe the HB.
+                  ! We will assume here there is just one cluster describing the HB
+                  ! and that specific cluster will be the one closest to an hard coded
+                  ! reference point
+                  CALL sortclusters(nk, clusters)
+                  vghb(1)=1
+                  nghb=1
+               ENDIF         
             ENDIF
             IF (ALLOCATED(spa) .and. SIZE(sa)/=natoms) THEN ! reallocate everything upon natoms change
                DEALLOCATE(spa,spd,sph,sa,sd,sh,pnks)
@@ -476,5 +484,49 @@
                ENDIF
             ENDDO
          END FUNCTION
+
+      SUBROUTINE sortclusters(nk,clusters)
+         ! Sort the gaussians according to their distance from
+         ! an hard-coded reference point
+         !
+         ! Args:
+         !    nk: number of gaussian clusters
+         !    clusters: array containing gaussians parameters
+
+         INTEGER, INTENT(IN) :: nk
+         TYPE(gauss_type), DIMENSION(nk), INTENT(INOUT) :: clusters
+
+         TYPE(gauss_type) tmpgauss
+         DOUBLE PRECISION distances(nk),prif(3),tmpdistance
+         INTEGER j,i
+         LOGICAL :: swapped = .TRUE.
+         
+         ! Set the reference to the HB cluster found in a b3lyp+vdW calculation
+         prif(1)=-0.82d0
+         prif(2)=2.82d0
+         prif(3)=2.74d0
+         ! calculate the distances of the means from the reference
+         DO i=1,nk
+            distances(i)=dot_product(clusters(i)%mean-prif,clusters(i)%mean-prif)
+         ENDDO
+         ! now we can sort using the distances
+         ! will use bubble sort
+         DO j=nk-1,1,-1
+            swapped = .FALSE.
+            DO i = 1, j
+               IF (distances(i) > distances(i+1)) THEN
+                  tmpdistance=distances(i)
+                  distances(i)=distances(i+1)
+                  distances(i+1)=tmpdistance
+                  ! swap the clusters
+                  tmpgauss=clusters(i)
+                  clusters(i)=clusters(i+1)
+                  clusters(i+1)=tmpgauss
+                  swapped = .TRUE.
+               END IF
+            END DO
+            IF (.NOT. swapped) EXIT
+         ENDDO
+      END SUBROUTINE sortclusters
 
       END PROGRAM hbpamm
