@@ -66,6 +66,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: x , y
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
+      INTEGER zneigh
       ! cluster connectivity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
       INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
@@ -400,7 +401,9 @@
          WRITE(*,*) " NSamples: ", nsamples
          WRITE(*,*) " Selecting ", ngrid, " points using MINMAX"
       ENDIF
-
+      
+      zneigh = INT(DLOG(0.01d0/DBLE(ngrid))/DLOG(2.0d0))
+      
       CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro, &
                   saveidxs,outputfile)
       
@@ -711,7 +714,8 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-                            qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
+                            !qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
+                            xqs_next(ngrid,qspath(counter),zneigh,prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1094,6 +1098,15 @@
          bb = temp
       END SUBROUTINE swap
       
+      SUBROUTINE swapi(aa, bb)
+      !  This subroutine swaps the values of its two formal arguments.
+         INTEGER, INTENT(INOUT) :: aa, bb
+         INTEGER                :: temp
+         temp = aa
+         aa = bb
+         bb = temp
+      END SUBROUTINE swapi
+      
       SUBROUTINE sort(x, nn)
          ! This subroutine receives an array x() and sorts it into ascending order.
          INTEGER, INTENT(IN) :: nn
@@ -1107,6 +1120,24 @@
             CALL  swap(x(i), x(location)) ! swap this and the minimum
          END DO
       END SUBROUTINE sort
+
+      SUBROUTINE argsort(x, sidx, nn)
+         ! This subroutine receives an array x() and sorts it into ascending order.
+         INTEGER, INTENT(IN) :: nn
+         DOUBLE PRECISION, INTENT(IN) :: x(nn)
+         INTEGER, INTENT(OUT) :: sidx(nn)
+         
+         INTEGER  i,location
+         
+         DO i = 1, nn
+            sidx(i) = i
+         ENDDO
+         
+         DO i = 1, nn-1 ! except for the last
+            location = findMinimum(x, i, nn) ! find min from this to last
+            CALL  swapi(sidx(i), sidx(location)) ! swap this and the minimum
+         END DO
+      END SUBROUTINE argsort
 
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
@@ -1505,6 +1536,41 @@
             ENDIF
          ENDDO
       END FUNCTION qs_next
+      
+      INTEGER FUNCTION xqs_next(ngrid,idx,nn,probnmm,distmm)
+         ! Return the index of the closest point higher in P
+         !
+         ! Args:
+         !    ngrid: number of grid points
+         !    idx: current point
+         !    lambda: cut-off in the jump
+         !    probnmm: density estimations
+         !    distmm: distances matrix
+
+         INTEGER, INTENT(IN) :: ngrid
+         INTEGER, INTENT(IN) :: idx
+         INTEGER, INTENT(IN) :: nn
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
+
+         INTEGER i,j,sortedidxs(ngrid)
+         DOUBLE PRECISION dmin
+		 
+		 ! get the sorted indexes of the NN
+         CALL argsort(distmm(idx,:),sortedidxs,ngrid)
+		 
+         dmin=1.0d10
+         xqs_next=idx
+         DO i=1, nn
+            j=sortedidxs(i)
+            IF(probnmm(j).GT.probnmm(idx))THEN
+               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda2))THEN
+                  dmin=distmm(idx,j)
+                  xqs_next=j
+               ENDIF
+            ENDIF
+         ENDDO
+      END FUNCTION xqs_next
       
       DOUBLE PRECISION FUNCTION fmultikernel(D,period,x,y,icov)
          ! Return the multivariate gaussian density
