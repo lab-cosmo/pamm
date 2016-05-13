@@ -992,6 +992,7 @@
          
          INTEGER :: npath
          INTEGER :: path(ngrid)
+         LOGICAL :: fsaddle, fjump
          DOUBLE PRECISION :: dmin
             
          dmin=1.0d100
@@ -1019,22 +1020,15 @@
                CALL neb_path(ngrid, path, npath, distmm, probnmm, 0.1d0)
                CALL neb_path(ngrid, path, npath, distmm, probnmm, 0.1d0)
             ENDIF            
-            
+            fsaddle = .false.
+            fjump = .false.
             ! check if the path goes downhill to within accuracy
             DO i=2,npath-1
             
                IF ((probnmm(path(i))-probnmm(idx))/ &
                    (probnmm(path(i))+probnmm(idx))<-3*kderr) THEN ! yey! we found a point lower in probability so we should not jump!
                   qs_next = idx       
-                  IF (verbose) THEN
-                     dmin = 0.0d0
-                     write(*,*) "# SADDLE POINT DETECTED"
-                     write(*,*) 1, dmin, probnmm(path(1)), path(1)
-                     DO j=2,npath                        
-                        dmin = dmin + distmm(path(j),path(j-1))
-                        write(*,*) j, dmin, probnmm(path(j)), path(j)                        
-                     ENDDO
-                  ENDIF
+                  fsaddle = .true.                  
                   EXIT
                ENDIF
             ENDDO
@@ -1043,18 +1037,20 @@
                IF (dsqrt( distmm(path(i),path(i+1)) ) >  &
                   6*(dsqrt(rgrid(path(i)))+dsqrt(rgrid(path(i+1)))) ) THEN
                   qs_next=idx ! abort jump!
-                  IF (verbose) THEN
-                     dmin = 0.0d0
-                     write(*,*) "# LONG JUMP DETECTED"
-                     write(*,*) 1, dmin, probnmm(path(1)), path(1)
-                     DO j=2,npath                        
-                        dmin = dmin + distmm(path(j),path(j-1))
-                        write(*,*) j, dmin, probnmm(path(j)), path(j)                        
-                     ENDDO
-                  ENDIF
+                  fjump = .true.                  
                   EXIT
                ENDIF
             ENDDO     
+            IF (verbose .and. (fsaddle .or. fjump)) THEN
+               dmin = 0.0d0
+               IF (fsaddle) write(*,*) "# SADDLE POINT DETECTED"
+               IF (fjump) write(*,*) "# SADDLE POINT DETECTED"            
+               write(*,*) 1, dmin, probnmm(path(1)), path(1), y(:,path(1))
+               DO j=2,npath                        
+                  dmin = dmin + distmm(path(j),path(j-1))
+                  write(*,*) j, dmin, probnmm(path(j)), path(j), y(:,path(j))
+               ENDDO
+            ENDIF
          ENDIF         
          
       END FUNCTION qs_next
