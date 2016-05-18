@@ -1,0 +1,574 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 10.2' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[     18615,        565]
+NotebookOptionsPosition[     16886,        506]
+NotebookOutlinePosition[     17220,        521]
+CellTagsIndexPosition[     17177,        518]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+
+Cell[CellGroupData[{
+Cell["Make the definition of a symmetric HB symmetric", "Title",
+ CellChangeTimes->{{3.672149254094487*^9, 3.672149254583363*^9}, {
+  3.6725681423490257`*^9, 3.6725681684786263`*^9}}],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"DROOT", "=", 
+  RowBox[{"NotebookDirectory", "[", "]"}]}]], "Input",
+ CellChangeTimes->{{3.6721443887523746`*^9, 3.672144415769513*^9}}],
+
+Cell[BoxData["\<\"/home/kapil/Downloads/pamm/\"\>"], "Output",
+ CellChangeTimes->{{3.672144402517375*^9, 3.672144416344993*^9}, 
+   3.6721492609833193`*^9}]
+}, Open  ]],
+
+Cell["Read the header, to print it out after the symmetrization", "Text",
+ CellChangeTimes->{{3.672568176851531*^9, 3.6725682456524363`*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"header", "=", 
+   RowBox[{
+    RowBox[{"Import", "[", 
+     RowBox[{
+      RowBox[{"DROOT", "<>", "\"\<sc.pamm\>\""}], ",", "\"\<Table\>\""}], 
+     "]"}], "[", 
+    RowBox[{"[", 
+     RowBox[{"1", ";;", "3"}], "]"}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672148278846702*^9, 3.672148314154222*^9}, {
+  3.6721483505265827`*^9, 3.672148361941214*^9}}],
+
+Cell["Read the weights", "Text",
+ CellChangeTimes->{{3.672568252330207*^9, 3.672568263567173*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"gaussianspks", "=", 
+   RowBox[{
+    RowBox[{"Drop", "[", 
+     RowBox[{
+      RowBox[{"Import", "[", 
+       RowBox[{
+        RowBox[{"DROOT", "<>", "\"\<sc.pamm\>\""}], ",", "\"\<Table\>\""}], 
+       "]"}], ",", "3"}], "]"}], "[", 
+    RowBox[{"[", 
+     RowBox[{"All", ",", "1"}], "]"}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.67214441854011*^9, 3.672144564132337*^9}}],
+
+Cell["Read the centers of each Gaussians", "Text",
+ CellChangeTimes->{{3.672568266971369*^9, 3.672568278132935*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"gaussianscenters", "=", 
+   RowBox[{
+    RowBox[{"Drop", "[", 
+     RowBox[{
+      RowBox[{"Import", "[", 
+       RowBox[{
+        RowBox[{"DROOT", "<>", "\"\<sc.pamm\>\""}], ",", "\"\<Table\>\""}], 
+       "]"}], ",", "3"}], "]"}], "[", 
+    RowBox[{"[", 
+     RowBox[{"All", ",", 
+      RowBox[{"2", ";;", "4"}]}], "]"}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.6721445728782997`*^9, 3.672144586734499*^9}}],
+
+Cell["Read the covariances", "Text",
+ CellChangeTimes->{{3.6725683056529903`*^9, 3.67256831773739*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"gaussianscovstmp", "=", 
+   RowBox[{
+    RowBox[{"Drop", "[", 
+     RowBox[{
+      RowBox[{"Import", "[", 
+       RowBox[{
+        RowBox[{"DROOT", "<>", "\"\<sc.pamm\>\""}], ",", "\"\<Table\>\""}], 
+       "]"}], ",", "3"}], "]"}], "[", 
+    RowBox[{"[", 
+     RowBox[{"All", ",", 
+      RowBox[{"5", ";;", "13"}]}], "]"}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.6721445728782997`*^9, 3.672144586734499*^9}, {
+  3.6721446613388233`*^9, 3.6721446737575397`*^9}, {3.6721466947094307`*^9, 
+  3.672146695061129*^9}}],
+
+Cell["Make a proper matrix for each Gaussian", "Text",
+ CellChangeTimes->{{3.6725683312806473`*^9, 3.67256836432343*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"gaussianscovs", "=", 
+   RowBox[{"Table", "[", 
+    RowBox[{
+     RowBox[{"Partition", "[", 
+      RowBox[{
+       RowBox[{"gaussianscovstmp", "[", 
+        RowBox[{"[", "i", "]"}], "]"}], ",", "3"}], "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"i", ",", "1", ",", 
+       RowBox[{"Length", "@", "gaussianscovstmp"}]}], "}"}]}], "]"}]}], 
+  ";"}]], "Input",
+ CellChangeTimes->{{3.6721466982220488`*^9, 3.672146779019126*^9}}],
+
+Cell["Split the donor side from the accepetor side", "Text",
+ CellChangeTimes->{{3.672568374585063*^9, 3.6725683929862556`*^9}}],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"test", "=", 
+   RowBox[{"Negative", "[", 
+    RowBox[{"gaussianscenters", "[", 
+     RowBox[{"[", 
+      RowBox[{"All", ",", "1"}], "]"}], "]"}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672144899106436*^9, 3.6721449443776903`*^9}, {
+   3.672145393842154*^9, 3.672145407215501*^9}, 3.6725683972679043`*^9}],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{
+  "True", ",", "False", ",", "True", ",", "True", ",", "True", ",", "False", 
+   ",", "False", ",", "False"}], "}"}]], "Output",
+ CellChangeTimes->{{3.6721448963725777`*^9, 3.672144914925543*^9}, 
+   3.6721449450410147`*^9, {3.672145396475813*^9, 3.672145407483304*^9}, 
+   3.6721492611224127`*^9}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"indexplus", "=", 
+   RowBox[{"DeleteCases", "[", 
+    RowBox[{
+     RowBox[{"Sort", "@", 
+      RowBox[{"Table", "[", 
+       RowBox[{
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"test", "[", 
+           RowBox[{"[", "i", "]"}], "]"}], ",", "i"}], "]"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"i", ",", 
+          RowBox[{"Length", "@", "gaussianscenters"}]}], "}"}]}], "]"}]}], 
+     ",", "Null"}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672144946400483*^9, 3.672144997448447*^9}, {
+   3.67214505215818*^9, 3.6721451429349623`*^9}, {3.672145176859202*^9, 
+   3.672145182277999*^9}, 3.672568407257557*^9}],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{"1", ",", "3", ",", "4", ",", "5"}], "}"}]], "Output",
+ CellChangeTimes->{{3.67214516775924*^9, 3.672145189093019*^9}, 
+   3.672149261160961*^9}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"indexminus", "=", 
+   RowBox[{"DeleteCases", "[", 
+    RowBox[{
+     RowBox[{"Sort", "@", 
+      RowBox[{"Table", "[", 
+       RowBox[{
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"!", 
+           RowBox[{"test", "[", 
+            RowBox[{"[", "i", "]"}], "]"}]}], ",", "i"}], "]"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"i", ",", 
+          RowBox[{"Length", "@", "gaussianscenters"}]}], "}"}]}], "]"}]}], 
+     ",", "Null"}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.6721451988082657`*^9, 3.67214520289046*^9}, 
+   3.6725684082922583`*^9}],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{"2", ",", "6", ",", "7", ",", "8"}], "}"}]], "Output",
+ CellChangeTimes->{3.672145203850424*^9, 3.6721492612020473`*^9}]
+}, Open  ]],
+
+Cell["Get the pairs tha should be symmetrized", "Text",
+ CellChangeTimes->{{3.67256842898258*^9, 3.6725684554547997`*^9}}],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"idxes", "=", 
+   RowBox[{"DeleteCases", "[", 
+    RowBox[{
+     RowBox[{"Sort", "@", 
+      RowBox[{"Flatten", "[", 
+       RowBox[{
+        RowBox[{"Table", "[", 
+         RowBox[{
+          RowBox[{"If", "[", 
+           RowBox[{
+            RowBox[{
+             RowBox[{"Norm", "[", 
+              RowBox[{
+               RowBox[{"Abs", "/@", 
+                RowBox[{"gaussianscenters", "[", 
+                 RowBox[{"[", "i", "]"}], "]"}]}], "-", 
+               RowBox[{"Abs", "/@", 
+                RowBox[{"gaussianscenters", "[", 
+                 RowBox[{"[", "j", "]"}], "]"}]}]}], "]"}], "<", "0.3"}], ",", 
+            RowBox[{"{", 
+             RowBox[{"i", ",", "j"}], "}"}]}], "]"}], ",", 
+          RowBox[{"{", 
+           RowBox[{"i", ",", "indexplus"}], "}"}], ",", 
+          RowBox[{"{", 
+           RowBox[{"j", ",", "indexminus"}], "}"}]}], "]"}], ",", "1"}], 
+       "]"}]}], ",", "Null"}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672145220454924*^9, 3.672145257774343*^9}, {
+   3.672145317542494*^9, 3.672145335110909*^9}, {3.6721453751786213`*^9, 
+   3.672145386152274*^9}, {3.672145418612035*^9, 3.672145556351553*^9}, {
+   3.6721456174928827`*^9, 3.672145806274365*^9}, 3.6725684705962553`*^9}],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{
+   RowBox[{"{", 
+    RowBox[{"1", ",", "2"}], "}"}], ",", 
+   RowBox[{"{", 
+    RowBox[{"3", ",", "7"}], "}"}], ",", 
+   RowBox[{"{", 
+    RowBox[{"4", ",", "6"}], "}"}], ",", 
+   RowBox[{"{", 
+    RowBox[{"5", ",", "8"}], "}"}]}], "}"}]], "Output",
+ CellChangeTimes->{{3.672145689494954*^9, 3.672145807567605*^9}, 
+   3.672149261261747*^9}]
+}, Open  ]],
+
+Cell["Symmetrization", "Text",
+ CellChangeTimes->{{3.6725685332964354`*^9, 3.672568536472455*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"meanoperat", "=", 
+   RowBox[{"{", 
+    RowBox[{
+     RowBox[{"-", "1"}], ",", "1", ",", "1"}], "}"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672147446873427*^9, 3.672147464842204*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"covoperat", "=", 
+   RowBox[{"{", 
+    RowBox[{
+     RowBox[{"{", 
+      RowBox[{"1", ",", 
+       RowBox[{"-", "1"}], ",", 
+       RowBox[{"-", "1"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{
+       RowBox[{"-", "1"}], ",", "1", ",", "1"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{
+       RowBox[{"-", "1"}], ",", "1", ",", "1"}], "}"}]}], "}"}]}], 
+  ";"}]], "Input",
+ CellChangeTimes->{{3.6721464202502623`*^9, 3.6721464917695303`*^9}, 
+   3.672147462508205*^9}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"newgaussianspks", "=", 
+   RowBox[{"Table", "[", 
+    RowBox[{
+     RowBox[{"Mean", "[", 
+      RowBox[{"{", 
+       RowBox[{
+        RowBox[{"gaussianspks", "[", 
+         RowBox[{"[", 
+          RowBox[{"idxes", "[", 
+           RowBox[{"[", 
+            RowBox[{"k", ",", "1"}], "]"}], "]"}], "]"}], "]"}], ",", 
+        RowBox[{"gaussianspks", "[", 
+         RowBox[{"[", 
+          RowBox[{"idxes", "[", 
+           RowBox[{"[", 
+            RowBox[{"k", ",", "2"}], "]"}], "]"}], "]"}], "]"}]}], "}"}], 
+      "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"k", ",", "1", ",", 
+       RowBox[{"Length", "@", "idxes"}]}], "}"}]}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672148594784896*^9, 3.672148717361755*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"newdongaussianscenters", "=", 
+   RowBox[{"Table", "[", 
+    RowBox[{
+     RowBox[{"Table", "[", 
+      RowBox[{
+       RowBox[{"Mean", "[", 
+        RowBox[{"{", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"gaussianscenters", "[", 
+            RowBox[{"[", 
+             RowBox[{"idxes", "[", 
+              RowBox[{"[", 
+               RowBox[{"k", ",", "1"}], "]"}], "]"}], "]"}], "]"}], "[", 
+           RowBox[{"[", "i", "]"}], "]"}], ",", 
+          RowBox[{
+           RowBox[{"meanoperat", "[", 
+            RowBox[{"[", "i", "]"}], "]"}], 
+           RowBox[{
+            RowBox[{"gaussianscenters", "[", 
+             RowBox[{"[", 
+              RowBox[{"idxes", "[", 
+               RowBox[{"[", 
+                RowBox[{"k", ",", "2"}], "]"}], "]"}], "]"}], "]"}], "[", 
+            RowBox[{"[", "i", "]"}], "]"}]}]}], "}"}], "]"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"i", ",", "1", ",", "3"}], "}"}]}], "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"k", ",", 
+       RowBox[{"Length", "@", "idxes"}]}], "}"}]}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.6721458174363327`*^9, 3.672145885544642*^9}, {
+  3.672145952757464*^9, 3.67214603088861*^9}, {3.672146070388668*^9, 
+  3.672146275978784*^9}, {3.672146364478486*^9, 3.672146376123966*^9}, {
+  3.672147504711007*^9, 3.6721476132259207`*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"newdongaussianscovs", "=", 
+   RowBox[{"Table", "[", 
+    RowBox[{
+     RowBox[{"Table", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"(", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"gaussianscovs", "[", 
+            RowBox[{"[", 
+             RowBox[{"idxes", "[", 
+              RowBox[{"[", 
+               RowBox[{"k", ",", "1"}], "]"}], "]"}], "]"}], "]"}], "[", 
+           RowBox[{"[", 
+            RowBox[{"i", ",", "j"}], "]"}], "]"}], "+", 
+          RowBox[{
+           RowBox[{"covoperat", "[", 
+            RowBox[{"[", 
+             RowBox[{"i", ",", "j"}], "]"}], "]"}], 
+           RowBox[{
+            RowBox[{"gaussianscovs", "[", 
+             RowBox[{"[", 
+              RowBox[{"idxes", "[", 
+               RowBox[{"[", 
+                RowBox[{"k", ",", "2"}], "]"}], "]"}], "]"}], "]"}], "[", 
+            RowBox[{"[", 
+             RowBox[{"i", ",", "j"}], "]"}], "]"}]}]}], ")"}], "/", "2"}], 
+       ",", 
+       RowBox[{"{", 
+        RowBox[{"i", ",", "1", ",", "3"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"j", ",", "1", ",", "3"}], "}"}]}], "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"k", ",", "1", ",", 
+       RowBox[{"Length", "@", "idxes"}]}], "}"}]}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672146531180318*^9, 3.672146601376676*^9}, {
+  3.672146797174662*^9, 3.6721469735149097`*^9}, {3.672147011812086*^9, 
+  3.67214702576858*^9}, {3.6721473938921127`*^9, 3.672147396111979*^9}, {
+  3.6721476427457438`*^9, 3.672147658163115*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"newaccgaussianscenters", "=", 
+   RowBox[{"Table", "[", 
+    RowBox[{
+     RowBox[{"Table", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"meanoperat", "[", 
+         RowBox[{"[", "i", "]"}], "]"}], 
+        RowBox[{
+         RowBox[{"newdongaussianscenters", "[", 
+          RowBox[{"[", "k", "]"}], "]"}], "[", 
+         RowBox[{"[", "i", "]"}], "]"}]}], ",", 
+       RowBox[{"{", 
+        RowBox[{"i", ",", "1", ",", "3"}], "}"}]}], "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"k", ",", "1", ",", 
+       RowBox[{"Length", "@", "idxes"}]}], "}"}]}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.6721476799536552`*^9, 3.672147703442181*^9}, {
+   3.672147742246274*^9, 3.672147812688623*^9}, 3.672147843161826*^9}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"newaccgaussianscovs", "=", 
+   RowBox[{"Table", "[", 
+    RowBox[{
+     RowBox[{"Table", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"covoperat", "[", 
+         RowBox[{"[", 
+          RowBox[{"i", ",", "j"}], "]"}], "]"}], 
+        RowBox[{
+         RowBox[{"newdongaussianscovs", "[", 
+          RowBox[{"[", "k", "]"}], "]"}], "[", 
+         RowBox[{"[", 
+          RowBox[{"i", ",", "j"}], "]"}], "]"}]}], ",", 
+       RowBox[{"{", 
+        RowBox[{"i", ",", "1", ",", "3"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"j", ",", "1", ",", "3"}], "}"}]}], "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"k", ",", "1", ",", 
+       RowBox[{"Length", "@", "idxes"}]}], "}"}]}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672146531180318*^9, 3.672146601376676*^9}, {
+  3.672146797174662*^9, 3.6721469735149097`*^9}, {3.672147011812086*^9, 
+  3.67214702576858*^9}, {3.6721473938921127`*^9, 3.672147396111979*^9}, {
+  3.6721476427457438`*^9, 3.672147658163115*^9}, {3.67214785518211*^9, 
+  3.672147922559331*^9}, {3.6721481199668922`*^9, 3.672148120545607*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"newgaussdon", "=", 
+   RowBox[{"Table", "[", 
+    RowBox[{
+     RowBox[{"Join", "[", 
+      RowBox[{
+       RowBox[{"{", 
+        RowBox[{"newgaussianspks", "[", 
+         RowBox[{"[", "i", "]"}], "]"}], "}"}], ",", 
+       RowBox[{"newdongaussianscenters", "[", 
+        RowBox[{"[", "i", "]"}], "]"}], ",", 
+       RowBox[{"Flatten", "@", 
+        RowBox[{"newdongaussianscovs", "[", 
+         RowBox[{"[", "i", "]"}], "]"}]}]}], "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"i", ",", "1", ",", 
+       RowBox[{"Length", "@", "idxes"}]}], "}"}]}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672148437336645*^9, 3.672148472030531*^9}, {
+  3.672148510390469*^9, 3.6721485842824793`*^9}, {3.672148724887146*^9, 
+  3.672148761630286*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"newgaussacc", "=", 
+   RowBox[{"Table", "[", 
+    RowBox[{
+     RowBox[{"Join", "[", 
+      RowBox[{
+       RowBox[{"{", 
+        RowBox[{"newgaussianspks", "[", 
+         RowBox[{"[", "i", "]"}], "]"}], "}"}], ",", 
+       RowBox[{"newaccgaussianscenters", "[", 
+        RowBox[{"[", "i", "]"}], "]"}], ",", 
+       RowBox[{"Flatten", "@", 
+        RowBox[{"newaccgaussianscovs", "[", 
+         RowBox[{"[", "i", "]"}], "]"}]}]}], "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"i", ",", "1", ",", 
+       RowBox[{"Length", "@", "idxes"}]}], "}"}]}], "]"}]}], ";"}]], "Input",
+ CellChangeTimes->{{3.672148437336645*^9, 3.672148472030531*^9}, {
+  3.672148510390469*^9, 3.6721485842824793`*^9}, {3.672148724887146*^9, 
+  3.672148788096939*^9}}],
+
+Cell["Write out!", "Text",
+ CellChangeTimes->{{3.672568479053893*^9, 3.672568483701063*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"Export", "[", 
+   RowBox[{
+    RowBox[{"DROOT", "<>", "\"\<sorted.pamm\>\""}], ",", 
+    RowBox[{"Join", "[", 
+     RowBox[{"header", ",", "newgaussdon", ",", "newgaussacc"}], "]"}], ",", 
+    "\"\<Table\>\""}], "]"}], ";"}]], "Input",
+ CellChangeTimes->{{3.67214833898783*^9, 3.6721484178275337`*^9}, {
+   3.672148798685546*^9, 3.672148819281784*^9}, 3.672148870803954*^9}]
+}, Open  ]]
+},
+WindowSize->{1855, 1176},
+WindowMargins->{{0, Automatic}, {Automatic, 0}},
+FrontEndVersion->"10.0 for Linux x86 (64-bit) (June 27, 2014)",
+StyleDefinitions->"Default.nb"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[CellGroupData[{
+Cell[580, 22, 183, 2, 93, "Title"],
+Cell[CellGroupData[{
+Cell[788, 28, 160, 3, 32, "Input"],
+Cell[951, 33, 156, 2, 32, "Output"]
+}, Open  ]],
+Cell[1122, 38, 141, 1, 33, "Text"],
+Cell[1266, 41, 395, 11, 32, "Input"],
+Cell[1664, 54, 98, 1, 33, "Text"],
+Cell[1765, 57, 417, 12, 32, "Input"],
+Cell[2185, 71, 116, 1, 33, "Text"],
+Cell[2304, 74, 452, 13, 32, "Input"],
+Cell[2759, 89, 103, 1, 33, "Text"],
+Cell[2865, 92, 557, 15, 32, "Input"],
+Cell[3425, 109, 121, 1, 33, "Text"],
+Cell[3549, 112, 462, 13, 32, "Input"],
+Cell[4014, 127, 128, 1, 33, "Text"],
+Cell[CellGroupData[{
+Cell[4167, 132, 348, 8, 32, "Input"],
+Cell[4518, 142, 338, 7, 32, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[4893, 154, 676, 18, 32, "Input"],
+Cell[5572, 174, 184, 4, 32, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[5793, 183, 611, 18, 32, "Input"],
+Cell[6407, 203, 159, 3, 32, "Output"]
+}, Open  ]],
+Cell[6581, 209, 122, 1, 33, "Text"],
+Cell[CellGroupData[{
+Cell[6728, 214, 1268, 31, 32, "Input"],
+Cell[7999, 247, 381, 12, 32, "Output"]
+}, Open  ]],
+Cell[8395, 262, 98, 1, 33, "Text"],
+Cell[8496, 265, 222, 6, 32, "Input"],
+Cell[8721, 273, 514, 17, 32, "Input"],
+Cell[9238, 292, 761, 22, 32, "Input"],
+Cell[10002, 316, 1368, 35, 32, "Input"],
+Cell[11373, 353, 1548, 41, 32, "Input"],
+Cell[12924, 396, 762, 20, 32, "Input"],
+Cell[13689, 418, 1114, 27, 32, "Input"],
+Cell[14806, 447, 777, 20, 32, "Input"],
+Cell[15586, 469, 777, 20, 32, "Input"],
+Cell[16366, 491, 92, 1, 33, "Text"],
+Cell[16461, 494, 409, 9, 32, "Input"]
+}, Open  ]]
+}
+]
+*)
+
+(* End of internal cache information *)
