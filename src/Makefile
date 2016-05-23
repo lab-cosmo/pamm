@@ -22,7 +22,7 @@
 FF=gfortran
 FFLAGS=-O0 -g -Wall -Wno-maybe-uninitialized
 LDFLAGS=-llapack
-MODULES=libpamm.f90 xyz.f90
+MODULES=libpamm.f90 xyz.f90 random.f90
 OBJECTS=$(MODULES:.f90=.o)
 TOOLS=pamm hbpamm
 
