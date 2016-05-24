@@ -32,6 +32,8 @@
       USE libpamm
       USE random
       IMPLICIT NONE
+     
+      INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 
       CHARACTER(LEN=1024) :: outputfile, clusterfile          ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: period(:)              ! Periodic lenght in each dimension
@@ -357,11 +359,23 @@
           ALLOCATE(probboot(ngrid,nbootstrap))
           ALLOCATE(errprobnmm(ngrid))
           probboot = 0.0d0
+          
+          !$omp parallel &
+          !$omp default (none) &
+          !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose) &
+          !$omp private (nn,i,j,k,rngidx,rndidx)
+          
+          !$omp DO
           DO nn=1,nbootstrap
+!#ifdef _OPENMP
               IF(verbose) WRITE(*,*) &
-                    "Bootstrapping, run ", nn
+                    "Bootstrapping, run ", nn , " therad n. : ", omp_get_thread_num() 
+!#else
+!              IF(verbose) WRITE(*,*) &
+!                    "Bootstrapping, run ", nn
+!#endif
               DO i=1,ngrid
-                  normboot=0.0d0
+                  !normboot=0.0d0
                   ! Instead of cycling on all the point we cycle on the Voronoi 
                   DO j=1,ngrid
                      ! do not compute KDEs for points that belong to far away Voronoi
@@ -373,12 +387,15 @@
                          rndidx=int(rngidx*random_uniform())+pnlist(j)+1              
                          probboot(i,nn)=probboot(i,nn)+ wj(nlist(rndidx))* &
                            fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(rndidx)))
-                         normboot=normboot+wj(nlist(rngidx))
+                         !normboot=normboot+wj(nlist(rngidx))
                      ENDDO
                   ENDDO         
-                  probboot(i,nn)=probboot(i,nn)/normboot
+                  probboot(i,nn)=probboot(i,nn)/normwj
               ENDDO
-          ENDDO 
+          ENDDO
+          !$omp ENDDO
+          
+          !$omp END PARALLEL
           ! Average the estimates and get an error bar
           errprobnmm = 0.0d0
           probnmm    = 0.0d0
