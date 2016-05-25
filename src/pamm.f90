@@ -107,6 +107,7 @@
       adaptive=0          ! don't use the adaptive
       neblike=0           ! don't use neb paths
       nbootstrap=0        ! do not use bootstrap
+      qserr=7             ! threshold to accept a move in qs
       
       D=-1
       periodic=.false.
@@ -461,7 +462,7 @@
             tmpcheck=0
             DO j=1,ngrid
                 ! Use the variance got during the bootstrapping procedure to update the sigmas used in the KDE
-                IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)
+                IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)/probnmm(j)
                 tmps2(j) = sigma2(j)
                 ! refine the sigams according to the target kderr
                 IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
@@ -757,12 +758,14 @@
          WRITE(*,*) "                            output.pamm (cluster parameters) "
          WRITE(*,*) "   -l lambda         : Quick shift cutoff [automatic] "
          WRITE(*,*) "                       (Not used with the -neblike flag active)"
-         WRITE(*,*) "   -kde err          : Target fractional error for KDE smoothing [0.1]"
+         WRITE(*,*) "   -kde err          : Target fractional target error for KDE smoothing [0.1]"
+         WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift "
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -bootstrap N      : Number of iteretions to do when using bootstrapping "
          WRITE(*,*) "                       to refine the KDE on the grid points"
-         WRITE(*,*) "   -neblike          : Try to improve the clustering using neblike path search algorithm "
-         WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to"
+         WRITE(*,*) "   -neblike N        : Try to improve the clustering using neblike path search algorithm "
+         WRITE(*,*) "                       N is the number of iterations "
+         WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to "
          WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -p P1,...,PD      : Periodicity in each dimension [ (6.28,6.28,6.28,...) ]"
@@ -1176,14 +1179,14 @@
                
                ! check if the path goes downhill to within accuracy
                DO i=2,npath-1
-   !!!!!check using the error
-   !!!!! p1-p2 -> associated error, err = SQRT(errp1**2+errp2**2) 
-   !!!!! relative error -> err/(p1-p2)
-   !!!!! that is the comparison I have to do!           
+!!!!!check using the error
+!!!!! p1-p2 -> associated error, err = SQRT(errp1**2+errp2**2) 
+!!!!! relative error -> err/(p1-p2)
+!!!!! that is the comparison I have to do!           
                   IF(nbootstrap>0)THEN
-                     relerr=DSQRT(errors(path(i))**2+errors(idx)**2)/ &
-                              (probnmm(path(i))-probnmm(idx))
-                     IF(ABS(relerr)<qserr) THEN
+                     relerr= (probnmm(path(i))-probnmm(idx)) / &
+                             DSQRT(errors(path(i))**2+errors(idx)**2) 
+                     IF(ABS(relerr)>qserr) THEN
                          qs_next = idx 
                          EXIT
                      ENDIF
