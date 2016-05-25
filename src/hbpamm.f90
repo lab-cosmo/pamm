@@ -52,6 +52,7 @@
       ! collective variables describing the HB
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: spa, spd, sph, sad
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:)   :: sa, sd, sh
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:)   :: s2aa, s2dd, s2ad, s2da
       ! point in the high-dimensional description
       DOUBLE PRECISION, DIMENSION(3) :: x  ! [nu,mu,r]
       DOUBLE PRECISION rah,rdh,wfactor     ! distances and weight 
@@ -59,7 +60,7 @@
       ! for a faster reading
       ! counters
       INTEGER i,ts
-      LOGICAL convert,dopamm,dosad,nptm,weighted
+      LOGICAL convert,dopamm,dosad,dos2,nptm,weighted
       INTEGER delta
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions 
       INTEGER nghb ! number of gaussians describing the HB
@@ -88,6 +89,7 @@
       convert       = .false.
       dopamm        = .false.
       dosad         = .false.
+      dos2          = .false.
       nptm          = .false.
       weighted      = .false.   ! don't use wfactor by default
       endf          = 0
@@ -120,6 +122,8 @@
             ccmd = 10
          ELSEIF (cmdbuffer == "-sad") THEN ! hb lifetime statistics
             dosad = .true.
+         ELSEIF (cmdbuffer == "-s2") THEN ! hb lifetime statistics
+            dos2 = .true.
          ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
             nptm = .true.
          ELSEIF (cmdbuffer == "-w") THEN ! weighted  mode
@@ -290,10 +294,11 @@
                CLOSE(UNIT=12)
                ALLOCATE(spa(nk,natoms), spd(nk,natoms), sph(nk,natoms))
                ALLOCATE(sa(natoms), sd(natoms), sh(natoms), pnks(nk))
+               ALLOCATE(s2aa(natoms), s2dd(natoms), s2ad(natoms), s2da(natoms))
                spa=0.0d0
                spd=0.0d0
                sph=0.0d0
-               IF (dosad) THEN
+               IF (dosad .OR. dos2) THEN
                   ALLOCATE(sad(natoms,natoms))
                   sad=0.0d0
                ENDIF
@@ -311,11 +316,15 @@
                sph=0.0d0
                spa=0.0d0
                spd=0.0d0
+               s2aa=0.0d0
+               s2dd=0.0d0
+               s2da=0.0d0
+               s2ad=0.0d0
             ENDIF
             
             ! here is the core of hbpamm
             ! we have to generate all the possible [nu,mu,r]
-            IF (dosad) sad = 0.0d0
+            IF (dosad .OR. dos2) sad = 0.0d0
             DO ih=1,natoms ! loop over hydrogen types
                IF (IAND(masktypes(ih),TYPE_H).EQ.0) CYCLE
                DO id=1,natoms ! loop over donor types
@@ -346,7 +355,7 @@
                         sph(:,ih) = sph(:,ih) + pnks(:)
                         spa(:,ia) = spa(:,ia) + pnks(:)
                         spd(:,id) = spd(:,id) + pnks(:)
-                        IF (dosad) THEN
+                        IF (dosad .OR. dos2) THEN
                            DO i=1,nghb
                              sad(ia,id) = sad(ia,id) + pnks(i)
                            ENDDO
@@ -372,7 +381,8 @@
                      ENDDO
                   ENDDO
                   WRITE(*,*) ""
-               ELSE
+               ELSE 
+                
                   ! sum over the gaussians of interest
                   sa=0.0d0
                   sd=0.0d0
@@ -382,12 +392,37 @@
                      sd(:)=sd(:)+spd(vghb(i),:)
                      sa(:)=sa(:)+spa(vghb(i),:)
                   ENDDO
+                  
+                  
                   ! write results to a formatted output
                   ! use positions as a dummy vector to store sh, sd, sa
-                  positions(1,:) = sh(:)
-                  positions(2,:) = sd(:)
-                  positions(3,:) = sa(:)
-                  CALL xyz_write(6,natoms,header,labels,positions)               
+                  IF (.not. dos2) THEN
+                     positions(1,:) = sh(:)
+                     positions(2,:) = sd(:)
+                     positions(3,:) = sa(:)
+                     CALL xyz_write(6,natoms,header,labels,positions)               
+                  ENDIF
+                  IF (dos2) THEN
+                      s2aa=0.0d0 ! this is sum_{D,H} sA(D) hb(D,x,H)
+                      s2ad=0.0d0 ! this is sum_{D,H} sD(D) hb(D,x,H)
+                      s2da=0.0d0 ! this is sum_{A,H} sA(D) hb(x,A,H)
+                      s2dd=0.0d0
+                      DO i=1,natoms                      
+                         DO id=1,natoms
+                           s2aa(i) = s2aa(i)+sa(id)*sad(i,id)
+                           s2ad(i) = s2ad(i)+sd(id)*sad(i,id)
+                         ENDDO  
+                         DO ia=1,natoms
+                           s2da(i) = s2da(i)+sa(ia)*sad(ia,i)
+                           s2dd(i) = s2dd(i)+sd(ia)*sad(ia,i)
+                         ENDDO
+                      ENDDO
+                      WRITE(*, *) natoms
+                      WRITE(*, *) " ### FULL HB STATISTICS ON ACCEPTOR/DONOR "
+                      DO i=1,natoms                     
+                         WRITE(*,'(6(ES13.5E2,X))') sa(i), sd(i), s2aa(i), s2ad(i), s2da(i), s2dd(i)
+                      ENDDO
+                  ENDIF
                ENDIF
             ENDIF
          ENDIF
@@ -443,6 +478,7 @@
             WRITE(*,*) "   -a  smoothing_factor : Apply a smoothing factor to the Gaussian model [default:1]"
             WRITE(*,*) "   -sad                 : Computes and print HB statistics for each donor/acceptor  "
             WRITE(*,*) "                          pair. Will generate a HUGE output file! "
+            WRITE(*,*) "   -s2                  : Computes and print O 2nd-order statistics for acceptors and donors  "            
             WRITE(*,*) ""
          END SUBROUTINE helpmessage
 
