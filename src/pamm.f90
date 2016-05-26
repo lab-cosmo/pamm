@@ -100,7 +100,7 @@
       nmsopt=0            ! number of mean-shift refinements
       ngrid=-1            ! number of samples extracted with minmax
       seed=12345          ! seed for the random number generator
-      kderr=0.1           ! target fractional error for KDE smoothing
+      kderr=0.001         ! target fractional error for KDE smoothing
       lambda=-1           ! quick shift cut-off
       verbose = .false.   ! no verbosity
       weighted= .false.   ! don't use the weights
@@ -758,8 +758,8 @@
          WRITE(*,*) "                            output.pamm (cluster parameters) "
          WRITE(*,*) "   -l lambda         : Quick shift cutoff [automatic] "
          WRITE(*,*) "                       (Not used with the -neblike flag active)"
-         WRITE(*,*) "   -kde err          : Target fractional target error for KDE smoothing [0.1]"
-         WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift "
+         WRITE(*,*) "   -kde err          : Target fractional target error for KDE smoothing [0.001]"
+         WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift [7]"
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -bootstrap N      : Number of iteretions to do when using bootstrapping "
          WRITE(*,*) "                       to refine the KDE on the grid points"
@@ -1144,6 +1144,7 @@
          
          INTEGER :: npath
          INTEGER :: path(ngrid)
+         LOGICAL :: fsaddle, fjump
          DOUBLE PRECISION :: dmin,relerr
             
          dmin=1.0d100
@@ -1177,12 +1178,10 @@
                   ENDDO
                ENDIF            
                
+               fsaddle = .false.
+               fjump = .false.
                ! check if the path goes downhill to within accuracy
-               DO i=2,npath-1
-!!!!!check using the error
-!!!!! p1-p2 -> associated error, err = SQRT(errp1**2+errp2**2) 
-!!!!! relative error -> err/(p1-p2)
-!!!!! that is the comparison I have to do!           
+               DO i=2,npath-1   
                   IF(nbootstrap>0)THEN
                      relerr= (probnmm(path(i))-probnmm(idx)) / &
                              DSQRT(errors(path(i))**2+errors(idx)**2) 
@@ -1193,7 +1192,8 @@
                   ELSE
                      IF ((probnmm(path(i))-probnmm(idx))/ &
                         (probnmm(path(i))+probnmm(idx))<qserr) THEN 
-                         qs_next = idx 
+                         qs_next = idx
+                         fsaddle = .true.
                          EXIT
                      ENDIF
                   ENDIF
@@ -1218,18 +1218,20 @@
                   IF (dsqrt( distmm(path(i),path(i+1)) ) >  &
                      6*(dsqrt(rgrid(path(i)))+dsqrt(rgrid(path(i+1)))) ) THEN
                      qs_next=idx ! abort jump!
-                     IF (verbose) THEN
-                        dmin = 0.0d0
-                        write(*,*) "# LONG JUMP DETECTED"
-                        write(*,*) 1, dmin, probnmm(path(1)), path(1)
-                        DO j=2,npath                        
-                           dmin = dmin + distmm(path(j),path(j-1))
-                           write(*,*) j, dmin, probnmm(path(j)), path(j)                        
-                        ENDDO
-                     ENDIF
+                     fjump = .true.
                      EXIT
                   ENDIF
-               ENDDO     
+               ENDDO  
+               IF (verbose .and. (fsaddle .or. fjump)) THEN
+                  dmin = 0.0d0
+                  IF (fsaddle) write(*,*) "# SADDLE POINT DETECTED"
+                  IF (fjump) write(*,*) "# SADDLE POINT DETECTED"            
+                  write(*,*) 1, dmin, probnmm(path(1)), path(1), y(:,path(1))
+                  DO j=2,npath                        
+                     dmin = dmin + distmm(path(j),path(j-1))
+                     write(*,*) j, dmin, probnmm(path(j)), path(j), y(:,path(j))
+                  ENDDO
+               ENDIF   
             ENDIF         
          ELSE
             qs_next=idx
