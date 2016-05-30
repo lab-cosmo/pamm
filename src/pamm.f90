@@ -75,6 +75,9 @@
       INTEGER nbootstrap,rndidx,rngidx,nn
       DOUBLE PRECISION tmperr,tmpcheck,qserr
       
+      ! IN/OUT probs
+      LOGICAL savegrids,savevor
+      
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
       INTEGER ccmd                                ! Index used to control the input parameters
@@ -108,6 +111,8 @@
       neblike=0           ! don't use neb paths
       nbootstrap=0        ! do not use bootstrap
       qserr=7             ! threshold to accept a move in qs
+      savegrids= .false.  ! don't print out the probs
+      savevor  = .false.  ! don't print out the probs
       
       D=-1
       periodic=.false.
@@ -143,6 +148,10 @@
             ccmd = 14
          ELSEIF (cmdbuffer == "-qserr") THEN  ! threshold for the qs assignation
             ccmd = 15
+         ELSEIF (cmdbuffer == "-savegrids") THEN  ! save the KDE estimates in a file
+            savegrids= .true.
+         ELSEIF (cmdbuffer == "-savevornois") THEN  ! save the KDE estimates in a file
+            savevor= .true.
          ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
             ccmd = 11
          ELSEIF (cmdbuffer == "-z") THEN       ! add a background to the probability mixture
@@ -329,12 +338,11 @@
          WRITE(*,*) "Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
-      CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij)
+      CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj,savevor,outputfile)
 
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
       CALL getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
-      
       ! Definition of the distance matrix between grid points
       distmm=0.0d0
       rgrid=1d100 ! "voronoi radius" of grid points (squared)
@@ -351,6 +359,25 @@
             if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)  
          ENDDO
       ENDDO
+      
+      ! If the flag -savevoronois is on write out the grid points
+      IF (savevor) THEN
+         ! write out the grid
+         OPEN(UNIT=12,FILE=trim(outputfile)//".voronois",STATUS='REPLACE',ACTION='WRITE')
+         ! header
+         WRITE(12,*) "# Dimensionality, NGrids // point, n. of points in the Voronoi, radius**2"
+         WRITE(12,"((A2,I9,I9))") " #", D, ngrid
+         DO i=1,ngrid
+            ! write first the grid point
+            DO j=1,D
+               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", y(j,i)
+            ENDDO
+            ! write the number of points folling into this Voronoi
+            WRITE(12,"((A1,I9))",ADVANCE="NO") " ", npvoronoi(i)
+            WRITE(12,"((A1,ES15.4E4))") " ", rgrid(i)
+         ENDDO
+         CLOSE(UNIT=12)
+      ENDIF
       
       IF(lambda.EQ.-1)THEN
          ! set automatically the mean shift lambda set to 5*<sig>
@@ -861,7 +888,7 @@
          ENDIF
       END SUBROUTINE readinput
 
-      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij)
+      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj,savevor,prvor)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          !
@@ -872,6 +899,8 @@
          !    y: array that will contain the grid points
          !    npvoronoi: array cotaing the number of samples inside the Voronoj polyhedron of each grid point
          !    iminij: array containg the neighbor list for data samples
+         !    savevor: logical that tell me if to write out the Voronoy's association or not
+         !    prvor: prefix for the outputfile
 
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, INTENT(IN) :: period(D)
@@ -881,6 +910,10 @@
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(IN) :: wj
+         LOGICAL, INTENT(IN) :: savevor
+         CHARACTER(LEN=1024), INTENT(IN) :: prvor
+         
 
          INTEGER i,j
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax
@@ -921,9 +954,30 @@
 
          ! Number of points in each voronoi polyhedra
          npvoronoi=0
+         
+         IF (savevor) THEN
+            OPEN(UNIT=12,FILE=trim(prvor)//".voronoislinks",STATUS='REPLACE',ACTION='WRITE')
+            ! header
+            WRITE(12,*) "# Dimensionality, NSamples // point, voronoiassociation, weight"
+            WRITE(12,"((A2,I9,I9))") " #", D, nsamples
+         ENDIF
+         
          DO j=1,nsamples
             npvoronoi(iminij(j))=npvoronoi(iminij(j))+1
+            IF(savevor) THEN
+               ! write first the point
+               DO i=1,D
+                  WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", x(i,j)
+               ENDDO
+               ! write the Voronoi associated
+               WRITE(12,"((A1,I9))",ADVANCE="NO") " ", iminij(j)
+               ! write the weight
+               WRITE(12,"((A1,ES15.4E4))") " ", wj(j)
+            ENDIF
          ENDDO
+         
+         IF (savevor) CLOSE(UNIT=12)
+         
       END SUBROUTINE mkgrid
 
       SUBROUTINE getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
