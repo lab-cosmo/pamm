@@ -148,9 +148,9 @@
             ccmd = 14
          ELSEIF (cmdbuffer == "-qserr") THEN  ! threshold for the qs assignation
             ccmd = 15
-         ELSEIF (cmdbuffer == "-savegrids") THEN  ! save the KDE estimates in a file
+         ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
             savegrids= .true.
-         ELSEIF (cmdbuffer == "-savevornois") THEN  ! save the KDE estimates in a file
+         ELSEIF (cmdbuffer == "-savevornois") THEN  ! save the Voronoi associations
             savevor= .true.
          ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
             ccmd = 11
@@ -426,21 +426,7 @@
                       IF (distmm(i,iminij(rndidx))/sigma2(iminij(rndidx))>36.0d0) CYCLE
                       probboot(i,nn)=probboot(i,nn)+ & 
                           fkernel(D,period,sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
-                  ENDDO
-!!                  ! Instead of cycling on all the point we cycle on the Voronoi 
-!!                  DO j=1,ngrid
-!!                     ! do not compute KDEs for points that belong to far away Voronoi
-!!                     IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-!!                     ! cycle just inside the polyhedra using the neighbour list
-!!                     !! BOOTSTRAPPING
-!!                     rngidx=pnlist(j+1)-(pnlist(j)+1)
-!!                     DO k=pnlist(j)+1,pnlist(j+1)
-!!                         rndidx=int(rngidx*random_uniform())+pnlist(j)+1              
-!!                         probboot(i,nn)=probboot(i,nn)+ wj(nlist(rndidx))* &
-!!                           fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(rndidx)))
-!!                         !normboot=normboot+wj(nlist(rngidx))
-!!                     ENDDO
-!!                  ENDDO         
+                  ENDDO        
                   probboot(i,nn)=probboot(i,nn)/nsamples
               ENDDO
           ENDDO
@@ -483,13 +469,47 @@
           ENDDO 
       ENDIF
 
+      IF(savegrids)THEN
+         ! write out the grid
+         IF(ikde<10)THEN
+            WRITE(comment,"((I1))") ikde
+         ELSE
+            WRITE(comment,"((I2))") ikde
+         ENDIF
+         IF(adaptive>0) THEN
+            OPEN(UNIT=12,FILE=trim(outputfile)//".probs."//trim(comment),STATUS='REPLACE',ACTION='WRITE')
+         ELSE
+            OPEN(UNIT=12,FILE=trim(outputfile)//".probs",STATUS='REPLACE',ACTION='WRITE')
+         ENDIF
+         ! header
+         WRITE(12,*) "# Dimensionality, NGrids // point, probability, error, sigma**2"
+         WRITE(12,"((A2,I9,I9))") " #", D, ngrid
+         DO i=1,ngrid
+            ! write first the grid point
+            DO j=1,D
+               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", y(j,i)
+            ENDDO
+            ! write the KDE
+            WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", probnmm(i)
+            ! write the error
+            IF(nbootstrap>0) THEN
+               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", errprobnmm(i)
+               WRITE(12,"((A1,ES15.4E4))") " ", sigma2(i)
+            ELSE
+               WRITE(12,"((A3,ES15.4E4))",ADVANCE="NO") " ",(1-sigma2(i))/(sigma2(i)*normwj)
+               WRITE(12,"((A3,ES15.4E4))") " ", sigma2(i)
+            ENDIF
+         ENDDO
+         CLOSE(UNIT=12)
+      ENDIF
+
 !#################################      
       IF (adaptive>0) THEN   
         IF(nbootstrap>0) THEN
             tmpcheck=0
             DO j=1,ngrid
                 ! Use the variance got during the bootstrapping procedure to update the sigmas used in the KDE
-                IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)/probnmm(j)
+                ! IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)/probnmm(j)
                 tmps2(j) = sigma2(j)
                 ! refine the sigams according to the target kderr
                 IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
@@ -498,7 +518,7 @@
                 ELSE
                     sigma2(j)=sigma2(j)*1.2d0
                 ENDIF
-                IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)
+                ! IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)
                 ! check how much they are changing
                 tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
             ENDDO
@@ -512,7 +532,7 @@
             ! compute sigma2 from the number of points in the 
             ! neighborhood of each grid point. the rationale is that 
             ! integrating over a Gaussian kernel with variance sigma2
-            ! will cover a volume Vi=(2\pi sigma2)^(D/2).  
+            ! will cover a volume Vi=(2*pi sigma2)^(D/2).  
             ! If the estimate probability density on grid point i is pi
             ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
             ! The number of points is then normwj*ri, and we can take this to 
@@ -526,20 +546,13 @@
                 sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
                 IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
-                IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
+                !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
             ENDDO
         ENDIF
         ikde = ikde+1
-        if (ikde<adaptive) GOTO 100 ! seems one can actually iterate to self-consistency....
+        
+        IF (ikde<adaptive) GOTO 100 ! seems one can actually iterate to self-consistency....
       ENDIF
-      
-!      IF(nbootstrap>0) THEN
-!         DO i=1,ngrid
-!             ! get the SME=s/sqrt(N)
-!             ! this will be used later during the QS step
-!             errprobnmm(i)=DSQRT(errprobnmm(i)/nbootstrap)
-!         ENDDO
-!      ENDIF
       
       ! CLUSTERING, local maxima search
 200   IF(verbose) write(*,*) "Running quick shift"
@@ -600,7 +613,15 @@
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
-         WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , " ", probnmm(i), " ", errprobnmm(i) 
+         IF(nbootstrap>0)THEN
+            WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , &
+                                                           " " , probnmm(i), " " , &
+                                                        errprobnmm(i), " ",  sigma2(i) 
+         ELSE
+            WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , &
+                                                           " ", probnmm(i), " " , &
+                                          (1-sigma2(i))/(sigma2(i)*normwj), " ", sigma2(i) 
+         ENDIF
          ! accumulate the normalization factor for the pks
          normpks=normpks+probnmm(i)
       ENDDO
@@ -796,6 +817,12 @@
          WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -p P1,...,PD      : Periodicity in each dimension [ (6.28,6.28,6.28,...) ]"
+         WRITE(*,*) "   -savevornois      : Save Voronoi associations. This will produce:"
+         WRITE(*,*) "                            output.voronoislinks (points + associated Voronoi) "
+         WRITE(*,*) "                            output.voronois (Voronoi centers + info) "
+         WRITE(*,*) "   -saveprobs        : Save Voronoi associations. This will produce:"
+         WRITE(*,*) "                            output.voronoislinks (points + associated Voronoi) "
+         WRITE(*,*) "                            output.voronois (Voronoi centers + info) "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
