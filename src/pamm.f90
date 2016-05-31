@@ -543,7 +543,7 @@
             ! sigma2 = 1/(2pi) 1/rad[D/2](pi*(1+kderr^2 normwj))
             DO j=1,ngrid
                 !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-                sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
+                sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(2/D)
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
                 IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
                 !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
