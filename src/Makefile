@@ -20,7 +20,7 @@
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 FF=gfortran
-FFLAGS=-O0 -g -Wall -Wno-maybe-uninitialized -fopenmp
+FFLAGS=-O0 -g -Wall -Wno-maybe-uninitialized -cpp -fopenmp
 LDFLAGS=-llapack
 MODULES=libpamm.f90 xyz.f90 random.f90
 OBJECTS=$(MODULES:.f90=.o)

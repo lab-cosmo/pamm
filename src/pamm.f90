@@ -409,13 +409,13 @@
           
           !$omp DO
           DO nn=1,nbootstrap
-!#ifdef _OPENMP
+#ifdef _OPENMP
               IF(verbose) WRITE(*,*) &
                     "Bootstrapping, run ", nn , " therad n. : ", omp_get_thread_num() 
-!#else
-!              IF(verbose) WRITE(*,*) &
-!                    "Bootstrapping, run ", nn
-!#endif
+#else
+              IF(verbose) WRITE(*,*) &
+                    "Bootstrapping, run ", nn
+#endif
               DO i=1,ngrid
                   ! build a new set for doing the KDE
                   ! this is just to do the KDE from a sample bigger than y
@@ -436,6 +436,7 @@
           ! Average the estimates and get an error bar
           errprobnmm = 0.0d0
           probnmm    = 0.0d0
+          
           DO i=1,ngrid
               ! get the mean
               tmpcheck=0.0d0
@@ -453,6 +454,13 @@
       ELSE
           ! computes the KDE on the Voronoi centers using the neighbour list
           probnmm = 0.0d0
+          
+          !$omp parallel &
+          !$omp default (none) &
+          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,normwj) &
+          !$omp private (i,j,k)
+          
+          !$omp DO
           DO i=1,ngrid
               DO j=1,ngrid
           
@@ -466,7 +474,10 @@
                  ENDDO
               ENDDO
               probnmm(i)=probnmm(i)/normwj
-          ENDDO 
+          ENDDO
+          !$omp ENDDO
+          !$omp END PARALLEL
+           
       ENDIF
 
       IF(savegrids)THEN
@@ -504,13 +515,13 @@
       ENDIF
 
 !#################################      
-      IF (adaptive>0) THEN   
+      IF (adaptive>0) THEN 
+        tmpcheck=0
+        tmps2(j) = sigma2(j)  
         IF(nbootstrap>0) THEN
-            tmpcheck=0
             DO j=1,ngrid
                 ! Use the variance got during the bootstrapping procedure to update the sigmas used in the KDE
                 ! IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)/probnmm(j)
-                tmps2(j) = sigma2(j)
                 ! refine the sigams according to the target kderr
                 IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
                     ! put a bottom boundary
@@ -522,12 +533,6 @@
                 ! check how much they are changing
                 tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
             ENDDO
-            ! get an idea of the relative change
-            tmpcheck=tmpcheck/SUM(tmps2)
-            IF(tmpcheck<0.05d0)THEN
-                WRITE(*,*) "Relative change: ", tmpcheck, " >>> We can go on!"
-                GOTO 200
-            ENDIF
         ELSE
             ! compute sigma2 from the number of points in the 
             ! neighborhood of each grid point. the rationale is that 
@@ -547,7 +552,14 @@
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
                 IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
                 !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
+                tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
             ENDDO
+        ENDIF
+        ! get an idea of the relative change
+        tmpcheck=tmpcheck/SUM(tmps2)
+        IF(tmpcheck<0.05d0)THEN
+            WRITE(*,*) "Relative change: ", tmpcheck, " >>> We can go on!"
+            GOTO 200
         ENDIF
         ikde = ikde+1
         
@@ -954,6 +966,14 @@
          iminij = 1         
          DO i=2,ngrid
             dmax = 0.0d0
+            
+            !$omp parallel &
+            !$omp default (none) &
+            !$omp shared (jmax,dmax,i,D,period,y,x,nsamples,dminij,iminij) &
+            !$omp private (j,dij)
+            
+            !$omp DO
+            
             DO j=1,nsamples
                dij = pammr2(D,period,y(:,i-1),x(:,j))
                IF (dminij(j)>dij) THEN
@@ -961,10 +981,17 @@
                   iminij(j) = i-1 ! also keeps track of the Voronoi attribution
                ENDIF
                IF (dminij(j) > dmax) THEN
+                  !$omp CRITICAL
+                  
                   dmax = dminij(j)
                   jmax = j
+                  
+                  !$omp END CRITICAL
                ENDIF
-            ENDDO            
+            ENDDO   
+            
+            !$omp ENDDO
+            !$omp END PARALLEL         
             y(:,i) = x(:, jmax)
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
@@ -1235,11 +1262,11 @@
             ndx=idx
             DO j=1,ngrid       
                IF(probnmm(j)>probnmm(idx))THEN 
-                  IF(nbootstrap>0)THEN     
-                    ! ok, chek the error associated
-                    relerr=DSQRT(errors(j)**2+errors(idx)**2)/(probnmm(j)-probnmm(idx))
-                    IF(relerr>qserr) CONTINUE
-                  ENDIF
+                 ! IF(nbootstrap>0)THEN     
+                 !   ! ok, chek the error associated
+                 !   relerr=DSQRT(errors(j)**2+errors(idx)**2)/(probnmm(j)-probnmm(idx))
+                 !   IF(relerr>qserr) CONTINUE
+                 ! ENDIF
                   IF(distmm(idx,j).lt.dmin)THEN
                       ndx=j
                       dmin=distmm(idx,j)
@@ -1272,7 +1299,7 @@
                      ENDIF
                   ELSE
                      IF ((probnmm(path(i))-probnmm(idx))/ &
-                        (probnmm(path(i))+probnmm(idx))<qserr) THEN 
+                        (probnmm(path(i))+probnmm(idx))<-5*qserr) THEN 
                          qs_next = idx
                          fsaddle = .true.
                          EXIT
