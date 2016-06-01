@@ -76,7 +76,7 @@
       DOUBLE PRECISION tmperr,tmpcheck,qserr
       
       ! IN/OUT probs
-      LOGICAL savegrids,savevor
+      LOGICAL savegrids,savevor, skipvoronois
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -98,21 +98,22 @@
       fpost=.false.
       alpha=1.0d0
       zeta=0.0d0
-      ccmd=0              ! no parameters specified
-      Nk=0                ! number of gaussians
-      nmsopt=0            ! number of mean-shift refinements
-      ngrid=-1            ! number of samples extracted with minmax
-      seed=12345          ! seed for the random number generator
-      kderr=0.001         ! target fractional error for KDE smoothing
-      lambda=-1           ! quick shift cut-off
-      verbose = .false.   ! no verbosity
-      weighted= .false.   ! don't use the weights
-      adaptive=0          ! don't use the adaptive
-      neblike=0           ! don't use neb paths
-      nbootstrap=0        ! do not use bootstrap
-      qserr=7             ! threshold to accept a move in qs
-      savegrids= .false.  ! don't print out the probs
-      savevor  = .false.  ! don't print out the probs
+      ccmd=0                 ! no parameters specified
+      Nk=0                   ! number of gaussians
+      nmsopt=0               ! number of mean-shift refinements
+      ngrid=-1               ! number of samples extracted with minmax
+      seed=12345             ! seed for the random number generator
+      kderr=0.001            ! target fractional error for KDE smoothing
+      lambda=-1              ! quick shift cut-off
+      verbose = .false.      ! no verbosity
+      weighted= .false.      ! don't use the weights
+      adaptive=0             ! don't use the adaptive
+      neblike=0              ! don't use neb paths
+      nbootstrap=0           ! do not use bootstrap
+      qserr=7                ! threshold to accept a move in qs
+      savegrids= .false.     ! don't print out the probs
+      savevor  = .false.     ! don't print out the Voronoi
+      skipvoronois = .false. ! don't read the Voronoi associations 
       
       D=-1
       periodic=.false.
@@ -148,6 +149,12 @@
             ccmd = 14
          ELSEIF (cmdbuffer == "-qserr") THEN  ! threshold for the qs assignation
             ccmd = 15
+         ELSEIF (cmdbuffer == "-readprobs") THEN  ! save the KDE estimates in a file
+            ccmd = 16
+         ELSEIF (cmdbuffer == "-readvoronis") THEN  ! save the KDE estimates in a file
+            ccmd = 17
+         ELSEIF (cmdbuffer == "-skipvoronois") THEN  ! save the KDE estimates in a file
+            skipvoronois= .true.
          ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
             savegrids= .true.
          ELSEIF (cmdbuffer == "-savevornois") THEN  ! save the Voronoi associations
@@ -350,21 +357,26 @@
       
       !$omp parallel &
       !$omp default (none) &
-      !$omp shared (ngrid,distmm,D,period,y,x,rgrid) &
+      !$omp shared (ngrid,distmm,D,period,y,x,rgrid,verbose) &
       !$omp private (i,j)
       
       !$omp DO
       DO i=1,ngrid
+#ifdef _OPENMP
+         IF(verbose .AND. (modulo(i,100).EQ.0)) &
+               WRITE(*,*) i,"/",ngrid," therad n. : ",omp_get_thread_num() 
+#else
+         IF(verbose .AND. (modulo(i,100).EQ.0)) &
+               WRITE(*,*) i,"/",ngrid
+#endif
          DO j=1,i-1
             ! distance between two voronoi centers
             ! also computes the nearest neighbor distance (squared) for each grid point
-            !$omp CRITICAL
             distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
             if (distmm(i,j) < rgrid(i)) rgrid(i) = distmm(i,j)
             ! the symmetrical one
             distmm(j,i) = distmm(i,j)
             if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)  
-            !$omp END CRITICAL
          ENDDO
       ENDDO
       !$omp ENDDO
