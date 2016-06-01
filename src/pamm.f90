@@ -347,18 +347,29 @@
       distmm=0.0d0
       rgrid=1d100 ! "voronoi radius" of grid points (squared)
       IF(verbose) write(*,*) "Computing similarity matrix"
+      
+      !$omp parallel &
+      !$omp default (none) &
+      !$omp shared (ngrid,distmm,D,period,y,x,rgrid) &
+      !$omp private (i,j)
+      
+      !$omp DO
       DO i=1,ngrid
-
          DO j=1,i-1
             ! distance between two voronoi centers
             ! also computes the nearest neighbor distance (squared) for each grid point
+            !$omp CRITICAL
             distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
             if (distmm(i,j) < rgrid(i)) rgrid(i) = distmm(i,j)
             ! the symmetrical one
             distmm(j,i) = distmm(i,j)
             if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)  
+            !$omp END CRITICAL
          ENDDO
       ENDDO
+      !$omp ENDDO
+      
+      !$omp END PARALLEL
       
       ! If the flag -savevoronois is on write out the grid points
       IF (savevor) THEN
