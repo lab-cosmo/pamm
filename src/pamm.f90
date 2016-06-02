@@ -149,9 +149,9 @@
             ccmd = 14
          ELSEIF (cmdbuffer == "-qserr") THEN  ! threshold for the qs assignation
             ccmd = 15
-         ELSEIF (cmdbuffer == "-readprobs") THEN  ! save the KDE estimates in a file
+         ELSEIF (cmdbuffer == "-readprobs") THEN  ! read a file containing the grid points + info
             ccmd = 16
-         ELSEIF (cmdbuffer == "-readvoronis") THEN  ! save the KDE estimates in a file
+         ELSEIF (cmdbuffer == "-readvoronis") THEN  ! read a file containing the Voronoi associations
             ccmd = 17
          ELSEIF (cmdbuffer == "-skipvoronois") THEN  ! save the KDE estimates in a file
             skipvoronois= .true.
@@ -415,14 +415,12 @@
 100   IF(verbose) WRITE(*,*) &
 !      IF(verbose) WRITE(*,*) &
           "Computing kernel density on reference points."
-
+          
+      IF(.NOT.ALLOCATED(probboot)) ALLOCATE(errprobnmm(ngrid))
+      errprobnmm = 0.0d0
+      probboot = 0.0d0
       IF(nbootstrap>0) THEN
-          IF(.NOT.ALLOCATED(probboot))THEN
-              ALLOCATE(probboot(ngrid,nbootstrap))
-              ALLOCATE(errprobnmm(ngrid))
-          ENDIF
-          probboot = 0.0d0
-          errprobnmm = 0.0d0
+          IF(.NOT.ALLOCATED(probboot)) ALLOCATE(probboot(ngrid,nbootstrap))
           
           !$omp parallel &
           !$omp default (none) &
@@ -476,11 +474,10 @@
           ENDDO
       ELSE
           ! computes the KDE on the Voronoi centers using the neighbour list
-          probnmm = 0.0d0
           
           !$omp parallel &
           !$omp default (none) &
-          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,normwj) &
+          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,errprobnmm,normwj) &
           !$omp private (i,j,k)
           
           !$omp DO
@@ -497,6 +494,8 @@
                  ENDDO
               ENDDO
               probnmm(i)=probnmm(i)/normwj
+              errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
+                                   -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
           ENDDO
           !$omp ENDDO
           !$omp END PARALLEL
@@ -526,13 +525,8 @@
             ! write the KDE
             WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", probnmm(i)
             ! write the error
-            IF(nbootstrap>0) THEN
-               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", errprobnmm(i)
-               WRITE(12,"((A1,ES15.4E4))") " ", sigma2(i)
-            ELSE
-               WRITE(12,"((A3,ES15.4E4))",ADVANCE="NO") " ",(1-sigma2(i))/(sigma2(i)*normwj)
-               WRITE(12,"((A3,ES15.4E4))") " ", sigma2(i)
-            ENDIF
+            WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", errprobnmm(i)
+            WRITE(12,"((A1,ES15.4E4))") " ", sigma2(i)
          ENDDO
          CLOSE(UNIT=12)
       ENDIF
@@ -548,7 +542,7 @@
                 ! refine the sigams according to the target kderr
                 IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
                     ! put a bottom boundary
-                    IF((sigma2(j)/1.2d0)>rgrid(j)) sigma2(j)=sigma2(j)/1.2d0
+                    IF((sigma2(j)/1.2d0).gt.(0.1*rgrid(j))) sigma2(j)=sigma2(j)/1.2d0
                 ELSE
                     sigma2(j)=sigma2(j)*1.2d0
                 ENDIF
@@ -565,15 +559,13 @@
             ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
             ! The number of points is then normwj*ri, and we can take this to 
             ! correspond to the mean of a binomial distribution. The (squared) relative error
-            ! is then err2=(1-ri)/(ri normwj) so
-            ! kderr^2 *normwj + 1 = 1/ri so
-            ! Vi = 1/[pi*(1+kderr^2 normwj)] so 
-            ! sigma2 = 1/(2pi) 1/rad[D/2](pi*(1+kderr^2 normwj))
+            ! is then err2=(1-ri)/(ri normwj**2) so
+            ! so we can rewrite sigma2 as follow :
             DO j=1,ngrid
                 !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-                sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(2/D)
+                sigma2(j) = 1/twopi *(probnmm(j)*(1+(normwj*kderr)**2))**(-2/D)
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-                IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
+                IF (sigma2(j).lt.(0.1*rgrid(j))) sigma2(j)=0.1*rgrid(j)
                 !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
                 tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
             ENDDO
@@ -601,18 +593,9 @@
          qspath(1)=i
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-            ! if we are using bootstrapping we use the errors to understand
-            ! what's going on
-            IF(nbootstrap>0) THEN
-                idxroot(qspath(counter))= &
-                 qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,qserr,lambda, & 
-                         verbose,neblike,nbootstrap,errprobnmm)
-            ELSE ! if not, we do it in the pammv1 way
-                idxroot(qspath(counter))= &
-                 qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,qserr,lambda, & 
-                         verbose,neblike,nbootstrap)
-            ENDIF
-            
+            idxroot(qspath(counter))= &
+             qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,qserr,lambda, & 
+                     verbose,neblike,nbootstrap,errprobnmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -648,15 +631,10 @@
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
-         IF(nbootstrap>0)THEN
-            WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , &
-                                                           " " , probnmm(i), " " , &
-                                                        errprobnmm(i), " ",  sigma2(i) 
-         ELSE
-            WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , &
-                                                           " ", probnmm(i), " " , &
-                                          (1-sigma2(i))/(sigma2(i)*normwj), " ", sigma2(i) 
-         ENDIF
+         !print out the squared absolute error
+         WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , &
+                                                        " " , probnmm(i), " " , &
+                                                   errprobnmm(i), " ",  sigma2(i) 
          ! accumulate the normalization factor for the pks
          normpks=normpks+probnmm(i)
       ENDDO
@@ -1269,7 +1247,7 @@
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
          LOGICAL, INTENT(IN) :: verbose
          INTEGER, INTENT(IN) :: neblike
-         DOUBLE PRECISION, INTENT(IN), DIMENSION(ngrid), OPTIONAL :: errors
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: errors
 
          INTEGER i, j, ndx
          
@@ -1367,12 +1345,10 @@
          ELSE
             qs_next=idx
             DO j=1,ngrid
-               IF(probnmm(j)>probnmm(idx))THEN
-                  IF(nbootstrap>0)THEN     
-                    ! ok, chek the error associated
-                    relerr=DSQRT(errors(j)**2+errors(idx)**2)/(probnmm(j)-probnmm(idx))
-                    IF(relerr>qserr) CONTINUE
-                  ENDIF
+               IF(probnmm(j)>probnmm(idx))THEN     
+                  ! ok, check the error associated
+                  relerr=DSQRT(errors(j)**2+errors(idx)**2)/(probnmm(j)-probnmm(idx))
+                  IF(relerr>qserr) CONTINUE
                   IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda))THEN
                      dmin=distmm(idx,j)
                      qs_next=j
