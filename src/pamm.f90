@@ -157,7 +157,7 @@
             skipvoronois= .true.
          ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
             savegrids= .true.
-         ELSEIF (cmdbuffer == "-savevornois") THEN  ! save the Voronoi associations
+         ELSEIF (cmdbuffer == "-savevoronois") THEN  ! save the Voronoi associations
             savevor= .true.
          ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
             ccmd = 11
@@ -416,12 +416,11 @@
 !      IF(verbose) WRITE(*,*) &
           "Computing kernel density on reference points."
           
-      IF(.NOT.ALLOCATED(probboot)) ALLOCATE(errprobnmm(ngrid))
+      IF(.NOT.ALLOCATED(errprobnmm)) ALLOCATE(errprobnmm(ngrid))
       errprobnmm = 0.0d0
-      probboot = 0.0d0
       IF(nbootstrap>0) THEN
           IF(.NOT.ALLOCATED(probboot)) ALLOCATE(probboot(ngrid,nbootstrap))
-          
+          probboot = 0.0d0
           !$omp parallel &
           !$omp default (none) &
           !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose, &
@@ -830,7 +829,7 @@
          WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -p P1,...,PD      : Periodicity in each dimension [ (6.28,6.28,6.28,...) ]"
-         WRITE(*,*) "   -savevornois      : Save Voronoi associations. This will produce:"
+         WRITE(*,*) "   -savevoronois      : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                            output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                            output.voronois (Voronoi centers + info) "
          WRITE(*,*) "   -saveprobs        : Save Voronoi associations. This will produce:"
