@@ -493,8 +493,11 @@
                  ENDDO
               ENDDO
               probnmm(i)=probnmm(i)/normwj
-              errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
-                                   -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
+          !    errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
+          !                         -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
+              errprobnmm(i)= DSQRT(normwj*(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)) - &
+                                   (probnmm(i)**2.0d0)*((twopi*sigma2(i))**D))) &
+                             /((normwj**1.5d0)*probnmm(i)*((sigma2(i)*twopi)**(D/2.0d0)) )
           ENDDO
           !$omp ENDDO
           !$omp END PARALLEL
