@@ -88,7 +88,7 @@
       INTEGER adaptive                            ! iterations for adaptively refine the sigmas
       INTEGER neblike                             ! iterations for neblike path search
       DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1,dummd2
-      
+      ! DOUBLE PRECISION maxrgrid, minrgrid
 
       INTEGER i,j,k,ikde,counter,dummyi1,endf ! Counters and dummy variable
 
@@ -355,11 +355,13 @@
       rgrid=1d100 ! "voronoi radius" of grid points (squared)
       IF(verbose) write(*,*) "Computing similarity matrix"
       
+      !maxrgrid=0.0d0
+      !minrgrid=1.0d100
+
       !$omp parallel &
       !$omp default (none) &
       !$omp shared (ngrid,distmm,D,period,y,x,rgrid,verbose) &
       !$omp private (i,j)
-      
       !$omp DO
       DO i=1,ngrid
 #ifdef _OPENMP
@@ -377,12 +379,15 @@
             ! the symmetrical one
             distmm(j,i) = distmm(i,j)
             if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)  
+            
+            !! Get an estimate of the max and the min
+            ! if (rgrid(j)<minrgrid) minrgrid = distmm(i,j)
+            ! if (maxrgrid<rgrid(j)) maxrgrid = distmm(i,j)
          ENDDO
       ENDDO
       !$omp ENDDO
-      
       !$omp END PARALLEL
-      
+
       ! If the flag -savevoronois is on write out the grid points
       IF (savevor) THEN
          ! write out the grid
@@ -493,8 +498,8 @@
                  ENDDO
               ENDDO
               probnmm(i)=probnmm(i)/normwj
-          !    errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
-          !                         -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
+              !errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
+              !                     -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
               errprobnmm(i)= DSQRT(normwj*(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)) - &
                                    (probnmm(i)**2.0d0)*((twopi*sigma2(i))**D))) &
                              /((normwj**1.5d0)*probnmm(i)*((sigma2(i)*twopi)**(D/2.0d0)) )
@@ -535,8 +540,9 @@
 
 !#################################      
       IF (adaptive>0) THEN 
-        tmpcheck=0
-        tmps2(j) = sigma2(j)  
+        tmpcheck=0.0d0
+        tmps2=0.0d0
+        tmps2(:) = sigma2(:)  
         IF(nbootstrap>0) THEN
             DO j=1,ngrid
                 ! Use the variance got during the bootstrapping procedure to update the sigmas used in the KDE
@@ -544,13 +550,13 @@
                 ! refine the sigams according to the target kderr
                 IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
                     ! put a bottom boundary
-                    IF((sigma2(j)/1.2d0).gt.(0.1*rgrid(j))) sigma2(j)=sigma2(j)/1.2d0
+                    IF((sigma2(j)/1.2d0).gt.(rgrid(j))) sigma2(j)=sigma2(j)/1.2d0
                 ELSE
                     sigma2(j)=sigma2(j)*1.2d0
                 ENDIF
                 ! IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)
                 ! check how much they are changing
-                tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
+                !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
             ENDDO
         ELSE
             ! compute sigma2 from the number of points in the 
@@ -567,14 +573,16 @@
                 !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
                 sigma2(j) = 1/twopi *(probnmm(j)*(1+(normwj*kderr)**2))**(-2/D)
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-                IF (sigma2(j).lt.(0.1*rgrid(j))) sigma2(j)=0.1*rgrid(j)
+                IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
+                !IF (sigma2(j).gt.(maxrgrid)) sigma2(j)=maxrgrid
                 !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
-                tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
+                !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
             ENDDO
         ENDIF
         ! get an idea of the relative change
-        tmpcheck=tmpcheck/SUM(tmps2)
-        IF(tmpcheck<0.05d0)THEN
+        tmpcheck=SUM(ABS(tmps2(:)-sigma2(:)))/SUM(sigma2)
+        !tmpcheck=tmpcheck/SUM(tmps2)
+        IF(tmpcheck<0.01d0)THEN
             WRITE(*,*) "Relative change: ", tmpcheck, " >>> We can go on!"
             GOTO 200
         ENDIF
