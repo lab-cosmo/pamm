@@ -103,14 +103,14 @@
       nmsopt=0               ! number of mean-shift refinements
       ngrid=-1               ! number of samples extracted with minmax
       seed=12345             ! seed for the random number generator
-      kderr=0.001            ! target fractional error for KDE smoothing
+      kderr=2                ! target fractional error for KDE smoothing
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
       adaptive=0             ! don't use the adaptive
       neblike=0              ! don't use neb paths
       nbootstrap=0           ! do not use bootstrap
-      qserr=7                ! threshold to accept a move in qs
+      qserr=8                ! threshold to accept a move in qs
       savegrids= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       skipvoronois = .false. ! don't read the Voronoi associations 
@@ -141,7 +141,7 @@
             ccmd = 8
          ELSEIF (cmdbuffer == "-d") THEN       ! dimensionality
             ccmd = 9
-         ELSEIF (cmdbuffer == "-kde") THEN       ! dimensionality
+         ELSEIF (cmdbuffer == "-kdesmooth") THEN       ! Degrees of smoothening
             ccmd = 10
          ELSEIF (cmdbuffer == "-neblike") THEN  ! use neb paths between the qs points
             ccmd = 13
@@ -185,7 +185,7 @@
                READ(cmdbuffer,*) alpha
             ELSEIF (ccmd == 10) THEN           ! read the cluster smearing
                READ(cmdbuffer,*) kderr
-               IF (kderr<0) STOP "The error should be a positive number!"
+               IF (kderr<0) STOP "Put a positive number!"
             ELSEIF (ccmd == 8) THEN            ! read the num of bootstrap iterations
                READ(cmdbuffer,*) nbootstrap
                IF (nbootstrap<0) STOP "The number of iterations should be positive!"
@@ -234,6 +234,9 @@
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      
+      ! set the target relative error
+      kderr=1.0d0/(10**kderr)
 
       CALL SRAND(seed) ! initialize the random number generator
 
@@ -498,11 +501,13 @@
                  ENDDO
               ENDDO
               probnmm(i)=probnmm(i)/normwj
-              !errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
-              !                     -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
-              errprobnmm(i)= DSQRT(normwj*(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)) - &
-                                   (probnmm(i)**2.0d0)*((twopi*sigma2(i))**D))) &
-                             /((normwj**1.5d0)*probnmm(i)*((sigma2(i)*twopi)**(D/2.0d0)) )
+              !! ERROR
+              errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
+                                   -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
+              !!RELATIVE ERROR
+              !errprobnmm(i)= DSQRT(normwj*(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)) - &
+              !                     (probnmm(i)**2.0d0)*((twopi*sigma2(i))**D))) &
+              !               /((normwj**1.5d0)*probnmm(i)*((sigma2(i)*twopi)**(D/2.0d0)) )
           ENDDO
           !$omp ENDDO
           !$omp END PARALLEL
@@ -829,12 +834,12 @@
          WRITE(*,*) "                            output.pamm (cluster parameters) "
          WRITE(*,*) "   -l lambda         : Quick shift cutoff [automatic] "
          WRITE(*,*) "                       (Not used with the -neblike flag active)"
-         WRITE(*,*) "   -kde err          : Target fractional target error for KDE smoothing [0.001]"
-         WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift [7]"
+         WRITE(*,*) "   -kdesmooth smooth : Degree of smoothening to apply during KDE [2]"
+         WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift [8]"
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -bootstrap N      : Number of iteretions to do when using bootstrapping "
          WRITE(*,*) "                       to refine the KDE on the grid points"
-         WRITE(*,*) "   -neblike N        : Try to improve the clustering using neblike path search algorithm "
+         WRITE(*,*) "   -neblike N        : Try to improve the clustering using neblike path search algorithm [0] "
          WRITE(*,*) "                       N is the number of iterations "
          WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to "
          WRITE(*,*) "                       optimize cluster centers [0] "
@@ -1355,10 +1360,10 @@
          ELSE
             qs_next=idx
             DO j=1,ngrid
-               IF(probnmm(j)>probnmm(idx))THEN     
+               IF(probnmm(j)>probnmm(idx))THEN
                   ! ok, check the error associated
-                  relerr=DSQRT(errors(j)**2+errors(idx)**2)/(probnmm(j)-probnmm(idx))
-                  IF(relerr>qserr) CONTINUE
+                  relerr=DSQRT(errors(j)**2+errors(idx)**2)
+                  IF(((probnmm(j)-probnmm(idx))/relerr)<qserr) CONTINUE
                   IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda))THEN
                      dmin=distmm(idx,j)
                      qs_next=j
