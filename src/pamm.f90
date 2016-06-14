@@ -73,7 +73,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: errprobnmm
       INTEGER nbootstrap,rndidx,rngidx,nn
-      DOUBLE PRECISION tmperr,tmpcheck,qserr
+      DOUBLE PRECISION tmperr,tmpcheck,qserr,normri
       
       ! IN/OUT probs
       LOGICAL savegrids,savevor, skipvoronois
@@ -87,7 +87,7 @@
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       INTEGER adaptive                            ! iterations for adaptively refine the sigmas
       INTEGER neblike                             ! iterations for neblike path search
-      DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1,dummd2
+      DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1, dummd2
       ! DOUBLE PRECISION maxrgrid, minrgrid
 
       INTEGER i,j,k,ikde,counter,dummyi1,endf ! Counters and dummy variable
@@ -410,12 +410,14 @@
          CLOSE(UNIT=12)
       ENDIF
       
+!!!!!! Instead of using a fixed lambda let's just use rgrid
       IF(lambda.EQ.-1)THEN
          ! set automatically the mean shift lambda set to 5*<sig>
          lambda2=SUM(rgrid)/ngrid
-         lambda=5.0d0*dsqrt(lambda2)
+         lambda=15.0d0*dsqrt(lambda2)
       ENDIF
       lambda2=lambda*lambda ! we always work with squared distances....
+!!!!!!!!!!!
 
       sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
       
@@ -484,7 +486,7 @@
           
           !$omp parallel &
           !$omp default (none) &
-          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,errprobnmm,normwj) &
+          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,errprobnmm,normwj,normri) &
           !$omp private (i,j,k)
           
           !$omp DO
@@ -502,16 +504,37 @@
               ENDDO
               probnmm(i)=probnmm(i)/normwj
               !! ERROR
-              errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
-                                   -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
+              !! 
+              !dummd2=(probnmm(i)*(twopi*sigma2(i))**(D/2))-((probnmm(i)**2)*(twopi*sigma2(i))**(D))
+                
+              !IF(dummd2<0) WRITE(*,*) "Check err neg", dummd2,"  , sig2: ", sigma2(i)
+              !errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
+              !              -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
               !!RELATIVE ERROR
               !errprobnmm(i)= DSQRT(normwj*(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)) - &
               !                     (probnmm(i)**2.0d0)*((twopi*sigma2(i))**D))) &
               !               /((normwj**1.5d0)*probnmm(i)*((sigma2(i)*twopi)**(D/2.0d0)) )
+              
+              
           ENDDO
           !$omp ENDDO
           !$omp END PARALLEL
-           
+          
+          ! Get the normalization factor
+          ! TODO: try to put it into the parallel loop
+          normri=0.0d0
+          DO i=1,ngrid
+              normri=normri+(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)))
+          ENDDO 
+          
+          DO i=1,ngrid
+              ! get ri=Pi*Vi
+              dummd2=probnmm(i)*((twopi*sigma2(i))**(D/2.0d0))
+              ! absolute error
+              errprobnmm(i)=DSQRT(dummd2*(normri-dummd2)/(normri**2.0d0))
+              ! relative error, just to check it
+              !errprobnmm(i)=DSQRT((normri-dummd2)/dummd2)/normwj
+          ENDDO 
       ENDIF
 
       IF(savegrids)THEN
@@ -532,13 +555,13 @@
          DO i=1,ngrid
             ! write first the grid point
             DO j=1,D
-               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", y(j,i)
+               WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", y(j,i)
             ENDDO
             ! write the KDE
-            WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", probnmm(i)
+            WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", probnmm(i)
             ! write the error
-            WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", errprobnmm(i)
-            WRITE(12,"((A1,ES15.4E4))") " ", sigma2(i)
+            WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", errprobnmm(i)
+            WRITE(12,"((A1,ES25.9E4))") " ", sigma2(i)
          ENDDO
          CLOSE(UNIT=12)
       ENDIF
@@ -570,15 +593,22 @@
             ! will cover a volume Vi=(2*pi sigma2)^(D/2).  
             ! If the estimate probability density on grid point i is pi
             ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
+            ! We should then renormalize this generalized prob distrib, so that:
+            ! ri=pi * Vi / TOTAL(pi * Vi) = pi * Vi / normri
             ! The number of points is then normwj*ri, and we can take this to 
             ! correspond to the mean of a binomial distribution. The (squared) relative error
-            ! is then err2=(1-ri)/(ri normwj**2) so
+            ! is then err2=ri*(normri-ri)/(normri**2)
             ! so we can rewrite sigma2 as follow :
             DO j=1,ngrid
                 !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-                sigma2(j) = 1/twopi *(probnmm(j)*(1+(normwj*kderr)**2))**(-2/D)
+                !sigma2(j) = 1/twopi *(probnmm(j)*(1+(normwj*kderr)**2))**(-2/D)
+                ! THE PROBABILITY HAS TO BE NORMALIZED!!!!!!!!
+                sigma2(j) = (((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(-2/D)
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
+                !!! PUTS a bottom and an upper boundaries
                 IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
+                !! the upper boundary is 90.0*sigma(j)
+                !IF (sigma2(j).gt.(10100.0d0*rgrid(j))) sigma2(j)=10100.0d0*rgrid(j)
                 !IF (sigma2(j).gt.(maxrgrid)) sigma2(j)=maxrgrid
                 !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
                 !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
@@ -599,7 +629,6 @@
       ! CLUSTERING, local maxima search
 200   IF(verbose) write(*,*) "Running quick shift"
 !!!!!!      IF(verbose) write(*,*) "Lambda: ", lambda
-
       idxroot=0
       ! Start quick shift
       DO i=1,ngrid
@@ -609,7 +638,7 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-             qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,qserr,lambda, & 
+             qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,qserr,lambda2, & 
                      verbose,neblike,nbootstrap,errprobnmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1243,7 +1272,7 @@
          ENDDO
       END SUBROUTINE
       
-      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,rgrid,qserr,lambda, &
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,rgrid,qserr,lambda2, &
                                verbose,neblike,nbootstrap,errors)
          ! Return the index of the closest point higher in P
          !
@@ -1257,7 +1286,7 @@
          INTEGER, INTENT(IN) :: ngrid
          DOUBLE PRECISION, INTENT(IN), DIMENSION(ngrid) :: rgrid
          INTEGER, INTENT(IN) :: idx,nbootstrap
-         DOUBLE PRECISION, INTENT(IN) :: qserr,lambda
+         DOUBLE PRECISION, INTENT(IN) :: qserr,lambda2
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
          LOGICAL, INTENT(IN) :: verbose
@@ -1364,7 +1393,7 @@
                   ! ok, check the error associated
                   relerr=DSQRT(errors(j)**2+errors(idx)**2)
                   IF(((probnmm(j)-probnmm(idx))/relerr)<qserr) CONTINUE
-                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda))THEN
+                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(4.0d0*lambda2)))THEN
                      dmin=distmm(idx,j)
                      qs_next=j
                   ENDIF
