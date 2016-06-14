@@ -603,9 +603,10 @@
                 !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
                 !sigma2(j) = 1/twopi *(probnmm(j)*(1+(normwj*kderr)**2))**(-2/D)
                 ! THE PROBABILITY HAS TO BE NORMALIZED!!!!!!!!
-                sigma2(j) = (((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(-2/D)
+                !sigma2(j) = (((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(-2/D)
+                sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(2.0d0/D))
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-                !!! PUTS a bottom and an upper boundaries
+                !!! PUTS a bottom boundary
                 IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
                 !! the upper boundary is 90.0*sigma(j)
                 !IF (sigma2(j).gt.(10100.0d0*rgrid(j))) sigma2(j)=10100.0d0*rgrid(j)
@@ -1392,8 +1393,8 @@
                IF(probnmm(j)>probnmm(idx))THEN
                   ! ok, check the error associated
                   relerr=DSQRT(errors(j)**2+errors(idx)**2)
-                  IF(((probnmm(j)-probnmm(idx))/relerr)<qserr) CONTINUE
-                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(4.0d0*lambda2)))THEN
+                  IF(((probnmm(j)-probnmm(idx))/relerr)>qserr) CONTINUE
+                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(DSQRT(lambda2))))THEN
                      dmin=distmm(idx,j)
                      qs_next=j
                   ENDIF
