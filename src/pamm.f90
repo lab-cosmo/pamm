@@ -639,7 +639,7 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-             qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,qserr,lambda2, & 
+             qs_next(ngrid,qspath(counter),probnmm,distmm,rgrid,kderr,qserr,lambda2, & 
                      verbose,neblike,nbootstrap,errprobnmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1273,7 +1273,7 @@
          ENDDO
       END SUBROUTINE
       
-      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,rgrid,qserr,lambda2, &
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,rgrid,kderr,qserr,lambda2, &
                                verbose,neblike,nbootstrap,errors)
          ! Return the index of the closest point higher in P
          !
@@ -1287,7 +1287,7 @@
          INTEGER, INTENT(IN) :: ngrid
          DOUBLE PRECISION, INTENT(IN), DIMENSION(ngrid) :: rgrid
          INTEGER, INTENT(IN) :: idx,nbootstrap
-         DOUBLE PRECISION, INTENT(IN) :: qserr,lambda2
+         DOUBLE PRECISION, INTENT(IN) :: kderr,qserr,lambda2
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
          LOGICAL, INTENT(IN) :: verbose
@@ -1336,21 +1336,21 @@
                fjump = .false.
                ! check if the path goes downhill to within accuracy
                DO i=2,npath-1   
-                  IF(nbootstrap>0)THEN
-                     relerr= (probnmm(path(i))-probnmm(idx)) / &
-                             DSQRT(errors(path(i))**2+errors(idx)**2) 
-                     IF(ABS(relerr)>qserr) THEN
-                         qs_next = idx 
-                         EXIT
-                     ENDIF
-                  ELSE
+                  !IF(nbootstrap>0)THEN
+                  !   relerr= (probnmm(path(i))-probnmm(idx)) / &
+                  !           DSQRT(errors(path(i))**2+errors(idx)**2) 
+                  !   IF(ABS(relerr)>qserr) THEN
+                  !       qs_next = idx 
+                  !       EXIT
+                  !   ENDIF
+                  !ELSE
                      IF ((probnmm(path(i))-probnmm(idx))/ &
-                        (probnmm(path(i))+probnmm(idx))<-5*qserr) THEN 
+                        (probnmm(path(i))+probnmm(idx))<-3*kderr) THEN 
                          qs_next = idx
                          fsaddle = .true.
                          EXIT
                      ENDIF
-                  ENDIF
+                  !ENDIF
                   !IF ((probnmm(path(i))-probnmm(idx))/ &
                   !    (probnmm(path(i))+probnmm(idx))<-3*kderr) THEN 
                   !   ! yey! we found a point lower in probability so we should not jump!
