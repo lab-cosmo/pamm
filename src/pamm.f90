@@ -435,7 +435,7 @@
           !$omp parallel &
           !$omp default (none) &
           !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose, &
-          !$omp         iminij,nsamples) &
+          !$omp         iminij,nsamples,nbssample,npvoronoi) &
           !$omp private (nn,i,j,k,rngidx,rndidx)
           
           !$omp DO
@@ -452,7 +452,7 @@
                   ! this is just to do the KDE from a sample bigger than y
                   DO j=1,ngrid
                       IF (distmm(i,j)/sigma2(j)>36.0d0) THEN
-                           WRITE(*,*) "SKIPPING", i, j
+                          ! WRITE(*,*) "SKIPPING", i, j
                            CYCLE
                       ENDIF
                       nbssample=random_binomial(nsamples, DBLE(npvoronoi(j))/DBLE(nsamples))
@@ -513,16 +513,6 @@
               ENDDO
               probnmm(i)=probnmm(i)/normwj
               !! ERROR
-              !! 
-              !dummd2=(probnmm(i)*(twopi*sigma2(i))**(D/2))-((probnmm(i)**2)*(twopi*sigma2(i))**(D))
-                
-              !IF(dummd2<0) WRITE(*,*) "Check err neg", dummd2,"  , sig2: ", sigma2(i)
-              !errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
-              !              -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
-              !!RELATIVE ERROR
-              !errprobnmm(i)= DSQRT(normwj*(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)) - &
-              !                     (probnmm(i)**2.0d0)*((twopi*sigma2(i))**D))) &
-              !               /((normwj**1.5d0)*probnmm(i)*((sigma2(i)*twopi)**(D/2.0d0)) )
               
               
           ENDDO
@@ -610,9 +600,6 @@
             ! so we can rewrite sigma2 as follow :
             DO j=1,ngrid
                 !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-                !sigma2(j) = 1/twopi *(probnmm(j)*(1+(normwj*kderr)**2))**(-2/D)
-                ! THE PROBABILITY HAS TO BE NORMALIZED!!!!!!!!
-                !sigma2(j) = (((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(-2/D)
                 sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(2.0d0/D))
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
                 !!! PUTS a bottom boundary
