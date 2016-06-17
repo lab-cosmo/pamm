@@ -43,7 +43,7 @@ module random
     return
   end function random_gaussian
   
-  INTEGER FUNCTION random_binomial1(n, p)
+  INTEGER FUNCTION random_binomial(n, p)
 
 ! FUNCTION GENERATES A RANDOM BINOMIAL VARIATE USING C.D.Kemp's method.
 ! This algorithm is suitable when many random variates are required
@@ -73,7 +73,7 @@ DOUBLE PRECISION                :: odds_ratio, u, p_r, pd, pu, zero = 0.0, one =
 u = random_uniform()
 u = u - p_r
 IF (u < zero) THEN
-  random_binomial1 = r0
+  random_binomial = r0
   RETURN
 END IF
 
@@ -87,7 +87,7 @@ DO
     pd = pd * (rd+1) / (odds_ratio * FLOAT(n-rd))
     u = u - pd
     IF (u < zero) THEN
-      random_binomial1 = rd
+      random_binomial = rd
       RETURN
     END IF
   END IF
@@ -97,7 +97,7 @@ DO
     pu = pu * (n-ru+1) * odds_ratio / FLOAT(ru)
     u = u - pu
     IF (u < zero) THEN
-      random_binomial1 = ru
+      random_binomial = ru
       RETURN
     END IF
   END IF
@@ -105,10 +105,10 @@ END DO
 
 !     This point should not be reached, but just in case:
 
-random_binomial1 = r0
+random_binomial = r0
 RETURN
 
-END FUNCTION random_binomial1
+END FUNCTION random_binomial
 
 DOUBLE PRECISION FUNCTION bin_prob(n, p, r)
 !     Calculate a binomial probability

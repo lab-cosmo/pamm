@@ -72,7 +72,7 @@
       ! BOOTSTRAP
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: errprobnmm
-      INTEGER nbootstrap,rndidx,rngidx,nn
+      INTEGER nbootstrap,rndidx,rngidx,nn, nbssample
       DOUBLE PRECISION tmperr,tmpcheck,qserr,normri
       
       ! IN/OUT probs
@@ -403,7 +403,7 @@
             DO j=1,D
                WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", y(j,i)
             ENDDO
-            ! write the number of points folling into this Voronoi
+            ! write the number of points falling into this Voronoi
             WRITE(12,"((A1,I9))",ADVANCE="NO") " ", npvoronoi(i)
             WRITE(12,"((A1,ES15.4E4))") " ", rgrid(i)
          ENDDO
@@ -450,13 +450,18 @@
               DO i=1,ngrid
                   ! build a new set for doing the KDE
                   ! this is just to do the KDE from a sample bigger than y
-                  DO k=1,nsamples
-                      rndidx=int(nsamples*random_uniform())+1  
-                      ! the vector that contains the Voronoi assignations is iminij   
-                      ! do not compute KDEs for points that belong to far away Voronoi
-                      IF (distmm(i,iminij(rndidx))/sigma2(iminij(rndidx))>36.0d0) CYCLE
-                      probboot(i,nn)=probboot(i,nn)+ & 
-                          fkernel(D,period,sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                  DO j=1,ngrid
+                      IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+                      nbssample=random_binomial(nsamples, DBLE(npvoronoi(j))/DBLE(nsamples))
+                      DO k=1,nbssample
+                         rndidx = int(npvoronoi(j)*random_uniform())+1  
+                         !write(*,*) rndidx, pnlist(j), nlist(pnlist(j))
+                         rndidx = nlist(pnlist(j)+rndidx)
+                         ! the vector that contains the Voronoi assignations is iminij   
+                         ! do not compute KDEs for points that belong to far away Voronoi
+                         probboot(i,nn)=probboot(i,nn)+ & 
+                            fkernel(D,period,sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                      ENDDO
                   ENDDO        
                   probboot(i,nn)=probboot(i,nn)/nsamples
               ENDDO
