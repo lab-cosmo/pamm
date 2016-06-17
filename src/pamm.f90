@@ -72,7 +72,8 @@
       ! BOOTSTRAP
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: errprobnmm
-      INTEGER nbootstrap,rndidx,rngidx,nn, nbssample
+      INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
+      INTEGER nbootstrap,rndidx,rngidx,nn, nbssample, nbstot
       DOUBLE PRECISION tmperr,tmpcheck,qserr,normri
       
       ! IN/OUT probs
@@ -334,7 +335,7 @@
 
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
-      ALLOCATE(iminij(nsamples))
+      ALLOCATE(iminij(nsamples), nbsisel(nsamples))
       ALLOCATE(pnlist(ngrid+1),nlist(nsamples))
       ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid),sigma2(ngrid),rgrid(ngrid))
       ALLOCATE(idxroot(ngrid),idcls(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
@@ -447,27 +448,34 @@
               IF(verbose) WRITE(*,*) &
                     "Bootstrapping, run ", nn
 #endif
-              DO i=1,ngrid
-                  ! build a new set for doing the KDE
-                  ! this is just to do the KDE from a sample bigger than y
-                  DO j=1,ngrid
+              ! rather than selecting nsel random points, we select a random number of 
+              ! points from each voronoi. this makes it possible to apply some simplifications 
+              ! and avoid computing distances from far-away voronoi
+              nbstot=0
+              DO j=1,ngrid
+                  nbssample=random_binomial(nsamples, DBLE(npvoronoi(j))/DBLE(nsamples))
+                  nbstot = nbstot+nbssample
+                  DO k=1,nbssample 
+                      rndidx = int(npvoronoi(j)*random_uniform())+1  
+                      rndidx = nlist(pnlist(j)+rndidx)
+                      nbsisel(k) = rndidx
+                  ENDDO
+                      
+                  DO i=1,ngrid
+                      ! localization:
+                      ! do not compute KDEs for points that belong to far away Voronoi
                       IF (distmm(i,j)/sigma2(j)>36.0d0) THEN
                       !     WRITE(*,*) "SKIPPING", i, j
                            CYCLE
                       ENDIF
-                      nbssample=random_binomial(nsamples, DBLE(npvoronoi(j))/DBLE(nsamples))
                       DO k=1,nbssample
-                         rndidx = int(npvoronoi(j)*random_uniform())+1  
-                         !write(*,*) rndidx, pnlist(j), nlist(pnlist(j))
-                         rndidx = nlist(pnlist(j)+rndidx)
-                         ! the vector that contains the Voronoi assignations is iminij   
-                         ! do not compute KDEs for points that belong to far away Voronoi
+                         ! the vector that contains the Voronoi assignations is iminij                            
                          probboot(i,nn)=probboot(i,nn)+ & 
-                            fkernel(D,period,sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                            fkernel(D,period,sigma2(j),y(:,i),x(:,nbsisel(k) ) )
                       ENDDO
-                  ENDDO        
-                  probboot(i,nn)=probboot(i,nn)/nsamples
+                  ENDDO                  
               ENDDO
+              probboot(:,nn)=probboot(:,nn)/nbstot              
           ENDDO
           !$omp ENDDO
           
