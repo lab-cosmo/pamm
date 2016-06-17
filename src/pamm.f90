@@ -464,10 +464,7 @@
                   DO i=1,ngrid
                       ! localization:
                       ! do not compute KDEs for points that belong to far away Voronoi
-                      IF (distmm(i,j)/sigma2(j)>36.0d0) THEN
-                      !     WRITE(*,*) "SKIPPING", i, j
-                           CYCLE
-                      ENDIF
+                      IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE ! one could make this a bit more sophisticated, but this should be enough
                       DO k=1,nbssample
                          ! the vector that contains the Voronoi assignations is iminij                            
                          probboot(i,nn)=probboot(i,nn)+ & 

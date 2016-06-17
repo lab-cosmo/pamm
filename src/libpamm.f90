@@ -595,11 +595,14 @@
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: rj
 		
          INTEGER k
-
+         INTEGER, SAVE :: sD
          DOUBLE PRECISION, ALLOCATABLE, SAVE :: rij(:)
          
-         IF (.not. ALLOCATED(rij)) ALLOCATE(rij(D))
-         IF (SIZE(rij) .ne. D) THEN
+         IF (.not. ALLOCATED(rij)) THEN 
+            sD = D
+            ALLOCATE(rij(D))
+         ENDIF
+         IF (sD .ne. D) THEN
             DEALLOCATE(rij)
             ALLOCATE(rij(D))
          ENDIF
