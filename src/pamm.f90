@@ -451,7 +451,10 @@
                   ! build a new set for doing the KDE
                   ! this is just to do the KDE from a sample bigger than y
                   DO j=1,ngrid
-                      IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+                      IF (distmm(i,j)/sigma2(j)>36.0d0) THEN
+                           WRITE(*,*) "SKIPPING", i, j
+                           CYCLE
+                      ENDIF
                       nbssample=random_binomial(nsamples, DBLE(npvoronoi(j))/DBLE(nsamples))
                       DO k=1,nbssample
                          rndidx = int(npvoronoi(j)*random_uniform())+1  
