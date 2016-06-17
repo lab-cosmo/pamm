@@ -406,7 +406,7 @@
                       s2aa=0.0d0 ! this is sum_{D,H} sA(D) hb(D,x,H)
                       s2ad=0.0d0 ! this is sum_{D,H} sD(D) hb(D,x,H)
                       s2da=0.0d0 ! this is sum_{A,H} sA(D) hb(x,A,H)
-                      s2dd=0.0d0
+                      s2dd=0.0d0 ! guess what this is 
                       DO i=1,natoms                      
                          DO id=1,natoms
                            s2aa(i) = s2aa(i)+sa(id)*sad(i,id)
