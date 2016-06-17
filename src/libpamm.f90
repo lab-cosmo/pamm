@@ -596,8 +596,13 @@
 		
          INTEGER k
 
-         DOUBLE PRECISION, DIMENSION(D) :: rij
+         DOUBLE PRECISION, ALLOCATABLE, SAVE :: rij(:)
          
+         IF (.not. ALLOCATED(rij)) ALLOCATE(rij(D))
+         IF (SIZE(rij) .ne. D) THEN
+            DEALLOCATE(rij)
+            ALLOCATE(rij(D))
+         ENDIF
          rij = (ri-rj)
          
          DO k = 1, D

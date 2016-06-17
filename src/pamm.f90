@@ -420,7 +420,7 @@
 !!!!!!!!!!!
 
       !sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
-      sigma2 = MAXVAL(rgrid) ! quick check with constant sigma
+      sigma2 = SUM(rgrid)/ngrid ! quick check with constant sigma
       
       ikde = 0
 100   IF(verbose) WRITE(*,*) &
@@ -452,7 +452,7 @@
                   ! this is just to do the KDE from a sample bigger than y
                   DO j=1,ngrid
                       IF (distmm(i,j)/sigma2(j)>36.0d0) THEN
-                           WRITE(*,*) "SKIPPING", i, j
+                      !     WRITE(*,*) "SKIPPING", i, j
                            CYCLE
                       ENDIF
                       nbssample=random_binomial(nsamples, DBLE(npvoronoi(j))/DBLE(nsamples))
