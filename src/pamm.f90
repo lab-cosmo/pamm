@@ -76,7 +76,7 @@
       DOUBLE PRECISION tmperr,tmpcheck,qserr,normri
       
       ! IN/OUT probs
-      LOGICAL savegrids,savevor, skipvoronois
+      LOGICAL savegrids, savevor, skipvoronois
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -328,7 +328,7 @@
          wj = wj * nsamples/sum(wj)
       ENDIF
 
-      ! If not specified, the number voronoi polyhedras
+      ! If not specified, the number voronoi polyhedra
       ! are set to the square of the total number of points
       IF (ngrid.EQ.-1) ngrid=int(sqrt(float(nsamples)))
 
@@ -369,7 +369,7 @@
       DO i=1,ngrid
 #ifdef _OPENMP
          IF(verbose .AND. (modulo(i,100).EQ.0)) &
-               WRITE(*,*) i,"/",ngrid," therad n. : ",omp_get_thread_num() 
+               WRITE(*,*) i,"/",ngrid," thread n. : ",omp_get_thread_num() 
 #else
          IF(verbose .AND. (modulo(i,100).EQ.0)) &
                WRITE(*,*) i,"/",ngrid
@@ -419,7 +419,8 @@
       lambda2=lambda*lambda ! we always work with squared distances....
 !!!!!!!!!!!
 
-      sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
+      !sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
+      sigma2 = MAXVAL(rgrid) ! quick check with constant sigma
       
       ikde = 0
 100   IF(verbose) WRITE(*,*) &
@@ -441,7 +442,7 @@
           DO nn=1,nbootstrap
 #ifdef _OPENMP
               IF(verbose) WRITE(*,*) &
-                    "Bootstrapping, run ", nn , " therad n. : ", omp_get_thread_num() 
+                    "Bootstrapping, run ", nn , " thread n. : ", omp_get_thread_num() 
 #else
               IF(verbose) WRITE(*,*) &
                     "Bootstrapping, run ", nn
@@ -478,8 +479,8 @@
               probnmm(i)=tmpcheck/nbootstrap
               ! get the s**2
               errprobnmm(i)=(tmperr-(tmpcheck*tmpcheck)/nbootstrap)/(nbootstrap-1.0d0)
-              ! get the SME=s/sqrt(N)
-              errprobnmm(i)=DSQRT(errprobnmm(i)/nbootstrap)
+              ! we are estimating the error in a SINGLE sample, so we need the variance and not the variance in the mean
+              errprobnmm(i)=DSQRT(errprobnmm(i))
           ENDDO
       ELSE
           ! computes the KDE on the Voronoi centers using the neighbour list
