@@ -1401,9 +1401,9 @@
             DO j=1,ngrid
                IF(probnmm(j)>probnmm(idx))THEN
                   ! ok, check the error associated
-                  relerr=DSQRT(errors(j)**2+errors(idx)**2)
-                  IF(((probnmm(j)-probnmm(idx))/relerr)>qserr) CONTINUE
-                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(DSQRT(lambda2))))THEN
+                  !relerr=DSQRT(errors(j)**2+errors(idx)**2)
+                  !IF(((probnmm(j)-probnmm(idx))/relerr)>qserr) CYCLE
+                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(lambda2)))THEN
                      dmin=distmm(idx,j)
                      qs_next=j
                   ENDIF
