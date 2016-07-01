@@ -505,8 +505,8 @@
           
           !$omp DO
           DO i=1,ngrid
+              probnmm(i)=0.0d0
               DO j=1,ngrid
-          
                  ! do not compute KDEs for points that belong to far away Voronoi
                  IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
               
@@ -521,8 +521,6 @@
                  ENDDO
               ENDDO
               probnmm(i)=probnmm(i)/normwj
-              !! ERROR
-              
               
           ENDDO
           !$omp ENDDO
