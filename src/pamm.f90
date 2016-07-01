@@ -626,18 +626,21 @@
 !! estimate of the probability
 
         ! first get the geometric mean over all the grid points
-        tmpkernel=probnmm(1)
+        ! use the log to deal with small numbers
+        tmpkernel=DLOG(probnmm(1))
         DO i=2,ngrid
-           tmpkernel=tmpkernel*probnmm(i)
+          ! WRITE(*,*) "tmpkernel: ", tmpkernel
+          ! WRITE(*,*) "prob: ", probnmm(i)
+           tmpkernel=tmpkernel+DLOG(probnmm(i))
         ENDDO
-        tmpkernel=tmpkernel**(1.0d0/ngrid)
+        tmpkernel=DEXP((1.0d0/REAL(ngrid))*tmpkernel)
+        
         ! rescale all the sigmas
         DO i=1,ngrid
            ! since we always use squared distances 
            ! here instead of doing (dsqrt(G/f))**2
            ! we just do G/f
            sigma2(i)=sigma2(i)*(tmpkernel/probnmm(i))
-           
            ! I'm not really sure if we need this or not
            IF (sigma2(j).lt.(0.5*rgrid(j))) sigma2(j)=0.5*rgrid(j)
         ENDDO
