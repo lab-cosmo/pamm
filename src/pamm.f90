@@ -38,7 +38,7 @@
       CHARACTER(LEN=1024) :: outputfile, clusterfile          ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: period(:)              ! Periodic lenght in each dimension
       LOGICAL periodic                                        ! flag for using periodic data
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm,localrgrid,localsigma2! similarity matrix and local vars
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: diff     ! temp vector used to store distances
 
       INTEGER D                                               ! Dimensionality of problem
@@ -336,7 +336,8 @@
       ! points and the dimensionality
       ALLOCATE(iminij(nsamples))
       ALLOCATE(pnlist(ngrid+1),nlist(nsamples))
-      ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid),sigma2(ngrid),rgrid(ngrid))
+      ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid))
+      ALLOCATE(sigma2(ngrid),rgrid(ngrid),localrgrid(D,ngrid),localsigma2(D,ngrid))
       ALLOCATE(idxroot(ngrid),idcls(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
       ALLOCATE(diff(D), msmu(D), tmpmsmu(D),tmps2(ngrid))
 
@@ -356,6 +357,7 @@
       ! Definition of the distance matrix between grid points
       distmm=0.0d0
       rgrid=1d100 ! "voronoi radius" of grid points (squared)
+      localrgrid=1d100
       IF(verbose) write(*,*) "Computing similarity matrix"
       
       !maxrgrid=0.0d0
@@ -363,7 +365,7 @@
 
       !$omp parallel &
       !$omp default (none) &
-      !$omp shared (ngrid,distmm,D,period,y,x,rgrid,verbose) &
+      !$omp shared (ngrid,distmm,D,period,y,x,rgrid,localrgrid,verbose) &
       !$omp private (i,j)
       !$omp DO
       DO i=1,ngrid
@@ -378,11 +380,22 @@
             ! distance between two voronoi centers
             ! also computes the nearest neighbor distance (squared) for each grid point
             distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
-            if (distmm(i,j) < rgrid(i)) rgrid(i) = distmm(i,j)
+            IF (distmm(i,j) < rgrid(i)) THEN
+               rgrid(i) = distmm(i,j)
+               ! estimate the squared distance in each direction
+               DO jj=1,D
+                  localrgrid(jj,i)=pammr2(1,period(jj),y(jj,i),y(jj,j))
+               ENDDO
+            ENDIF
             ! the symmetrical one
             distmm(j,i) = distmm(i,j)
-            if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)  
-            
+            IF (distmm(i,j) < rgrid(j)) THEN
+               rgrid(j) = distmm(i,j)  
+               ! estimate the squared distance in each direction
+               DO jj=1,D
+                  localrgrid(jj,j)=localrgrid(jj,i)
+               ENDDO
+            ENDIF
             !! Get an estimate of the max and the min
             ! if (rgrid(j)<minrgrid) minrgrid = distmm(i,j)
             ! if (maxrgrid<rgrid(j)) maxrgrid = distmm(i,j)
@@ -390,6 +403,7 @@
       ENDDO
       !$omp ENDDO
       !$omp END PARALLEL
+      
 
       ! If the flag -savevoronois is on write out the grid points
       IF (savevor) THEN
@@ -424,7 +438,11 @@
       ! We also try to set the initialo optimal bandwith using
       ! using Scott's rule (oversmoothing)
       DO i=1,ngrid
-         sigma2(i)=rgrid(i)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))         
+         tmpkernel=100.0d0*ngrid**(-1.0d0/(DBLE(D)+4.0d0))
+         sigma2(i)=rgrid(i)*tmpkernel   
+         DO jj=1,D
+            localsigma2(jj,i)=localrgrid(jj,i)*tmpkernel
+         ENDDO
          ! This is not working properly..
          ! Need to sort this out for circular data
          !IF(PERIODIC) THEN
@@ -447,7 +465,7 @@
           !$omp parallel &
           !$omp default (none) &
           !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose, &
-          !$omp         iminij,nsamples,nbssample,npvoronoi,periodic) &
+          !$omp         iminij,nsamples,nbssample,npvoronoi,periodic,localsigma2) &
           !$omp private (nn,i,j,k,rngidx,rndidx,tmpkernel)
           
           !$omp DO
@@ -475,9 +493,17 @@
                          ! the vector that contains the Voronoi assignations is iminij   
                          ! do not compute KDEs for points that belong to far away Voronoi
                          IF(periodic)THEN
-                            tmpkernel=fkernelvm(D,period,sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                            tmpkernel=1.0d0
+                            DO jj=1,D
+                              tmpkernel=tmpkernel* &
+                                fkernelvm(1,period(jj),localsigma2(jj,iminij(rndidx)),y(jj,i),x(jj,rndidx))
+                            ENDDO
                          ELSE
-                            tmpkernel=fkernel(D,period,sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                            tmpkernel=1.0d0
+                            DO jj=1,D
+                              tmpkernel=tmpkernel* &
+                                fkernel(1,period(jj),localsigma2(jj,iminij(rndidx)),y(jj,i),x(jj,rndidx))
+                            ENDDO
                          ENDIF
                          probboot(i,nn)=probboot(i,nn)+ tmpkernel 
                             
@@ -512,7 +538,8 @@
           
           !$omp parallel &
           !$omp default (none) &
-          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,errprobnmm,normwj,periodic,normri) &
+          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,errprobnmm,normwj,periodic, &
+          !$omp         localsigma2,normri) &
           !$omp private (i,j,k,tmpkernel)
           
           !$omp DO
@@ -525,9 +552,19 @@
                  ! cycle just inside the polyhedra using the neighbour list
                  DO k=pnlist(j)+1,pnlist(j+1)
                      IF(periodic)THEN
-                        tmpkernel=fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                        !tmpkernel=fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                        tmpkernel=1.0d0
+                        DO jj=1,D
+                          tmpkernel=tmpkernel* &
+                            fkernelvm(1,period(jj),localsigma2(jj,j),y(jj,i),x(jj,nlist(k)))
+                        ENDDO
                      ELSE
-                        tmpkernel=fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                        !tmpkernel=fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                        tmpkernel=1.0d0
+                        DO jj=1,D
+                          tmpkernel=tmpkernel* &
+                            fkernel(1,period(jj),localsigma2(jj,j),y(jj,i),x(jj,nlist(k)))
+                        ENDDO
                      ENDIF
                      probnmm(i)=probnmm(i)+ wj(nlist(k))*tmpkernel                  
                  ENDDO
@@ -646,12 +683,15 @@
         
         ! rescale all the sigmas
         DO i=1,ngrid
-           ! Abramson's choice alpha=1/2
-           sigma2(i)=sigma2(i)*((tmpkernel/probnmm(i))**(0.5d0))
-           ! Set a lower boundary to the sigma
-           IF (sigma2(j).lt.(rgrid(j)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0))))) THEN
-              sigma2(j)=rgrid(j)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))
-           ENDIF
+           DO jj=1,D
+             ! Abramson's choice alpha=1/2
+             localsigma2(jj,i)=localsigma2(jj,i)*((tmpkernel/probnmm(i))**(0.5d0))
+             ! Set a lower boundary to the sigma
+             IF (localsigma2(jj,i).lt.(localrgrid(jj,i)*(15.0*ngrid**(-1.0d0/(DBLE(D)+4.0d0))))) THEN
+                localsigma2(jj,i)=localrgrid(jj,i)*(15.0*ngrid**(-1.0d0/(DBLE(D)+4.0d0)))
+             ENDIF
+           ENDDO
+           sigma2(i)=SUM(localsigma2(:,i))
         ENDDO
 
         ! get an idea of the relative change
@@ -866,7 +906,7 @@
       DEALLOCATE(idxroot,qspath,distmm)
       DEALLOCATE(pnlist,nlist,iminij)
       DEALLOCATE(y,npvoronoi,probnmm,sigma2,rgrid,tmps2)
-      DEALLOCATE(diff,msmu,tmpmsmu)
+      DEALLOCATE(diff,msmu,tmpmsmu,localrgrid,localsigma2)
       IF(nbootstrap>0) DEALLOCATE(probboot,errprobnmm)
 
       CALL EXIT(0)
