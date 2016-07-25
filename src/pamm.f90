@@ -349,7 +349,7 @@
       ENDIF
 
       CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj,savevor,outputfile)
-
+  
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
       CALL getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
@@ -419,8 +419,20 @@
       lambda2=lambda*lambda ! we always work with squared distances....
 !!!!!!!!!!!
 
-      !sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
-      sigma2 = MAXVAL(rgrid) ! quick check with constant sigma
+!      sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
+      ! This is similar to NN approach 
+      ! We also try to set the initialo optimal bandwith using
+      ! using Scott's rule (oversmoothing)
+      DO i=1,ngrid
+         sigma2(i)=rgrid(i)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))         
+         ! This is not working properly..
+         ! Need to sort this out for circular data
+         !IF(PERIODIC) THEN
+         !   ! Batschelet's angular deviation
+         !   tmperr=(360.0d0/twopi)*DSQRT(2.0d0*(1.0d0-rgrid(i)))
+         !   sigma2(i)=tmperr*(nsamples**(-1.0d0/(D+4)))
+         !ENDIF
+      ENDDO
       
       ikde = 0
 100   IF(verbose) WRITE(*,*) &
@@ -517,7 +529,7 @@
                      ELSE
                         tmpkernel=fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
                      ENDIF
-                     probnmm(i)=probnmm(i)+ wj(nlist(k))*tmpkernel
+                     probnmm(i)=probnmm(i)+ wj(nlist(k))*tmpkernel                  
                  ENDDO
               ENDDO
               probnmm(i)=probnmm(i)/normwj
@@ -619,8 +631,7 @@
 !!!!!!!            ENDDO
 !!!!!!!        ENDIF
 
-!! test of the adaptive kdensity estimate as implemented in stata and etc...
-!! we here introduce a scalesig factor that is computed based on a pilot
+!! here introduce a scaling factor to refine the sigmas based on a pilot
 !! estimate of the probability
 
         ! first get the geometric mean over all the grid points
@@ -631,16 +642,16 @@
           ! WRITE(*,*) "prob: ", probnmm(i)
            tmpkernel=tmpkernel+DLOG(probnmm(i))
         ENDDO
-        tmpkernel=DEXP((1.0d0/REAL(ngrid))*tmpkernel)
+        tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
         
         ! rescale all the sigmas
         DO i=1,ngrid
-           ! since we always use squared distances 
-           ! here instead of doing (dsqrt(G/f))**2
-           ! we just do G/f
-           sigma2(i)=sigma2(i)*(tmpkernel/probnmm(i))
-           ! I'm not really sure if we need this or not
-           IF (sigma2(j).lt.(0.5*rgrid(j))) sigma2(j)=0.5*rgrid(j)
+           ! Abramson's choice alpha=1/2
+           sigma2(i)=sigma2(i)*((tmpkernel/probnmm(i))**(0.5d0))
+           ! Set a lower boundary to the sigma
+           IF (sigma2(j).lt.(rgrid(j)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0))))) THEN
+              sigma2(j)=rgrid(j)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))
+           ENDIF
         ENDDO
 
         ! get an idea of the relative change
@@ -1465,10 +1476,12 @@
             DOUBLE PRECISION, INTENT(IN) :: sig2
             DOUBLE PRECISION, INTENT(IN) :: vc(D)
             DOUBLE PRECISION, INTENT(IN) :: vp(D)
-            
-
-            fkernelvm=dexp(dcos(dsqrt(pammr2(D,period,vc,vp)))*(1.0d0/sig2))/ &
-                      (BESSI0(1.0d0/sig2)*twopi)
+            DOUBLE PRECISION vv
+            vv=1.0d0/sig2
+            IF(DLOG(sig2).lt.(-2)) vv=100.0d0
+           
+            fkernelvm=DEXP(DCOS(DSQRT(pammr2(D,period,vc,vp)))*vv)/ &
+                      (BESSI0(vv)*twopi)
                     
       END FUNCTION fkernelvm
 
