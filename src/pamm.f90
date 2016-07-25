@@ -438,6 +438,7 @@
       ! We also try to set the initialo optimal bandwith using
       ! using Scott's rule (oversmoothing)
       DO i=1,ngrid
+         ! let's start a well smoothed kernel as suggested by Pisani ('93)
          tmpkernel=100.0d0*ngrid**(-1.0d0/(DBLE(D)+4.0d0))
          sigma2(i)=rgrid(i)*tmpkernel   
          DO jj=1,D
@@ -687,8 +688,10 @@
              ! Abramson's choice alpha=1/2
              localsigma2(jj,i)=localsigma2(jj,i)*((tmpkernel/probnmm(i))**(0.5d0))
              ! Set a lower boundary to the sigma
-             IF (localsigma2(jj,i).lt.(localrgrid(jj,i)*(15.0*ngrid**(-1.0d0/(DBLE(D)+4.0d0))))) THEN
-                localsigma2(jj,i)=localrgrid(jj,i)*(15.0*ngrid**(-1.0d0/(DBLE(D)+4.0d0)))
+             ! maybe we can use a bigger value here
+             ! to be tested
+             IF (localsigma2(jj,i).lt.(localrgrid(jj,i)*(ngrid**(-1.0d0/(DBLE(D)+4.0d0))))) THEN
+                localsigma2(jj,i)=localrgrid(jj,i)*(ngrid**(-1.0d0/(DBLE(D)+4.0d0)))
              ENDIF
            ENDDO
            sigma2(i)=SUM(localsigma2(:,i))
