@@ -71,7 +71,7 @@
       
       ! BOOTSTRAP
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: errprobnmm
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: errprobnmm,lmbd,lmbd2
       INTEGER nbootstrap,rndidx,rngidx,nn, nbssample
       DOUBLE PRECISION tmperr,tmpcheck,qserr,normri
       
@@ -85,7 +85,7 @@
       LOGICAL verbose, fpost                      ! flag for verbosity
       LOGICAL weighted                            ! flag for using weigheted data
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
-      INTEGER adaptive                            ! iterations for adaptively refine the sigmas
+      LOGICAL adaptive                            ! iterations for adaptively refine the sigmas
       INTEGER neblike                             ! iterations for neblike path search
       DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1, dummd2
       ! DOUBLE PRECISION maxrgrid, minrgrid
@@ -107,7 +107,7 @@
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
-      adaptive=0             ! don't use the adaptive
+      adaptive=.false.             ! don't use the adaptive scheme
       neblike=0              ! don't use neb paths
       nbootstrap=0           ! do not use bootstrap
       qserr=8                ! threshold to accept a move in qs
@@ -145,8 +145,8 @@
             ccmd = 10
          ELSEIF (cmdbuffer == "-neblike") THEN  ! use neb paths between the qs points
             ccmd = 13
-         ELSEIF (cmdbuffer == "-adaptive") THEN  ! refine adptively sigma2
-            ccmd = 14
+         ELSEIF (cmdbuffer == "-adaptive") THEN  ! refine adptively the KDE
+            adaptive=.TRUE.
          ELSEIF (cmdbuffer == "-qserr") THEN  ! threshold for the qs assignation
             ccmd = 15
          ELSEIF (cmdbuffer == "-readprobs") THEN  ! read a file containing the grid points + info
@@ -205,8 +205,6 @@
                READ(cmdbuffer,*) zeta
             ELSEIF (ccmd == 13) THEN ! read zeta 
                READ(cmdbuffer,*) neblike
-            ELSEIF (ccmd == 14) THEN ! read zeta 
-               READ(cmdbuffer,*) adaptive
             ELSEIF (ccmd == 15) THEN ! read zeta 
                READ(cmdbuffer,*) qserr
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
@@ -339,7 +337,7 @@
       ALLOCATE(y(D,ngrid),npvoronoi(ngrid),probnmm(ngrid))
       ALLOCATE(sigma2(ngrid),rgrid(ngrid),localrgrid(D,ngrid),localsigma2(D,ngrid))
       ALLOCATE(idxroot(ngrid),idcls(ngrid),qspath(ngrid),distmm(ngrid,ngrid))
-      ALLOCATE(diff(D), msmu(D), tmpmsmu(D),tmps2(ngrid))
+      ALLOCATE(diff(D), msmu(D), tmpmsmu(D),tmps2(ngrid),lmbd(D),lmbd2(D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -426,40 +424,33 @@
       
 !!!!!! Instead of using a fixed lambda let's just use rgrid
       IF(lambda.EQ.-1)THEN
-         ! set automatically the mean shift lambda set to 5*<sig>
-         lambda2=SUM(rgrid)/ngrid
-         lambda=15.0d0*dsqrt(lambda2)
-      ENDIF
-      lambda2=lambda*lambda ! we always work with squared distances....
-!!!!!!!!!!!
 
-!      sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
-      ! This is similar to NN approach 
-      ! We also try to set the initialo optimal bandwith using
-      ! using Scott's rule (oversmoothing)
-      DO i=1,ngrid
-         ! let's start a well smoothed kernel as suggested by Pisani ('93)
-         tmpkernel=100.0d0*ngrid**(-1.0d0/(DBLE(D)+4.0d0))
-         sigma2(i)=rgrid(i)*tmpkernel   
+         lambda=DSQRT(SUM(rgrid)/DBLE(ngrid))
+         lmbd=0.0d0
          DO jj=1,D
-            localsigma2(jj,i)=localrgrid(jj,i)*tmpkernel
+            lmbd(jj)=DSQRT(SUM(localrgrid(jj,:))/DBLE(ngrid))
          ENDDO
-         ! This is not working properly..
-         ! Need to sort this out for circular data
-         !IF(PERIODIC) THEN
-         !   ! Batschelet's angular deviation
-         !   tmperr=(360.0d0/twopi)*DSQRT(2.0d0*(1.0d0-rgrid(i)))
-         !   sigma2(i)=tmperr*(nsamples**(-1.0d0/(D+4)))
-         !ENDIF
-      ENDDO
+      ENDIF
       
-      ikde = 0
-100   IF(verbose) WRITE(*,*) &
-!      IF(verbose) WRITE(*,*) &
-          "Computing kernel density on reference points."
+      !lambda2=lambda*lambda ! we always work with squared distances....
+!!!!!!!!!!!
+      ! Apply Scott's rule
+      !lambda2=(1.06d0*lambda*(nsamples**(-1.0d0/(DBLE(D)+4.0d0))))**2.0d0
+      lambda2=1.06d0*(lambda**2.0d0)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))
+      lambda=DSQRT(lambda2)
+      DO jj=1,D ! do it for all the dimensions
+         lmbd2(jj)=1.06d0*(lmbd(jj)**2.0d0)*(nsamples**(-1.0d0/5.0d0))
+         lmbd(jj)=DSQRT(lmbd2(jj))
+      ENDDO
+
+      sigma2=rgrid
+      localsigma2=localrgrid
+       
+      IF(verbose) WRITE(*,*) "Pilot KDE."
           
       IF(.NOT.ALLOCATED(errprobnmm)) ALLOCATE(errprobnmm(ngrid))
       errprobnmm = 0.0d0
+      
       IF(nbootstrap>0) THEN
           IF(.NOT.ALLOCATED(probboot)) ALLOCATE(probboot(ngrid,nbootstrap))
           probboot = 0.0d0
@@ -539,7 +530,7 @@
           
           !$omp parallel &
           !$omp default (none) &
-          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,errprobnmm,normwj,periodic, &
+          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,lmbd2,normwj,periodic, &
           !$omp         localsigma2,normri) &
           !$omp private (i,j,k,tmpkernel)
           
@@ -553,18 +544,16 @@
                  ! cycle just inside the polyhedra using the neighbour list
                  DO k=pnlist(j)+1,pnlist(j+1)
                      IF(periodic)THEN
-                        !tmpkernel=fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
                         tmpkernel=1.0d0
                         DO jj=1,D
                           tmpkernel=tmpkernel* &
-                            fkernelvm(1,period(jj),localsigma2(jj,j),y(jj,i),x(jj,nlist(k)))
+                            fkernelvm(1,period(jj),lmbd2(jj),y(jj,i),x(jj,nlist(k)))
                         ENDDO
                      ELSE
-                        !tmpkernel=fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
                         tmpkernel=1.0d0
                         DO jj=1,D
                           tmpkernel=tmpkernel* &
-                            fkernel(1,period(jj),localsigma2(jj,j),y(jj,i),x(jj,nlist(k)))
+                            fkernel(1,period(jj),lmbd2(jj),y(jj,i),x(jj,nlist(k)))
                         ENDDO
                      ENDIF
                      probnmm(i)=probnmm(i)+ wj(nlist(k))*tmpkernel                  
@@ -576,23 +565,23 @@
           !$omp ENDDO
           !$omp END PARALLEL
           
-          ! Get the normalization factor
-          ! TODO: try to put it into the parallel loop
+          ! TODO: put it into the parallel loop
           normri=0.0d0
           DO i=1,ngrid
-              normri=normri+(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)))
+              normri=normri+(probnmm(i)*((twopi*sigma2(i))**(DBLE(D)/2.0d0)))
           ENDDO 
           
           DO i=1,ngrid
               ! get ri=Pi*Vi
-              dummd2=probnmm(i)*((twopi*sigma2(i))**(D/2.0d0))
+              dummd2=probnmm(i)*((twopi*sigma2(i))**(DBLE(D)/2.0d0))
               ! absolute error
-              errprobnmm(i)=DSQRT(dummd2*(normri-dummd2)/(normri**2.0d0))
+              !errprobnmm(i)=DSQRT(dummd2*(normri-dummd2)/(normri**2.0d0))
               ! relative error, just to check it
-              !errprobnmm(i)=DSQRT((normri-dummd2)/dummd2)/normwj
+              errprobnmm(i)=DSQRT((normri-dummd2)/dummd2)/normwj
           ENDDO 
       ENDIF
 
+      ! if needed save the grid points
       IF(savegrids)THEN
          ! write out the grid
          IF(ikde<10)THEN
@@ -600,7 +589,7 @@
          ELSE
             WRITE(comment,"((I2))") ikde
          ENDIF
-         IF(adaptive>0) THEN
+         IF(adaptive) THEN
             OPEN(UNIT=12,FILE=trim(outputfile)//".probs."//trim(comment),STATUS='REPLACE',ACTION='WRITE')
          ELSE
             OPEN(UNIT=12,FILE=trim(outputfile)//".probs",STATUS='REPLACE',ACTION='WRITE')
@@ -623,57 +612,8 @@
       ENDIF
 
 !#################################      
-      IF (adaptive>0) THEN 
-        tmpcheck=0.0d0
-        tmps2=0.0d0
-        tmps2(:) = sigma2(:)  
-!!!!!!!        IF(nbootstrap>0) THEN
-!!!!!!!            DO j=1,ngrid
-!!!!!!!                ! Use the variance got during the bootstrapping procedure to update the sigmas used in the KDE
-!!!!!!!                ! IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)/probnmm(j)
-!!!!!!!                ! refine the sigams according to the target kderr
-!!!!!!!                IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
-!!!!!!!                    ! put a bottom boundary
-!!!!!!!                    IF((sigma2(j)/1.2d0).gt.(rgrid(j))) sigma2(j)=sigma2(j)/1.2d0
-!!!!!!!                ELSE
-!!!!!!!                    sigma2(j)=sigma2(j)*1.2d0
-!!!!!!!                ENDIF
-!!!!!!!                ! IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)
-!!!!!!!                ! check how much they are changing
-!!!!!!!                !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
-!!!!!!!            ENDDO
-!!!!!!!        ELSE
-!!!!!!!            ! compute sigma2 from the number of points in the 
-!!!!!!!            ! neighborhood of each grid point. the rationale is that 
-!!!!!!!            ! integrating over a Gaussian kernel with variance sigma2
-!!!!!!!            ! will cover a volume Vi=(2*pi sigma2)^(D/2).  
-!!!!!!!            ! If the estimate probability density on grid point i is pi
-!!!!!!!            ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
-!!!!!!!            ! We should then renormalize this generalized prob distrib, so that:
-!!!!!!!            ! ri=pi * Vi / TOTAL(pi * Vi) = pi * Vi / normri
-!!!!!!!            ! The number of points is then normwj*ri, and we can take this to 
-!!!!!!!            ! correspond to the mean of a binomial distribution. The (squared) relative error
-!!!!!!!            ! is then err2=ri*(normri-ri)/(normri**2)
-!!!!!!!            ! so we can rewrite sigma2 as follow :
-!!!!!!!            DO j=1,ngrid
-!!!!!!!                !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-!!!!!!!                sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(2.0d0/D))
-!!!!!!!                ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-!!!!!!!                !!! PUTS a bottom boundary
-!!!!!!!                IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
-!!!!!!!                !! the upper boundary is 90.0*sigma(j)
-!!!!!!!                !IF (sigma2(j).gt.(10100.0d0*rgrid(j))) sigma2(j)=10100.0d0*rgrid(j)
-!!!!!!!                !IF (sigma2(j).gt.(maxrgrid)) sigma2(j)=maxrgrid
-!!!!!!!                !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
-!!!!!!!                !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
-!!!!!!!            ENDDO
-!!!!!!!        ENDIF
-
-!! here introduce a scaling factor to refine the sigmas based on a pilot
-!! estimate of the probability
-
-        ! first get the geometric mean over all the grid points
-        ! use the log to deal with small numbers
+      IF (adaptive) THEN 
+        ! get the geometric mean
         tmpkernel=DLOG(probnmm(1))
         DO i=2,ngrid
           ! WRITE(*,*) "tmpkernel: ", tmpkernel
@@ -682,38 +622,56 @@
         ENDDO
         tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
         
-        ! rescale all the sigmas
+        localsigma2=1.0d0
+        
+        ! refine the sigmas using the adaptive scheme as suggested in literature
         DO i=1,ngrid
            DO jj=1,D
-             ! Abramson's choice alpha=1/2
-             localsigma2(jj,i)=localsigma2(jj,i)*((tmpkernel/probnmm(i))**(0.5d0))
-             ! Set a lower boundary to the sigma
-             ! maybe we can use a bigger value here
-             ! to be tested
-             IF (localsigma2(jj,i).lt.(localrgrid(jj,i)*(ngrid**(-1.0d0/(DBLE(D)+4.0d0))))) THEN
-                localsigma2(jj,i)=localrgrid(jj,i)*(ngrid**(-1.0d0/(DBLE(D)+4.0d0)))
-             ENDIF
+!write(*,*) "geo min : ",tmpkernel
+!write(*,*) "p : ",i,probnmm(i) 
+!write(*,*) "bef : ",lmbd2(jj) 
+              localsigma2(jj,j)=lmbd2(jj)*((tmpkernel/probnmm(i))**0.5d0)
+!write(*,*) "new : ",localsigma2(jj,j) 
            ENDDO
-           sigma2(i)=SUM(localsigma2(:,i))
         ENDDO
-
-        ! get an idea of the relative change
-        tmpcheck=SUM(ABS(tmps2(:)-sigma2(:)))/SUM(sigma2)
-        !tmpcheck=tmpcheck/SUM(tmps2)
-        IF(tmpcheck<0.01d0)THEN
-            WRITE(*,*) "Relative change: ", tmpcheck, " >>> We can go on!"
-            GOTO 200
-        ENDIF
-        ikde = ikde+1
-        
-        IF (ikde<adaptive) GOTO 100 ! seems one can actually iterate to self-consistency....
+        DO i=1,ngrid
+              ! save the old prob
+              dummd2=probnmm(i)
+              ! initialize the new one
+              probnmm(i)=0.0d0
+              
+              DO j=1,ngrid
+                 ! do not compute KDEs for points that belong to far away Voronoi
+                 IF (distmm(i,j)/sigma2(j)>76.0d0) CYCLE
+                 ! cycle just inside the polyhedra using the neighbour list
+                 DO k=pnlist(j)+1,pnlist(j+1)
+                     dummd1=1.0d0
+                     ! New KDE
+                     DO jj=1,D
+                       IF(periodic)THEN
+                         dummd1=dummd1* &
+                          fkernelvm(1,period(jj),localsigma2(jj,j),y(jj,i),x(jj,nlist(k)))
+                       ELSE 
+                         dummd1=dummd1* &
+                          fkernel(1,period(jj),localsigma2(jj,j),y(jj,i),x(jj,nlist(k)))
+                       ENDIF
+                     ENDDO
+                     probnmm(i)=probnmm(i)+ wj(nlist(k))*dummd1                  
+                 ENDDO
+              ENDDO
+              probnmm(i)=probnmm(i)/normwj
+          ENDDO
       ENDIF
       
       ! CLUSTERING, local maxima search
-200   IF(verbose) write(*,*) "Running quick shift"
-!!!!!!      IF(verbose) write(*,*) "Lambda: ", lambda
+      IF(verbose) write(*,*) "Running quick shift"
+      
       idxroot=0
       ! Start quick shift
+      
+      ! set automatically the mean shift lambda set to 5*<sig>
+      lambda=5.0d0*lambda
+      lambda2=lambda**2.0d0
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
          qspath=0
@@ -906,7 +864,7 @@
       
       DEALLOCATE(x,wj)
       DEALLOCATE(period)
-      DEALLOCATE(idxroot,qspath,distmm)
+      DEALLOCATE(idxroot,qspath,distmm,lmbd,lmbd2)
       DEALLOCATE(pnlist,nlist,iminij)
       DEALLOCATE(y,npvoronoi,probnmm,sigma2,rgrid,tmps2)
       DEALLOCATE(diff,msmu,tmpmsmu,localrgrid,localsigma2)
