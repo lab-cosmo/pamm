@@ -349,7 +349,7 @@
          WRITE(*,*) "Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
-      CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj,savevor,outputfile)
+      CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj)
   
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
@@ -393,23 +393,9 @@
       !$omp END PARALLEL
 
       ! If the flag -savevoronois is on write out the grid points
-      IF (savevor) THEN
-         ! write out the grid
-         OPEN(UNIT=12,FILE=trim(outputfile)//".voronois",STATUS='REPLACE',ACTION='WRITE')
-         ! header
-         WRITE(12,*) "# Dimensionality, NGrids // point, n. of points in the Voronoi, radius**2"
-         WRITE(12,"((A2,I9,I9))") " #", D, ngrid
-         DO i=1,ngrid
-            ! write first the grid point
-            DO j=1,D
-               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", y(j,i)
-            ENDDO
-            ! write the number of points falling into this Voronoi
-            WRITE(12,"((A1,I9))",ADVANCE="NO") " ", npvoronoi(i)
-            WRITE(12,"((A1,ES15.4E4))") " ", rgrid(i)
-         ENDDO
-         CLOSE(UNIT=12)
-      ENDIF
+      IF (savevor) CALL savevoronois(D,period,nsamples,ngrid,x,y, &                    
+                                     npvoronoi,iminij,wj,rgrid, &
+                                     outputfile)
       
 !!!!!! Instead of using a fixed lambda let's just use rgrid
       IF(lambda.EQ.-1)THEN
@@ -1067,7 +1053,7 @@
          ENDIF
       END SUBROUTINE readinput
 
-      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj,savevor,prvor)
+      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          !
@@ -1078,8 +1064,6 @@
          !    y: array that will contain the grid points
          !    npvoronoi: array cotaing the number of samples inside the Voronoj polyhedron of each grid point
          !    iminij: array containg the neighbor list for data samples
-         !    savevor: logical that tell me if to write out the Voronoy's association or not
-         !    prvor: prefix for the outputfile
 
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, INTENT(IN) :: period(D)
@@ -1089,10 +1073,7 @@
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(IN) :: wj
-         LOGICAL, INTENT(IN) :: savevor
-         CHARACTER(LEN=1024), INTENT(IN) :: prvor
-         
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(IN) :: wj      
 
          INTEGER i,j
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax
@@ -1145,27 +1126,6 @@
                iminij(j) = ngrid
             ENDIF
          ENDDO
-         
-         ! routine to store voronoi output
-         IF (savevor) THEN
-            OPEN(UNIT=12,FILE=trim(prvor)//".voronoislinks",STATUS='REPLACE',ACTION='WRITE')
-            ! header
-            WRITE(12,*) "# Dimensionality, NSamples // point, voronoiassociation, weight"
-            WRITE(12,"((A2,I9,I9))") " #", D, nsamples
-
-            DO j=1,nsamples
-               ! write first the point
-               DO i=1,D
-                  WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", x(i,j)
-               ENDDO
-               ! write the Voronoi associated
-               WRITE(12,"((A1,I9))",ADVANCE="NO") " ", iminij(j)
-               ! write the weight
-               WRITE(12,"((A1,ES15.4E4))") " ", wj(j)
-            ENDDO         
-
-            CLOSE(UNIT=12)
-         ENDIF
 
          ! Assign neighbor list pointer of voronois
          ! Number of points in each voronoi polyhedra
@@ -1602,5 +1562,68 @@
             listpoints(:,i)= r1 + float(i)*v12
          ENDDO
       END SUBROUTINE getNpoint
+
+      SUBROUTINE savevoronois(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj,rgrid,prvor)     
+         ! Store Voronoi data in a file
+         ! 
+         ! Args:
+         !    D          : Dimensionality of a point
+         !    period     : periodicity in each dimension
+         !    nsamples   : total points number
+         !    ngrid      : number of grid points
+         !    x          : array containing the data samples
+         !    y          : array that will contain the grid points
+         !    npvoronoi  : array cotaing the number of samples inside the Voronoj polyhedron of each grid point
+         !    iminij     : array containg the neighbor list for data samples
+         !    prvor      : prefix for the outputfile
+         
+         INTEGER, INTENT(IN) :: D
+         INTEGER, INTENT(IN) :: nsamples
+         INTEGER, INTENT(IN) :: ngrid
+         DOUBLE PRECISION, INTENT(IN) :: period(D),rgrid(ngrid)
+         DOUBLE PRECISION, DIMENSION(D,nsamples), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: npvoronoi
+         INTEGER, DIMENSION(nsamples), INTENT(IN) :: iminij
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(IN) :: wj
+         CHARACTER(LEN=1024), INTENT(IN) :: prvor
+         
+         INTEGER i,j      
+
+         ! write out the voronoi links
+         OPEN(UNIT=12,FILE=trim(prvor)//".voronoislinks2",STATUS='REPLACE',ACTION='WRITE')
+         ! header
+         WRITE(12,*) "# Dimensionality, NSamples // point, voronoiassociation, weight"
+         WRITE(12,"((A2,I9,I9))") " #", D, nsamples
+
+         DO j=1,nsamples
+            ! write first the point
+            DO i=1,D
+               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", x(i,j)
+            ENDDO
+            ! write the Voronoi associated
+            WRITE(12,"((A1,I9))",ADVANCE="NO") " ", iminij(j)
+            ! write the weight
+            WRITE(12,"((A1,ES15.4E4))") " ", wj(j)
+         ENDDO         
+
+         CLOSE(UNIT=12)
+
+         ! write out the grid
+         OPEN(UNIT=12,FILE=trim(prvor)//".voronois2",STATUS='REPLACE',ACTION='WRITE')
+         ! header
+         WRITE(12,*) "# Dimensionality, NGrids // point, n. of points in the Voronoi, radius**2"
+         WRITE(12,"((A2,I9,I9))") " #", D, ngrid
+         DO i=1,ngrid
+            ! write first the grid point
+            DO j=1,D
+               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", y(j,i)
+            ENDDO
+            ! write the number of points falling into this Voronoi
+            WRITE(12,"((A1,I9))",ADVANCE="NO") " ", npvoronoi(i)
+            WRITE(12,"((A1,ES15.4E4))") " ", rgrid(i)
+         ENDDO
+         CLOSE(UNIT=12)
+      END SUBROUTINE savevoronois
 
    END PROGRAM pamm
