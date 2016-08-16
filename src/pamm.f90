@@ -420,8 +420,8 @@
       lambda2=lambda*lambda ! we always work with squared distances....
 !!!!!!!!!!!
 
-      !sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
-      sigma2 = SUM(rgrid)/ngrid ! quick check with constant sigma
+      sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
+      !sigma2 = SUM(rgrid)/ngrid ! quick check with constant sigma
       
       ikde = 0
 100   IF(verbose) WRITE(*,*) &
@@ -436,7 +436,7 @@
           !$omp parallel &
           !$omp default (none) &
           !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose, &
-          !$omp         iminij,nsamples) &
+          !$omp         iminij,nsamples,nbssample,npvoronoi) &
           !$omp private (nn,i,j,k,rngidx,rndidx)
           
           !$omp DO
@@ -465,6 +465,7 @@
                       ! localization:
                       ! do not compute KDEs for points that belong to far away Voronoi
                       IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE ! one could make this a bit more sophisticated, but this should be enough
+
                       DO k=1,nbssample
                          ! the vector that contains the Voronoi assignations is iminij                            
                          probboot(i,nn)=probboot(i,nn)+ & 
@@ -518,16 +519,6 @@
               ENDDO
               probnmm(i)=probnmm(i)/normwj
               !! ERROR
-              !! 
-              !dummd2=(probnmm(i)*(twopi*sigma2(i))**(D/2))-((probnmm(i)**2)*(twopi*sigma2(i))**(D))
-                
-              !IF(dummd2<0) WRITE(*,*) "Check err neg", dummd2,"  , sig2: ", sigma2(i)
-              !errprobnmm(i)=DSQRT((probnmm(i)*(twopi*sigma2(i))**(D/2)) & 
-              !              -((probnmm(i)**2)*(twopi*sigma2(i))**(D)))
-              !!RELATIVE ERROR
-              !errprobnmm(i)= DSQRT(normwj*(probnmm(i)*((twopi*sigma2(i))**(D/2.0d0)) - &
-              !                     (probnmm(i)**2.0d0)*((twopi*sigma2(i))**D))) &
-              !               /((normwj**1.5d0)*probnmm(i)*((sigma2(i)*twopi)**(D/2.0d0)) )
               
               
           ENDDO
@@ -585,17 +576,20 @@
         tmpcheck=0.0d0
         tmps2=0.0d0
         tmps2(:) = sigma2(:)  
+        write(*,*) "ADAPTIVE RUN"
         IF(nbootstrap>0) THEN
             DO j=1,ngrid
                 ! Use the variance got during the bootstrapping procedure to update the sigmas used in the KDE
                 ! IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)/probnmm(j)
                 ! refine the sigams according to the target kderr
-                IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
+                sigma2(j)=sigma2(j)*((errprobnmm(j)/probnmm(j))/kderr)**(4.0/D)
+                if ( sigma2(j).lt.rgrid(j) ) sigma2(j)=rgrid(j)
+                !IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
                     ! put a bottom boundary
-                    IF((sigma2(j)/1.2d0).gt.(rgrid(j))) sigma2(j)=sigma2(j)/1.2d0
-                ELSE
-                    sigma2(j)=sigma2(j)*1.2d0
-                ENDIF
+                !    IF((sigma2(j)/1.2d0).gt.(rgrid(j))) sigma2(j)=sigma2(j)/1.2d0
+                !ELSE
+                !    sigma2(j)=sigma2(j)*1.2d0
+                !ENDIF
                 ! IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)
                 ! check how much they are changing
                 !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
@@ -615,9 +609,6 @@
             ! so we can rewrite sigma2 as follow :
             DO j=1,ngrid
                 !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-                !sigma2(j) = 1/twopi *(probnmm(j)*(1+(normwj*kderr)**2))**(-2/D)
-                ! THE PROBABILITY HAS TO BE NORMALIZED!!!!!!!!
-                !sigma2(j) = (((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(-2/D)
                 sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(2.0d0/D))
                 ! kernel density estimation cannot become smaller than the distance with the nearest grid point
                 !!! PUTS a bottom boundary
@@ -1406,9 +1397,9 @@
             DO j=1,ngrid
                IF(probnmm(j)>probnmm(idx))THEN
                   ! ok, check the error associated
-                  relerr=DSQRT(errors(j)**2+errors(idx)**2)
-                  IF(((probnmm(j)-probnmm(idx))/relerr)>qserr) CONTINUE
-                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(DSQRT(lambda2))))THEN
+                  !relerr=DSQRT(errors(j)**2+errors(idx)**2)
+                  !IF(((probnmm(j)-probnmm(idx))/relerr)>qserr) CYCLE
+                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(lambda2)))THEN
                      dmin=distmm(idx,j)
                      qs_next=j
                   ENDIF
