@@ -55,7 +55,7 @@
       INTEGER seed                                            ! seed for the random number generator
 
       ! variable to set the covariance matrix
-      DOUBLE PRECISION tmppks,normpks
+      DOUBLE PRECISION tmppks,normpks,tmpkernel
     
       ! Array of Von Mises distributions
       TYPE(vm_type), ALLOCATABLE, DIMENSION(:) :: vmclusters
@@ -350,7 +350,7 @@
       ENDIF
 
       CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj,savevor,outputfile)
-
+  
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
       CALL getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
@@ -420,8 +420,20 @@
       lambda2=lambda*lambda ! we always work with squared distances....
 !!!!!!!!!!!
 
-      sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
-      !sigma2 = SUM(rgrid)/ngrid ! quick check with constant sigma
+!      sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
+      ! This is similar to NN approach 
+      ! We also try to set the initialo optimal bandwith using
+      ! using Scott's rule (oversmoothing)
+      DO i=1,ngrid
+         sigma2(i)=rgrid(i)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))         
+         ! This is not working properly..
+         ! Need to sort this out for circular data
+         !IF(PERIODIC) THEN
+         !   ! Batschelet's angular deviation
+         !   tmperr=(360.0d0/twopi)*DSQRT(2.0d0*(1.0d0-rgrid(i)))
+         !   sigma2(i)=tmperr*(nsamples**(-1.0d0/(D+4)))
+         !ENDIF
+      ENDDO
       
       ikde = 0
 100   IF(verbose) WRITE(*,*) &
@@ -436,8 +448,8 @@
           !$omp parallel &
           !$omp default (none) &
           !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose, &
-          !$omp         iminij,nsamples,nbssample,npvoronoi) &
-          !$omp private (nn,i,j,k,rngidx,rndidx)
+          !$omp         iminij,nsamples,nbssample,npvoronoi,periodic) &
+          !$omp private (nn,i,j,k,rngidx,rndidx,tmpkernel)
           
           !$omp DO
           DO nn=1,nbootstrap
@@ -467,9 +479,20 @@
                       IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE ! one could make this a bit more sophisticated, but this should be enough
 
                       DO k=1,nbssample
-                         ! the vector that contains the Voronoi assignations is iminij                            
-                         probboot(i,nn)=probboot(i,nn)+ & 
-                            fkernel(D,period,sigma2(j),y(:,i),x(:,nbsisel(k) ) )
+!                         ! the vector that contains the Voronoi assignations is iminij                            
+!                         probboot(i,nn)=probboot(i,nn)+ & 
+!                            fkernel(D,period,sigma2(j),y(:,i),x(:,nbsisel(k) ) )
+                         rndidx = int(npvoronoi(j)*random_uniform())+1  
+                         !write(*,*) rndidx, pnlist(j), nlist(pnlist(j))
+                         rndidx = nlist(pnlist(j)+rndidx)
+                         ! the vector that contains the Voronoi assignations is iminij   
+                         ! do not compute KDEs for points that belong to far away Voronoi
+                         IF(periodic)THEN
+                            tmpkernel=fkernelvm(D,period,sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                         ELSE
+                            tmpkernel=fkernel(D,period,sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                         ENDIF
+                         probboot(i,nn)=probboot(i,nn)+ tmpkernel 
                       ENDDO
                   ENDDO                  
               ENDDO
@@ -501,25 +524,27 @@
           
           !$omp parallel &
           !$omp default (none) &
-          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,errprobnmm,normwj,normri) &
-          !$omp private (i,j,k)
+          !$omp shared (period,ngrid,distmm,sigma2,pnlist,D,wj,nlist,y,x,probnmm,errprobnmm,normwj,periodic,normri) &
+          !$omp private (i,j,k,tmpkernel)
           
           !$omp DO
           DO i=1,ngrid
+              probnmm(i)=0.0d0
               DO j=1,ngrid
-          
                  ! do not compute KDEs for points that belong to far away Voronoi
                  IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
               
                  ! cycle just inside the polyhedra using the neighbour list
                  DO k=pnlist(j)+1,pnlist(j+1)
-                     probnmm(i)=probnmm(i)+ wj(nlist(k))* &
-                                fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                     IF(periodic)THEN
+                        tmpkernel=fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                     ELSE
+                        tmpkernel=fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                     ENDIF
+                     probnmm(i)=probnmm(i)+ wj(nlist(k))*tmpkernel                  
                  ENDDO
               ENDDO
               probnmm(i)=probnmm(i)/normwj
-              !! ERROR
-              
               
           ENDDO
           !$omp ENDDO
@@ -620,6 +645,70 @@
                 !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
             ENDDO
         ENDIF
+!!!!!!!        IF(nbootstrap>0) THEN
+!!!!!!!            DO j=1,ngrid
+!!!!!!!                ! Use the variance got during the bootstrapping procedure to update the sigmas used in the KDE
+!!!!!!!                ! IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)/probnmm(j)
+!!!!!!!                ! refine the sigams according to the target kderr
+!!!!!!!                IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
+!!!!!!!                    ! put a bottom boundary
+!!!!!!!                    IF((sigma2(j)/1.2d0).gt.(rgrid(j))) sigma2(j)=sigma2(j)/1.2d0
+!!!!!!!                ELSE
+!!!!!!!                    sigma2(j)=sigma2(j)*1.2d0
+!!!!!!!                ENDIF
+!!!!!!!                ! IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)
+!!!!!!!                ! check how much they are changing
+!!!!!!!                !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
+!!!!!!!            ENDDO
+!!!!!!!        ELSE
+!!!!!!!            ! compute sigma2 from the number of points in the 
+!!!!!!!            ! neighborhood of each grid point. the rationale is that 
+!!!!!!!            ! integrating over a Gaussian kernel with variance sigma2
+!!!!!!!            ! will cover a volume Vi=(2*pi sigma2)^(D/2).  
+!!!!!!!            ! If the estimate probability density on grid point i is pi
+!!!!!!!            ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
+!!!!!!!            ! We should then renormalize this generalized prob distrib, so that:
+!!!!!!!            ! ri=pi * Vi / TOTAL(pi * Vi) = pi * Vi / normri
+!!!!!!!            ! The number of points is then normwj*ri, and we can take this to 
+!!!!!!!            ! correspond to the mean of a binomial distribution. The (squared) relative error
+!!!!!!!            ! is then err2=ri*(normri-ri)/(normri**2)
+!!!!!!!            ! so we can rewrite sigma2 as follow :
+!!!!!!!            DO j=1,ngrid
+!!!!!!!                !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
+!!!!!!!                sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(2.0d0/D))
+!!!!!!!                ! kernel density estimation cannot become smaller than the distance with the nearest grid point
+!!!!!!!                !!! PUTS a bottom boundary
+!!!!!!!                IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
+!!!!!!!                !! the upper boundary is 90.0*sigma(j)
+!!!!!!!                !IF (sigma2(j).gt.(10100.0d0*rgrid(j))) sigma2(j)=10100.0d0*rgrid(j)
+!!!!!!!                !IF (sigma2(j).gt.(maxrgrid)) sigma2(j)=maxrgrid
+!!!!!!!                !IF(verbose) WRITE(*,*) "Prob ", probnmm(j),  " new sigma ", sigma2(j), "rgrid", rgrid(j)      
+!!!!!!!                !tmpcheck=tmpcheck+ABS(tmps2(j)-sigma2(j))
+!!!!!!!            ENDDO
+!!!!!!!        ENDIF
+
+!! here introduce a scaling factor to refine the sigmas based on a pilot
+!! estimate of the probability
+
+!        ! first get the geometric mean over all the grid points
+!        ! use the log to deal with small numbers
+!        tmpkernel=DLOG(probnmm(1))
+!        DO i=2,ngrid
+!          ! WRITE(*,*) "tmpkernel: ", tmpkernel
+!          ! WRITE(*,*) "prob: ", probnmm(i)
+!           tmpkernel=tmpkernel+DLOG(probnmm(i))
+!        ENDDO
+!        tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
+        
+        ! rescale all the sigmas
+!        DO i=1,ngrid
+!           ! Abramson's choice alpha=1/2
+!           sigma2(i)=sigma2(i)*((tmpkernel/probnmm(i))**(0.5d0))
+           ! Set a lower boundary to the sigma
+!           IF (sigma2(j).lt.(rgrid(j)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0))))) THEN
+!              sigma2(j)=rgrid(j)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))
+!           ENDIF
+!        ENDDO
         ! get an idea of the relative change
         tmpcheck=SUM(ABS(tmps2(:)-sigma2(:)))/SUM(sigma2)
         !tmpcheck=tmpcheck/SUM(tmps2)
@@ -1428,6 +1517,28 @@
                     dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
                     
       END FUNCTION fkernel
+      
+      DOUBLE PRECISION FUNCTION fkernelvm(D,period,sig2,vc,vp)
+            ! Calculate the (normalized) von Mises kernel
+            !
+            ! Args:
+            !    sig2: sig**2
+            !    vc: voronoi center's vector
+            !    vp: point's vector
+
+            INTEGER, INTENT(IN) :: D
+            DOUBLE PRECISION, INTENT(IN) :: period(D)
+            DOUBLE PRECISION, INTENT(IN) :: sig2
+            DOUBLE PRECISION, INTENT(IN) :: vc(D)
+            DOUBLE PRECISION, INTENT(IN) :: vp(D)
+            DOUBLE PRECISION vv
+            vv=1.0d0/sig2
+            IF(DLOG(sig2).lt.(-2)) vv=100.0d0
+           
+            fkernelvm=DEXP(DCOS(DSQRT(pammr2(D,period,vc,vp)))*vv)/ &
+                      (BESSI0(vv)*twopi)
+                    
+      END FUNCTION fkernelvm
 
       DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,probnmm,vp,vgrid)
             ! Calculate the (normalized) gaussian kernel
