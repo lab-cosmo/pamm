@@ -204,11 +204,11 @@
                READ(cmdbuffer,*) ngrid
             ELSEIF (ccmd == 12) THEN ! read zeta 
                READ(cmdbuffer,*) zeta
-            ELSEIF (ccmd == 13) THEN ! read zeta 
+            ELSEIF (ccmd == 13) THEN ! activate neb like behaviour 
                READ(cmdbuffer,*) neblike
-            ELSEIF (ccmd == 14) THEN ! read zeta 
+            ELSEIF (ccmd == 14) THEN ! activate adaptive refining of sigma 
                READ(cmdbuffer,*) adaptive
-            ELSEIF (ccmd == 15) THEN ! read zeta 
+            ELSEIF (ccmd == 15) THEN ! read threshold for the qs assignation 
                READ(cmdbuffer,*) qserr
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
                IF (D<0) STOP "Dimensionality (-d) must precede the periodic lenghts (-p). "
@@ -230,7 +230,7 @@
                IF (period(par_count) == 3.14d0) period(par_count) = twopi/2.0d0
                periodic=.true.   
                
-               IF (par_count/=D) STOP "Check the number of periods (-p)!"
+               IF (par_count/=D) STOP "Check the number of periodic dimensions (-p)!"
             ENDIF
          ENDIF
       ENDDO
