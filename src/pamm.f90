@@ -1591,7 +1591,7 @@
          INTEGER i,j      
 
          ! write out the voronoi links
-         OPEN(UNIT=12,FILE=trim(prvor)//".voronoislinks2",STATUS='REPLACE',ACTION='WRITE')
+         OPEN(UNIT=12,FILE=trim(prvor)//".voronoislinks",STATUS='REPLACE',ACTION='WRITE')
          ! header
          WRITE(12,*) "# Dimensionality, NSamples // point, voronoiassociation, weight"
          WRITE(12,"((A2,I9,I9))") " #", D, nsamples
@@ -1610,7 +1610,7 @@
          CLOSE(UNIT=12)
 
          ! write out the grid
-         OPEN(UNIT=12,FILE=trim(prvor)//".voronois2",STATUS='REPLACE',ACTION='WRITE')
+         OPEN(UNIT=12,FILE=trim(prvor)//".voronois",STATUS='REPLACE',ACTION='WRITE')
          ! header
          WRITE(12,*) "# Dimensionality, NGrids // point, n. of points in the Voronoi, radius**2"
          WRITE(12,"((A2,I9,I9))") " #", D, ngrid
