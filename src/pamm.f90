@@ -325,7 +325,8 @@
       ! CLUSTERING MODE
       ! get the data from standard input
       CALL readinput(D, weighted, nsamples, x, normwj, wj)
-      IF (weighted) THEN  ! "renormalizes" the weight so we can consider them sort of sample counts
+      ! "renormalizes" the weight so we can consider them sort of sample counts
+      IF (weighted) THEN  
          wj = wj * nsamples/sum(wj)
       ENDIF
 
@@ -392,7 +393,7 @@
       !$omp ENDDO
       !$omp END PARALLEL
 
-      ! If the flag -savevoronois is on write out the grid points
+      ! If the flag -savevoronois is set, write out voronoi info
       IF (savevor) CALL savevoronois(D,period,nsamples,ngrid,x,y, &                    
                                      npvoronoi,iminij,wj,rgrid, &
                                      outputfile)
@@ -400,7 +401,7 @@
 !!!!!! Instead of using a fixed lambda let's just use rgrid
       IF(lambda.EQ.-1)THEN
          ! set automatically the mean shift lambda set to 5*<sig>
-         lambda2=SUM(rgrid)/ngrid
+         lambda2=SUM(rgrid)/(ngrid*ngrid)
          lambda=15.0d0*dsqrt(lambda2)
       ENDIF
       lambda2=lambda*lambda ! we always work with squared distances....
