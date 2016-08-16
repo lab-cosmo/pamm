@@ -1145,20 +1145,15 @@
                iminij(j) = ngrid
             ENDIF
          ENDDO
-
-         ! Number of points in each voronoi polyhedra
-         npvoronoi=0
          
+         ! routine to store voronoi output
          IF (savevor) THEN
             OPEN(UNIT=12,FILE=trim(prvor)//".voronoislinks",STATUS='REPLACE',ACTION='WRITE')
             ! header
             WRITE(12,*) "# Dimensionality, NSamples // point, voronoiassociation, weight"
             WRITE(12,"((A2,I9,I9))") " #", D, nsamples
-         ENDIF
-         
-         DO j=1,nsamples
-            npvoronoi(iminij(j))=npvoronoi(iminij(j))+1
-            IF(savevor) THEN
+
+            DO j=1,nsamples
                ! write first the point
                DO i=1,D
                   WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", x(i,j)
@@ -1167,11 +1162,17 @@
                WRITE(12,"((A1,I9))",ADVANCE="NO") " ", iminij(j)
                ! write the weight
                WRITE(12,"((A1,ES15.4E4))") " ", wj(j)
-            ENDIF
+            ENDDO         
+
+            CLOSE(UNIT=12)
+         ENDIF
+
+         ! Assign neighbor list pointer of voronois
+         ! Number of points in each voronoi polyhedra
+         npvoronoi=0
+         DO j=1,nsamples
+            npvoronoi(iminij(j))=npvoronoi(iminij(j))+1
          ENDDO
-         
-         IF (savevor) CLOSE(UNIT=12)
-         
       END SUBROUTINE mkgrid
 
       SUBROUTINE getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
