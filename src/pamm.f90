@@ -419,6 +419,7 @@
          !   sigma2(i)=tmperr*(nsamples**(-1.0d0/(D+4)))
          !ENDIF
       ENDDO
+      sigma2 = sum(rgrid)/ngrid ! just use a constant sigma2 throughout for a start
       
       ikde = 0
 100   IF(verbose) WRITE(*,*) & ! what is that 100 for?
@@ -503,8 +504,8 @@
               errprobnmm(i)=(tmperr-(tmpcheck*tmpcheck)/nbootstrap)/(nbootstrap-1.0d0)
               ! we are estimating the error in a SINGLE sample, so we need the variance and not the variance in the mean
               errprobnmm(i)=DSQRT(errprobnmm(i))
-          ENDDO
-          write(*,*) "Prob:", probnmm, "Error:", errprobnmm
+              write(*,*) "BSTRAP ", ikde, i, probnmm(i), errprobnmm(i), sigma2(i), y(:,i)
+          ENDDO          
       ELSE
           ! computes the KDE on the Voronoi centers using the neighbour list
           
@@ -587,14 +588,24 @@
         tmpcheck=0.0d0
         tmps2=0.0d0
         tmps2(:) = sigma2(:)  
-        write(*,*) "ADAPTIVE RUN"
+        write(*,*) "ADAPTIVE RUN", kderr
         IF(nbootstrap>0) THEN
             DO j=1,ngrid
                 ! Use the variance got during the bootstrapping procedure to update the sigmas used in the KDE
                 ! IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j), errprobnmm(j)/probnmm(j)
                 ! refine the sigams according to the target kderr
-                sigma2(j)=sigma2(j)*((errprobnmm(j)/probnmm(j))/kderr)**(4.0/D)
-                if ( sigma2(j).lt.rgrid(j) ) sigma2(j)=rgrid(j)
+                
+                ! BINOMIAL ESTIMATE OF THE ERROR, PRETTY RANDOM CHOICE OF THE GEOMETRIC FACTOR
+                sigma2(j)=1.0d0/( (1+kderr*kderr*normwj) * 12 * probnmm(j) )**(2.0d0/D) !  (((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(2.0d0/D))
+                
+                ! THIS IS THE GOOD ONE! USES BOOTSTRAPPING ERROR TO TUNE SIGMA
+                ! sigma2(j)= sigma2(j) * ( (1+normwj*(errprobnmm(j)/probnmm(j))**2)/(1+normwj*kderr**2) )**(2.0d0/D) 
+                
+                
+                !sigma2(j)=sigma2(j)*((errprobnmm(j)/probnmm(j))/kderr)**(4.0/D)
+                !if ( sigma2(j).lt.rgrid(j) ) sigma2(j)=rgrid(j)
+                
+                
                 !IF ((errprobnmm(j)/probnmm(j)).lt.kderr) THEN
                     ! put a bottom boundary
                 !    IF((sigma2(j)/1.2d0).gt.(rgrid(j))) sigma2(j)=sigma2(j)/1.2d0
