@@ -400,16 +400,14 @@
       
 !!!!!! Instead of using a fixed lambda let's just use rgrid
       IF(lambda.EQ.-1)THEN
-         ! set automatically the mean shift lambda set to 5*<sig>
-         lambda2=SUM(rgrid)/(ngrid*ngrid)
-         lambda=15.0d0*dsqrt(lambda2)
+         lambda=sum(dsqrt(rgrid))/ngrid ! sqrt(a^2+b^2) is not sqrt(a^2) + sqrt(b^2) 
       ENDIF
       lambda2=lambda*lambda ! we always work with squared distances....
 !!!!!!!!!!!
 
-!      sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
+      ! sigma2 = rgrid ! initially set KDE smearing to the nearest grid distance
       ! This is similar to NN approach 
-      ! We also try to set the initialo optimal bandwith using
+      ! We also try to set the initial optimal bandwith using
       ! using Scott's rule (oversmoothing)
       DO i=1,ngrid
          sigma2(i)=rgrid(i)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))         
@@ -423,10 +421,10 @@
       ENDDO
       
       ikde = 0
-100   IF(verbose) WRITE(*,*) &
+100   IF(verbose) WRITE(*,*) & ! what is that 100 for?
 !      IF(verbose) WRITE(*,*) &
           "Computing kernel density on reference points."
-          
+      
       IF(.NOT.ALLOCATED(errprobnmm)) ALLOCATE(errprobnmm(ngrid))
       errprobnmm = 0.0d0
       IF(nbootstrap>0) THEN
@@ -489,9 +487,9 @@
           
           !$omp END PARALLEL
           ! Average the estimates and get an error bar
-          errprobnmm = 0.0d0
           probnmm    = 0.0d0
-          
+          errprobnmm = 0.0d0
+
           DO i=1,ngrid
               ! get the mean
               tmpcheck=0.0d0
@@ -506,6 +504,7 @@
               ! we are estimating the error in a SINGLE sample, so we need the variance and not the variance in the mean
               errprobnmm(i)=DSQRT(errprobnmm(i))
           ENDDO
+          write(*,*) "Prob:", probnmm, "Error:", errprobnmm
       ELSE
           ! computes the KDE on the Voronoi centers using the neighbour list
           
