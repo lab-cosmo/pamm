@@ -104,7 +104,7 @@
       nmsopt=0               ! number of mean-shift refinements
       ngrid=-1               ! number of samples extracted with minmax
       seed=12345             ! seed for the random number generator
-      kderr=2                ! target fractional error for KDE smoothing
+      kderr=0.1              ! target fractional error for KDE smoothing
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
@@ -142,7 +142,7 @@
             ccmd = 8
          ELSEIF (cmdbuffer == "-d") THEN       ! dimensionality
             ccmd = 9
-         ELSEIF (cmdbuffer == "-kdesmooth") THEN       ! Degrees of smoothening
+         ELSEIF (cmdbuffer == "-targeterror") THEN       ! Degrees of smoothening
             ccmd = 10
          ELSEIF (cmdbuffer == "-neblike") THEN  ! use neb paths between the qs points
             ccmd = 13
@@ -186,7 +186,7 @@
                READ(cmdbuffer,*) alpha
             ELSEIF (ccmd == 10) THEN           ! read the cluster smearing
                READ(cmdbuffer,*) kderr
-               IF (kderr<0) STOP "Put a positive number!"
+               IF (kderr<0) STOP "Put a positive number as a relative error!"
             ELSEIF (ccmd == 8) THEN            ! read the num of bootstrap iterations
                READ(cmdbuffer,*) nbootstrap
                IF (nbootstrap<0) STOP "The number of iterations should be positive!"
@@ -235,9 +235,6 @@
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      
-      ! set the target relative error
-      kderr=1.0d0/(10**kderr)
 
       CALL SRAND(seed) ! initialize the random number generator
 
@@ -413,6 +410,7 @@
 !      ENDDO
       !sigma2 = sum(rgrid)/ngrid ! just use a constant sigma2 throughout for a start
       sigma2 = (sum(dsqrt(rgrid))/ngrid)**2
+
       ! do either a regular run with constant sigma2(j) for estimating
       ! the probability density, use just bootstrapping or do an 
       ! iterative scheme with or without bootstrapping
@@ -465,7 +463,6 @@
                     probboot(i,nn) = probboot(i,nn) + fkernel(D,period, & 
                       sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
                   ENDIF
-                  probboot(i,nn) = probboot(i,nn) + tmpkernel 
                 ENDDO
                   
               ENDDO
@@ -485,14 +482,15 @@
             ! get the mean
             tmpcheck=0.0d0
             tmperr=0.0d0
-
             DO nn=1,nbootstrap
               tmpcheck=tmpcheck+probboot(i,nn)
               tmperr=tmperr+probboot(i,nn)**2
             ENDDO
 
             probnmm(i)=tmpcheck/nbootstrap
-            ! get the s**2
+            ! so now we have the pi and we can compute Pi = pi V 
+            
+            ! get the s**2 of Pi
             errprobnmm(i)=(tmperr-(tmpcheck*tmpcheck)/nbootstrap)/(nbootstrap-1.0d0)
             ! we are estimating the error in a SINGLE sample, so we need 
             ! the variance and not the variance in the mean
@@ -599,8 +597,9 @@
                 ! estimate the geometric normalization factor this can be (approx.)
                 ! obtained from the error estimated in the bootstrap method.
                 ! TODO: estimate norm using the error of the bootstrap method
-                normri = 1.0d0 / (probnmm(j) * (twopi*sigma2(j))**(D/2.0d0) * (1 + ngrid*errprobnmm(j))) 
-
+                !normri = 1.0d0 / (probnmm(j) * (twopi*sigma2(j))**(D/2.0d0) * (1 + ngrid*errprobnmm(j))) 
+                normri = 12.0d0
+                
                 ! Determine kappa from a single bootstrap run (mode B) using the           
                 ! binomial estimate of the error and an estimation based on the error
                 ! of the bootstrap method to calculate the geometric normalization 
@@ -839,24 +838,7 @@
 !                !sigma2(j) = 1.0d0 / ( (1+kderr*kderr*normwj) * 1 * probnmm(j) )**(2.0d0/D) !  (((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(2.0d0/D))
 !                
 !                ! THIS IS THE GOOD ONE! USES BOOTSTRAPPING ERROR TO TUNE SIGMA
-!                sigma2(j) = sigma2(j) * ( (1+normwj*(errprobnmm(j)/probnmm(j))**2)/(1+normwj*kderr**2) )**(2.0d0/D) 
-!            ENDDO
-!        ELSE
-!            ! compute sigma2 from the number of points in the 
-!            ! neighborhood of each grid point. the rationale is that 
-!            ! integrating over a Gaussian kernel with variance sigma2
-!            ! will cover a volume Vi=(2*pi sigma2)^(D/2).  
-!            ! If the estimate probability density on grid point i is pi
-!            ! then the probability to be within that (smooth) bin is ri=pi * Vi. 
-!            ! We should then renormalize this generalized prob distrib, so that:
-!            ! ri=pi * Vi / TOTAL(pi * Vi) = pi * Vi / normri
-!            ! The number of points is then normwj*ri, and we can take this to 
-!            ! correspond to the mean of a binomial distribution. The (squared) relative error
-!            ! is then err2=ri*(normri-ri)/(normri**2)
-!            ! so we can rewrite sigma2 as follow :
-!            DO j=1,ngrid
-!                !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-!                sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probnmm(j)*(twopi**(D/2)))/normri)**(2.0d0/D))
+!                sigma2(j) = si
 !                ! kernel density estimation cannot become smaller than the distance with the nearest grid point
 !                !!! PUTS a bottom boundary
 !                IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
@@ -1125,7 +1107,7 @@
          WRITE(*,*) "                            output.pamm (cluster parameters) "
          WRITE(*,*) "   -l lambda         : Quick shift cutoff [automatic] "
          WRITE(*,*) "                       (Not used with the -neblike flag active)"
-         WRITE(*,*) "   -kdesmooth smooth : Degree of smoothening to apply during KDE [2]"
+         WRITE(*,*) "   -targeterror      : Relative target error use to adaptively refine the KDE [0.1]"
          WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift [8]"
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -bootstrap N      : Number of iteretions to do when using bootstrapping "
