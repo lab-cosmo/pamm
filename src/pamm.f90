@@ -411,8 +411,8 @@
 !         !   sigma2(i)=tmperr*(nsamples**(-1.0d0/(D+4)))
 !         !ENDIF
 !      ENDDO
-      sigma2 = sum(rgrid)/ngrid ! just use a constant sigma2 throughout for a start
-      
+      !sigma2 = sum(rgrid)/ngrid ! just use a constant sigma2 throughout for a start
+      sigma2 = (sum(dsqrt(rgrid))/ngrid)**2
       ! do either a regular run with constant sigma2(j) for estimating
       ! the probability density, use just bootstrapping or do an 
       ! iterative scheme with or without bootstrapping
@@ -465,12 +465,13 @@
                     probboot(i,nn) = probboot(i,nn) + fkernel(D,period, & 
                       sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
                   ENDIF
+                  probboot(i,nn) = probboot(i,nn) + tmpkernel 
                 ENDDO
                   
               ENDDO
-              probboot(:,nn) = probboot(:,nn)/nbstot  
 
             ENDDO
+            probboot(:,nn) = probboot(:,nn)/nbstot  
 
           ENDDO 
           ! END of bootstrapping run
@@ -547,9 +548,9 @@
         IF(saveprobs)THEN
           ! write out the grid
           IF(na<10)THEN
-            WRITE(comment,"((I1))") ikde
+            WRITE(comment,"((I1))") na
           ELSE
-            WRITE(comment,"((I2))") ikde
+            WRITE(comment,"((I2))") na
           ENDIF
           IF(adaptive>0) THEN
             OPEN(UNIT=12,FILE=trim(outputfile)//".probs." &
