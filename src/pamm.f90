@@ -478,29 +478,11 @@
           probstd = 0.0d0
 
           DO i=1,ngrid
+
             ! calculate the mean and standard deviation 
             probmean(i) = SUM( probboot(i,:) ) / nbootstrap
-            probstd(i) = DSQRT(  SUM( (probboot(i,:) - probmean(i))**2.0d0 ) / (nbootstrap - 1.0d0) )
+            probstd(i) = DSQRT( SUM( (probboot(i,:) - probmean(i))**2.0d0 ) / (nbootstrap - 1.0d0) )
             !proberr(i) = probbootstd(i)/DSQRT(nbootstrap)
-
-
-
-!            ! get the mean
-!            tmpcheck=0.0d0
-!            tmperr=0.0d0
-!            DO nn=1,nbootstrap
-!              tmpcheck=tmpcheck+probboot(i,nn)
-!              tmperr=tmperr+probboot(i,nn)**2
-!            ENDDO
-!
-!            probmean(i)=tmpcheck/nbootstrap
-!            ! so now we have the pi and we can compute Pi = pi V
-!
-!            ! get the s**2 of Pi
-!            probstd(i)=(tmperr-(tmpcheck*tmpcheck)/nbootstrap)/(nbootstrap-1.0d0)
-!            ! we are estimating the error in a SINGLE sample, so we need
-!            ! the variance and not the variance in the mean
-!            probstd(i)=DSQRT(probstd(i))
 
           ENDDO   
         
