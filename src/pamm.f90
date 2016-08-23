@@ -487,13 +487,14 @@
 
             ! calculate the mean and standard deviation 
             probmean(i) = SUM( probboot(i,:) ) / nbootstrap
-            ! this is the SD of the probability density but we need the SD of the geometric normalized probability
-            !probstd(i) = DSQRT( SUM( (probboot(i,:) - probmean(i))**2.0d0 ) / (nbootstrap - 1.0d0) )
+            ! this is the SD of the probability density (relative error)
+            probstd(i) = DSQRT( SUM( (probboot(i,:) - probmean(i))**2.0d0 ) / (nbootstrap - 1.0d0) ) / probmean(i)
 
-            gnorm = normri*((twopi*sigma2(i))**(DBLE(D)/2.0d0))
-            bigp = SUM(probboot(i,:))*gnorm / nbootstrap
+            !MC I Don't understand this
+            !gnorm = normri*((twopi*sigma2(i))**(DBLE(D)/2.0d0))
+            !bigp = SUM(probboot(i,:))*gnorm / nbootstrap
             ! get the relative error as std/bigp
-            probstd(i) = DSQRT( SUM( (probboot(i,:)*gnorm - bigp)**2.0d0 ) / (nbootstrap - 1.0d0)) / bigp
+            !probstd(i) = DSQRT( SUM( (probboot(i,:)*gnorm - bigp)**2.0d0 ) / (nbootstrap - 1.0d0)) / bigp
 
 
           ENDDO   
@@ -541,6 +542,8 @@
           ENDDO 
 
         ENDIF
+        
+
 
         ! write out stats before doing adaptive KDE estimation
         IF(saveprobs)THEN
@@ -558,28 +561,50 @@
               STATUS='REPLACE',ACTION='WRITE')
           ENDIF
           ! header
-          WRITE(12,*) "# Dimensionality, NGrids // point, probability, error, sigma**2"
+          WRITE(12,*) "# Dimensionality, NGrids // point, probability, error, sigma"
           WRITE(12,"((A2,I9,I9))") " #", D, ngrid
           DO i=1,ngrid
             ! write first the grid point
             DO j=1,D
-              WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", y(j,i)
+              !WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", y(j,i)
+              WRITE(12,"((A1,F10.5))",ADVANCE="NO") " ", y(j,i)
             ENDDO
             ! write the KDE
             WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", probmean(i)
             ! write the error
             WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", probstd(i)
-            WRITE(12,"((A1,ES25.9E4))") " ", sigma2(i)
+            WRITE(12,"((A1,ES25.9E4))") " ", dsqrt(sigma2(i))
           ENDDO
           CLOSE(UNIT=12)
         ENDIF
 
-        
+        ! computes the KDE on the Voronoi centers using the neighbour list
+          DO i=1,ngrid
+            probmean(i)=0.0d0
+            DO j=1,ngrid
+              ! do not compute KDEs for points that belong to far away Voronoi
+              IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+            
+              tmpkernel=0
+              ! cycle just inside the polyhedra using the neighbour list
+              DO k=pnlist(j)+1,pnlist(j+1)
+                IF(periodic)THEN
+                  tmpkernel=tmpkernel+wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                ELSE
+                  tmpkernel=tmpkernel+wj(nlist(k))*fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                ENDIF                
+              ENDDO
+              probmean(i)=tmpkernel                  
+            ENDDO
+            probmean(i)=probmean(i)/normwj
+              
+          ENDDO
         ! START adaptive if 
         IF(adaptive>0) THEN
           convchk=0.0d0
           oldsigma2(:) = sigma2(:) 
-          IF(nbootstrap>0) THEN ! START bootstrap if
+          !IF(nbootstrap>0) THEN ! START bootstrap if
+          IF(1 == 1) THEN ! START bootstrap if
           ! ---
           ! Bootstrapping and adaptive KDE estimation
           ! ---
@@ -611,7 +636,7 @@
               ! Determine kappa from a single bootstrap run (mode B) using the           
               ! binomial estimate of the error and an estimation based on the error
               ! of the bootstrap method to calculate the geometric normalization 
-              sigma2(j) = 1.0d0 / ( (1.0d0+kderr*kderr*normwj) * normri * probmean(j) )**(2.0d0/D)
+              sigma2(j) = 1.0d0 / ( (1.0d0+kderr*kderr*normwj) * normri * (twopi)**(D/2) * probmean(j) )**(2.0d0/D)
               ! set a lower boundary
               !IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
 
@@ -639,22 +664,22 @@
             ! is then err2=ri*(normri-ri)/(normri**2)
             ! so we can rewrite sigma2 as follow :
 
-            DO j=1,ngrid
+            !DO j=1,ngrid
               
-              sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probmean(j)* &
-                (twopi**(D/2)))/normri)**(2.0d0/D))
+            !  sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probmean(j)* &
+            !    (twopi**(D/2)))/normri)**(2.0d0/D))
               ! kernel density estimation cannot become smaller than
               ! the distance with the nearest grid point
               !!! PUTS a bottom boundary
               !IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
-            ENDDO
+            !ENDDO
 
           ENDIF ! END bootstrap if
 
           ! get an idea of the relative change
           convchk=SUM(ABS(oldsigma2(:)-sigma2(:)))/SUM(oldsigma2)
           IF (verbose) WRITE(*,*) "Relative change of sigmas: ", convchk
-          IF (convchk.lt.1.0d0) EXIT
+          !IF (convchk.lt.1.0d0) EXIT
           
         ENDIF ! END adaptive if 
 
