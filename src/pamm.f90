@@ -49,7 +49,7 @@
       INTEGER jmax,ii,jj
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, probmean, &
                                                      msmu, tmpmsmu, pcluster, px, &
-                                                     tmps2
+                                                     oldsigma2
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
       INTEGER seed                                            ! seed for the random number generator
@@ -77,7 +77,7 @@
       DOUBLE PRECISION tmperr, tmpcheck, qserr, normri
       
       ! IN/OUT probs
-      LOGICAL saveprobs, savevor, skipvoronois
+      LOGICAL saveprobs, savevor, skipvoronois, pilotmode
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -88,17 +88,19 @@
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       INTEGER adaptive                            ! iterations for adaptively refine the sigmas
       INTEGER neblike                             ! iterations for neblike path search
-      DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1, dummd2
+      DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1, dummd2, convchk
       ! DOUBLE PRECISION maxrgrid, minrgrid
 
       INTEGER i,j,k,ikde,counter,dummyi1,endf ! Counters and dummy variable
 
+      DOUBLE PRECISION bigp, bigperr, tmpbigp, gnorm
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile="out"
       clusterfile="NULL"
       fpost=.false.
       alpha=1.0d0
       zeta=0.0d0
+      pilotmode= .false.
       ccmd=0                 ! no parameters specified
       Nk=0                   ! number of gaussians
       nmsopt=0               ! number of mean-shift refinements
@@ -115,6 +117,7 @@
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       skipvoronois = .false. ! don't read the Voronoi associations 
+      normri = 1.0d0         ! default auf the geometric normalization factor
       
       D=-1
       periodic=.false.
@@ -146,7 +149,7 @@
             ccmd = 10
          ELSEIF (cmdbuffer == "-neblike") THEN  ! use neb paths between the qs points
             ccmd = 13
-         ELSEIF (cmdbuffer == "-adaptive") THEN  ! refine adptively sigma2
+         ELSEIF (cmdbuffer == "-nadaptive") THEN  ! refine adptively sigma2
             ccmd = 14
          ELSEIF (cmdbuffer == "-qserr") THEN  ! threshold for the qs assignation
             ccmd = 15
@@ -154,6 +157,8 @@
             ccmd = 16
          ELSEIF (cmdbuffer == "-readvoronis") THEN  ! read a file containing the Voronoi associations
             ccmd = 17
+         ELSEIF (cmdbuffer == "-pilot") THEN       ! Different working modalities
+            pilotmode = .true.
          ELSEIF (cmdbuffer == "-skipvoronois") THEN  ! save the KDE estimates in a file
             skipvoronois= .true.
          ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
@@ -210,6 +215,8 @@
                READ(cmdbuffer,*) adaptive
             ELSEIF (ccmd == 15) THEN ! read threshold for the qs assignation 
                READ(cmdbuffer,*) qserr
+            ELSEIF (ccmd == 18) THEN ! activate adaptive refining of sigma 
+               READ(cmdbuffer,*) pilotmode
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
                IF (D<0) STOP "Dimensionality (-d) must precede the periodic lenghts (-p). "
                par_count = 1
@@ -337,7 +344,7 @@
       ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
       ALLOCATE(y(D,ngrid), npvoronoi(ngrid), probmean(ngrid), sigma2(ngrid), rgrid(ngrid))
       ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
-      ALLOCATE(diff(D), msmu(D), tmpmsmu(D), tmps2(ngrid))
+      ALLOCATE(diff(D), msmu(D), tmpmsmu(D), oldsigma2(ngrid))
       ALLOCATE(probstd(ngrid))
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
@@ -476,13 +483,18 @@
           ! Average the estimates and get an error bar
           probmean = 0.0d0
           probstd = 0.0d0
-
           DO i=1,ngrid
 
             ! calculate the mean and standard deviation 
             probmean(i) = SUM( probboot(i,:) ) / nbootstrap
-            probstd(i) = DSQRT( SUM( (probboot(i,:) - probmean(i))**2.0d0 ) / (nbootstrap - 1.0d0) )
-            !proberr(i) = probbootstd(i)/DSQRT(nbootstrap)
+            ! this is the SD of the probability density but we need the SD of the geometric normalized probability
+            !probstd(i) = DSQRT( SUM( (probboot(i,:) - probmean(i))**2.0d0 ) / (nbootstrap - 1.0d0) )
+
+            gnorm = normri*((twopi*sigma2(i))**(DBLE(D)/2.0d0))
+            bigp = SUM(probboot(i,:))*gnorm / nbootstrap
+            ! get the relative error as std/bigp
+            probstd(i) = DSQRT( SUM( (probboot(i,:)*gnorm - bigp)**2.0d0 ) / (nbootstrap - 1.0d0)) / bigp
+
 
           ENDDO   
         
@@ -565,9 +577,8 @@
         
         ! START adaptive if 
         IF(adaptive>0) THEN
-          tmpcheck=0.0d0
-          tmps2=0.0d0
-          tmps2(:) = sigma2(:) 
+          convchk=0.0d0
+          oldsigma2(:) = sigma2(:) 
           IF(nbootstrap>0) THEN ! START bootstrap if
           ! ---
           ! Bootstrapping and adaptive KDE estimation
@@ -576,39 +587,35 @@
             ! Use the variance got during the bootstrapping procedure to update 
             ! the sigmas used in the KDE. Refine the sigmas according to the 
             ! target kderr   
-            IF(nbootstrap == 1) THEN
- 
-              IF (verbose) write(*,*) &
-                "Adaptive run ", na+1, "/", adaptive, " with one bootstrap cycle", &
-		", target error ", kderr 
-              DO j=1,ngrid
-                ! estimate the geometric normalization factor this can be (approx.)
-                ! obtained from the error estimated in the bootstrap method.
-                ! TODO: estimate norm using the error of the bootstrap method
-                !normri = 1.0d0 / (probmean(j) * (twopi*sigma2(j))**(D/2.0d0) * (1 + ngrid*probstd(j))) 
-                normri = 12.0d0
-                
-                ! Determine kappa from a single bootstrap run (mode B) using the           
-                ! binomial estimate of the error and an estimation based on the error
-                ! of the bootstrap method to calculate the geometric normalization 
-                sigma2(j) = 1.0d0 / ( (1+kderr*kderr*normwj) * normri * probmean(j) )**(2.0d0/D)
-              ENDDO
-
-            ELSE
-
-              IF (verbose) write(*,*) &
-                "Adaptive run ", na+1, "/", adaptive, " with", nbootstrap," bootstrap cycles", &
+            IF (verbose) write(*,*) &
+              "Adaptive run ", na+1, "/", adaptive, " with", nbootstrap," bootstrap cycles", &
 		", target error ", kderr 
 
-              DO j=1,ngrid
-              ! This approach avoids the estimation of the geometric normalization
-                sigma2(j) = sigma2(j) * ( (1+normwj*(probstd(j)/probmean(j))**2) &
-                  /(1+normwj*kderr**2) )**(2.0d0/D) 
-              ENDDO
-
-            ENDIF
+            DO j=1,ngrid
+              IF (probstd(j).gt.(kderr))  sigma2(j) = sigma2(j) * ( (1.0d0+normwj*probstd(j)**2.0d0) &
+                                                      /(1.0d0+normwj*kderr**2.0d0) )**(2.0d0/D)
+              IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=(sum(dsqrt(rgrid))/ngrid)**2.0d0
+            ! This approach avoids the estimation of the geometric normalization
+              
+            ENDDO
 
           ELSE
+ 
+            DO j=1,ngrid
+              ! estimate the geometric normalization factor this can be (approx.)
+              ! obtained from the error estimated in the bootstrap method.
+              ! TODO: estimate norm using the error of the bootstrap method
+              !normri = 1.0d0 / (probmean(j) * (twopi*sigma2(j))**(D/2.0d0) * (1 + ngrid*probstd(j))) 
+              !normri = 12.0d0
+                
+              ! Determine kappa from a single bootstrap run (mode B) using the           
+              ! binomial estimate of the error and an estimation based on the error
+              ! of the bootstrap method to calculate the geometric normalization 
+              sigma2(j) = 1.0d0 / ( (1.0d0+kderr*kderr*normwj) * normri * probmean(j) )**(2.0d0/D)
+              ! set a lower boundary
+              !IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
+
+            ENDDO
           ! ---
           ! No bootstrapping but adaptive KDE estimation
           ! ---
@@ -633,19 +640,22 @@
             ! so we can rewrite sigma2 as follow :
 
             DO j=1,ngrid
+              
               sigma2(j)=1.0d0/((((1+(normwj*kderr)**2)*probmean(j)* &
                 (twopi**(D/2)))/normri)**(2.0d0/D))
               ! kernel density estimation cannot become smaller than
               ! the distance with the nearest grid point
               !!! PUTS a bottom boundary
-              IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
+              !IF (sigma2(j).lt.(rgrid(j))) sigma2(j)=rgrid(j)
             ENDDO
 
           ENDIF ! END bootstrap if
 
           ! get an idea of the relative change
-          tmpcheck=SUM(ABS(tmps2(:)-sigma2(:)))/SUM(sigma2)
-
+          convchk=SUM(ABS(oldsigma2(:)-sigma2(:)))/SUM(oldsigma2)
+          IF (verbose) WRITE(*,*) "Relative change of sigmas: ", convchk
+          IF (convchk.lt.1.0d0) EXIT
+          
         ENDIF ! END adaptive if 
 
       ENDDO 
@@ -1057,7 +1067,7 @@
       DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm)
       DEALLOCATE(pnlist,nlist,iminij)
-      DEALLOCATE(y,npvoronoi,probmean,sigma2,rgrid,tmps2)
+      DEALLOCATE(y,npvoronoi,probmean,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu)
       IF(nbootstrap>0) DEALLOCATE(probboot,probstd)
 
@@ -1106,12 +1116,24 @@
          WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -p P1,...,PD      : Periodicity in each dimension [ (6.28,6.28,6.28,...) ]"
-         WRITE(*,*) "   -savevoronois      : Save Voronoi associations. This will produce:"
+         WRITE(*,*) "   -savevoronois     : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                            output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                            output.voronois (Voronoi centers + info) "
          WRITE(*,*) "   -saveprobs        : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                            output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                            output.voronois (Voronoi centers + info) "
+         WRITE(*,*) "   -adaptive  N      : Maximum number of adaptive cycles to be done. [10] "
+         WRITE(*,*) "   -pilot            : Compute the errors using a pilot bootstrap estimate. [False]"
+!         WRITE(*,*) "   -mode M           : Set the working modality for the adaptive scheme used to refine 
+!         WRITE(*,*) "                       the KDE bandwiths. "
+!         WRITE(*,*) ""
+!         WRITE(*,*) "                        0 = [Default] Scheme based on a simple binomial assumption for "
+!         WRITE(*,*) "                            the errors. Fastest approach. "
+!         WRITE(*,*) "                        1 = Compute the errors using a pilot bootstrap estimate. "
+!         WRITE(*,*) "                            These will improve the adaptive scheme assumed in 0. "
+!         WRITE(*,*) "                        2 = Always use bootstrap to estimate both the probability  "
+!         WRITE(*,*) "                            and the errors for each adaptive cycle. Slowest approach. "
+         WRITE(*,*) ""
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
