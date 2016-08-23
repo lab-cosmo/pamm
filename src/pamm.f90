@@ -594,6 +594,7 @@
                   tmpkernel=tmpkernel+wj(nlist(k))*fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
                 ENDIF                
               ENDDO
+              ! at this point tmpkernel is nomwj*Dij
               probmean(i)=tmpkernel                  
             ENDDO
             probmean(i)=probmean(i)/normwj
