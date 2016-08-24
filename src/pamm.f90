@@ -57,6 +57,7 @@
 
       ! variable to set the covariance matrix
       DOUBLE PRECISION tmppks,normpks,tmpkernel
+      DOUBLE PRECISION tmpad, tmpadb
     
       ! Array of Von Mises distributions
       TYPE(vm_type), ALLOCATABLE, DIMENSION(:) :: vmclusters
@@ -71,7 +72,9 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj
       
       ! BOOTSTRAP
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot,probdij,probdijinv
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: adB, adB1
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: adA, adw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: proberr
       INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
       INTEGER nbootstrap, rndidx, rngidx, nn, na, nbssample, nbstot
@@ -91,6 +94,7 @@
       INTEGER neblike                             ! iterations for neblike path search
       DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1, dummd2, convchk
       ! DOUBLE PRECISION maxrgrid, minrgrid
+      DOUBLE PRECISION mixbeta
 
       INTEGER i,j,k,ikde,counter,dummyi1,endf ! Counters and dummy variable
 
@@ -118,6 +122,8 @@
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       skipvoronois = .false. ! don't read the Voronoi associations 
+      
+      mixbeta = 0.1
       
       D=-1
       periodic=.false.
@@ -347,7 +353,8 @@
       ALLOCATE(y(D,ngrid), npvoronoi(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
       ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
       ALLOCATE(diff(D), msmu(D), tmpmsmu(D), oldsigma2(ngrid), normri(ngrid))
-      ALLOCATE(proberr(ngrid),probdij(ngrid,ngrid),probdijinv(ngrid,ngrid))
+      ALLOCATE(proberr(ngrid))
+      ALLOCATE(adB(ngrid,ngrid),adB1(ngrid,ngrid),adA(ngrid), adw(nsamples))
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
 
@@ -434,30 +441,49 @@
         
         DO na=1, adaptive
         
-          probdij = 0.0d0
+          adB = 0.0d0
+          adA = 0.0d0
           prob = 0.0d0
-            
+          
+          ! assign point weights normalization
+          adw = 0.0d0
+          DO i=1,ngrid
+            DO j=1,ngrid
+              IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE  
+              
+              IF(periodic)THEN
+                  adw(nlist(k)) = adw(nlist(k)) *fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
+                ELSE
+                  adw(nlist(k)) = adw(nlist(k)) *fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
+                ENDIF 
+            ENDDO
+          ENDDO
+          
           DO i=1,ngrid
             DO j=1,ngrid
               ! do not compute KDEs for points that belong to far away Voronoi
               IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
             
-              tmpkernel=0.0d0
+              tmpadb = 0.0
               ! cycle just inside the polyhedra using the neighbour list
               DO k=pnlist(j)+1,pnlist(j+1)
                 IF(periodic)THEN
-                  tmpkernel=tmpkernel+wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                  tmpad = wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
                 ELSE
-                  tmpkernel=tmpkernel+wj(nlist(k))*fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
-                ENDIF                
+                  tmpad = wj(nlist(k))*fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
+                ENDIF     
+                prob(i) = prob(i) + tmpad                
+                tmpadb = tmpadb + tmpad
+                adB(i,j) = adB(i,j) + tmpad * 0.5d0*pammr2(D,period,y(:,i),x(:,nlist(k)))/sigma2(j)
               ENDDO
-              ! at this point tmpkernel is nomwj*Dij
-              probdij(i,j)=tmpkernel   
-              prob(i)=prob(i)+tmpkernel               
+              
+              adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
+              adB(i,j) = adB(i,j) * (twopi*sigma2(j))**(dble(D)/2.0d0)
             ENDDO          
           ENDDO
           prob=prob/normwj
-          probdij=probdij/normwj
+          adA=adA/normwj
+          adB=adB/normwj
 
           ! This is the mode in which we use bootstrapping to estimate
           ! the error of our KDE and use this for an adaptive tuning
@@ -538,7 +564,7 @@
             ", target error ", kderr 
 
           ! if desired write out the stuff
-          IF(saveprobs) CALL savegrid(outputfile,D,ngrid,y,prob,proberr,sigma2,na,adaptive)
+          IF(saveprobs) CALL savegrid(outputfile,D,ngrid,y,prob,proberr,sigma2,adA,na,adaptive)
           
           ! calculate the geometric normalization
           IF(pilotboot .OR. (mode.eq.2)) THEN
@@ -548,36 +574,18 @@
           ENDIF
                             
           ! rescale the sigmas
-          sigma2= 1.0d0/(normri*(1.0d0+normwj*kderr**2.0d0)*prob)**(2.0/DBLE(D))
+          ! sigma2= 1.0d0/(normri*(1.0d0+normwj*kderr**2.0d0)*prob)**(2.0/DBLE(D))
           
           ! get the inverse of the probdij matrix
-          !CALL invmatrix(ngrid,probdij,probdijinv)  
-          !DO i=1,ngrid
-            
-            !sigma2(i)= ((sum(probdijinv(i,:)*(sigma2(i)/sigma2(:))))/( twopi**(DBLE(D)/2.0d0)* & 
-            !                        (1.0d0+normwj*kderr**2.0d0) ) )**(2.0d0/DBLE(D))
-            
-            ! This approach avoids the estimation of the geometric normalization
-            !sigma2(j) = sigma2(j) * ( (1.0d0+normwj*proberr(j)**2.0d0) &
-            !                          /(1.0d0+normwj*kderr**2.0d0) )**(2.0d0/D)
-            
-          !ENDDO
-          
+          IF(saveprobs) CALL savedij(outputfile,ngrid,adB,na)
+          do i=1,ngrid
+             adB(i,i)=adB(i,i)+0.1d0
+          enddo
+          CALL invmatrix(ngrid,adB,adB1)
+          IF(saveprobs) CALL savedij("inverse",ngrid,adB1,na)
+          sigma2 = sigma2 *( 1.0 + MATMUL(adB1, 1/(1.0d0+normwj*kderr**2.0d0)- adA) )          
       ENDDO
 
-
-
-
-
-
-
-
-
-
-
-
-
-              
 
       idxroot=0
       ! Start quick shift
@@ -776,7 +784,8 @@
       DEALLOCATE(idxroot,qspath,distmm)
       DEALLOCATE(pnlist,nlist,iminij)
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
-      DEALLOCATE(diff,msmu,tmpmsmu,probdij,normri,probdijinv)
+      DEALLOCATE(diff,msmu,tmpmsmu,normri)
+      DEALLOCATE(adA,adB,adB1)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
       CALL EXIT(0)
@@ -1504,7 +1513,7 @@
          CLOSE(UNIT=12)
       END SUBROUTINE savevoronois
       
-      SUBROUTINE savegrid(outputfile,D,ngrid,y,prob,proberr,sigma2,na,adaptive)     
+      SUBROUTINE savegrid(outputfile,D,ngrid,y,prob,proberr,sigma2,esta,na,adaptive)     
          ! Store results from adaptive runs in a file
          ! 
          ! Args:
@@ -1517,6 +1526,7 @@
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: prob
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: proberr
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: esta
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: sigma2
          INTEGER, INTENT(IN) :: na
          INTEGER, INTENT(IN) :: adaptive
@@ -1547,10 +1557,47 @@
            WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", prob(i)
            ! write the error
            WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", proberr(i)
-           WRITE(12,"((A1,ES25.9E4))") " ", dsqrt(sigma2(i))
+           WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", dsqrt(sigma2(i))    
+           WRITE(12,"((A1,ES25.9E4))") " ",  esta(i)
          ENDDO
          CLOSE(UNIT=12)
 
       END SUBROUTINE savegrid
+      
+      SUBROUTINE savedij(outputfile,ngrid,probdij,na)
+         ! Store results from adaptive runs in a file
+         ! 
+         ! Args:
+         !    outputfile     : Dimensionality of a point
+         ! ...
+         
+         CHARACTER(LEN=1024), INTENT(IN) :: outputfile         
+         INTEGER, INTENT(IN) :: ngrid
+         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: probdij
+         INTEGER, INTENT(IN) :: na
+         
+         INTEGER i,j    
 
+        
+         ! write out the grid
+         IF(na<10)THEN
+           WRITE(comment,"((I1))") na
+         ELSE
+           WRITE(comment,"((I2))") na
+         ENDIF
+         
+         OPEN(UNIT=12,FILE=trim(outputfile)//".dij." &
+           //trim(comment),STATUS='REPLACE',ACTION='WRITE')
+
+         DO i=1,ngrid
+           ! write first the grid point
+           DO j=1,ngrid
+             !WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", y(j,i)
+             WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", probdij(i,j)
+           ENDDO
+           WRITE(12,*) ""
+         ENDDO
+         CLOSE(UNIT=12)
+
+      END SUBROUTINE savedij
    END PROGRAM pamm
