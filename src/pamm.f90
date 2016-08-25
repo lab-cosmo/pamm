@@ -79,6 +79,7 @@
       INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
       INTEGER nbootstrap, rndidx, rngidx, nn, na, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr
+      DOUBLE PRECISION r, Q
       
       ! IN/OUT probs
       LOGICAL saveprobs, savevor, skipvoronois, pilotboot
@@ -426,7 +427,36 @@
 !      ENDDO
 !      sigma2 = sum(rgrid)/ngrid ! just use a constant sigma2 throughout for a start
       sigma2 = (sum(dsqrt(rgrid))/ngrid)**2
-! 
+!     ESTIMATE FOLLOWING ZHOUGAB ET AL. (spherical case, 1D)
+      r=DBLE(nsamples)**(2.0/dble(D+4))
+      Q=SUM(x(:,:)**2)/nsamples-(SUM(x(:,:))/nsamples)**2
+      tmpadb = 0.0d0
+      DO i=1,ngrid
+        sigma2(i)=0.0d0
+        tmpadb = 0.0d0
+        DO j=1,ngrid
+          ! do not compute contribution from far far away points
+          ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+          ! cycle just inside the polyhedra using the neighbour list          
+          DO k=pnlist(j)+1,pnlist(j+1)
+            tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
+            sigma2(i) = sigma2(i) + (Q+tmpad) / (Q+tmpad)**((r+1d0)*0.5d0)            
+            tmpadb=tmpadb+1.0d0/ (Q+tmpad)**((r+1d0)*0.5d0)     
+          ENDDO
+        ENDDO
+        sigma2(i)=sigma2(i)/tmpadb
+      ENDDO
+      sigma2=sigma2/(r-d)   
+!      DO i=1,ngrid
+!         sigma2(i)=rgrid(i)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))         
+!         ! This is not working properly..
+!         ! Need to sort this out for circular data
+!         !IF(PERIODIC) THEN
+!         !   ! Batschelet's angular deviation
+!         !   tmperr=(360.0d0/twopi)*DSQRT(2.0d0*(1.0d0-rgrid(i)))
+!         !   sigma2(i)=tmperr*(nsamples**(-1.0d0/(D+4)))
+!         !ENDIF
+!      ENDDO
 
 
       ! do either a regular run with constant sigma2(j) for estimating
@@ -451,13 +481,17 @@
             DO j=1,ngrid
               IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE  
               
-              IF(periodic)THEN
-                  adw(nlist(k)) = adw(nlist(k)) *fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
+              DO k=pnlist(j)+1,pnlist(j+1)
+              
+                IF(periodic)THEN
+                  adw(nlist(k)) = adw(nlist(k)) + fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
                 ELSE
-                  adw(nlist(k)) = adw(nlist(k)) *fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
+                  adw(nlist(k)) = adw(nlist(k)) + fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
                 ENDIF 
+              ENDDO
             ENDDO
           ENDDO
+          adw = adw * wj
           
           DO i=1,ngrid
             DO j=1,ngrid
@@ -472,13 +506,14 @@
                 ELSE
                   tmpad = wj(nlist(k))*fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
                 ENDIF     
-                prob(i) = prob(i) + tmpad                
-                tmpadb = tmpadb + tmpad
+                prob(i) = prob(i) + tmpad    
+                tmpad = tmpad / adw(nlist(k))
+                adA(i) = adA(i) + tmpad
                 adB(i,j) = adB(i,j) + tmpad * 0.5d0*pammr2(D,period,y(:,i),x(:,nlist(k)))/sigma2(j)
               ENDDO
               
-              adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
-              adB(i,j) = adB(i,j) * (twopi*sigma2(j))**(dble(D)/2.0d0)
+              !adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
+              !adB(i,j) = adB(i,j) * (twopi*sigma2(j))**(dble(D)/2.0d0)
             ENDDO          
           ENDDO
           prob=prob/normwj
