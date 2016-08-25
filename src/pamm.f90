@@ -80,9 +80,9 @@
       INTEGER nbootstrap, rndidx, rngidx, nn, na, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr
       ! Variables for Bayesian Bandwidth estimation
-      DOUBLE PRECISION r
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp
+      DOUBLE PRECISION r, detdistQ, sumdetdistQ
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm 
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat
       ! IN/OUT probs
       LOGICAL saveprobs, savevor, skipvoronois, pilotboot
       
@@ -100,7 +100,7 @@
       ! DOUBLE PRECISION maxrgrid, minrgrid
       DOUBLE PRECISION mixbeta
 
-      INTEGER i,j,k,ikde,counter,dummyi1,endf ! Counters and dummy variable
+      INTEGER i,j,k,m,n,ikde,counter,dummyi1,endf ! Counters and dummy variable
 
       DOUBLE PRECISION bigp, bigperr, tmpbigp, gnorm
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -362,7 +362,7 @@
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for bayesian bandidth estimate
-      ALLOCATE(Q(D,D),Qtmp(D,D),xm(D))
+      ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -449,6 +449,7 @@
         Q = Q + Qtmp
       ENDDO
       Q = Q/(nsamples-1)
+      WRITE(*,*) Q
       
 !     A Multidimensional approach which follows the Zhuogab et al. 
 !     However, if we want to have univariate gaussians the covariance
@@ -464,24 +465,51 @@
       ! if it is desired to write this matrix in file, do this
       IF(saveprobs) CALL savemat(outputfile,"Qij",D,Q,0)
            
-      tmpadb = 0.0d0
+      distmat = 0.0d0
       DO i=1,ngrid
         sigma2(i)=0.0d0
-        tmpadb = 0.0d0
+        distmat = 0.0d0
+        sumdetdistQ = 0.0d0
         DO j=1,ngrid
           IF(i.eq.j) CYCLE
           ! do not compute contribution from far far away points
           ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
           ! cycle just inside the polyhedra using the neighbour list          
           DO k=pnlist(j)+1,pnlist(j+1)
-            tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
-            sigma2(i) = sigma2(i) + (Q(i,j)+tmpad) / (Q(i,j)+tmpad)**((r+1.0d0)*0.5d0)            
-            tmpadb=tmpadb+1.0d0/ (Q(i,j)+tmpad)**((r+1.0d0)*0.5d0)     
+            ! calculate the distance matrix (x-y)(x-y).T
+            DO m=1,D
+              DO n=1,D
+                distmat(m,n) = (x(m,k)-y(m,j)) * (x(n,k)-y(n,j))
+              ENDDO
+            ENDDO
+            ! calculate the determinant of |(x-y)(x-y).T+Q|
+            detdistQ = detmatrix(D,distmat+Q)
+            sigma2(i) = sigma2(i) + detdistQ / detdistQ**((r+1.0d0)*0.5d0)            
+            sumdetdistQ = sumdetdistQ + 1.0d0/ detdistQ**((r+1.0d0)*0.5d0)     
           ENDDO
         ENDDO
-        sigma2(i)=sigma2(i)/tmpadb
+        sigma2(i)=sigma2(i)/sumdetdistQ
       ENDDO
-      sigma2=sigma2/(r-d)   
+      sigma2=sigma2/(r-D)        
+      
+!      tmpadb = 0.0d0
+!      DO i=1,ngrid
+!        sigma2(i)=0.0d0
+!        tmpadb = 0.0d0
+!        DO j=1,ngrid
+!          IF(i.eq.j) CYCLE
+!          ! do not compute contribution from far far away points
+!          ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+!          ! cycle just inside the polyhedra using the neighbour list          
+!          DO k=pnlist(j)+1,pnlist(j+1)
+!            tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
+!            sigma2(i) = sigma2(i) + (Q(i,j)+tmpad) / (Q(i,j)+tmpad)**((r+1.0d0)*0.5d0)            
+!            tmpadb=tmpadb+1.0d0/ (Q(i,j)+tmpad)**((r+1.0d0)*0.5d0)     
+!          ENDDO
+!        ENDDO
+!        sigma2(i)=sigma2(i)/tmpadb
+!      ENDDO
+!      sigma2=sigma2/(r-d)   
 
 
       ! do either a regular run with constant sigma2(j) for estimating
@@ -1640,7 +1668,7 @@
          CHARACTER(LEN=1024), INTENT(IN) :: outputfile      
          CHARACTER(LEN=1024), INTENT(IN) :: matrixname      
          INTEGER, INTENT(IN) :: dmn                
-         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: mat
+         DOUBLE PRECISION, DIMENSION(dmn,dmn), INTENT(IN) :: mat
          INTEGER, INTENT(IN) :: na
          
          INTEGER i,j    
