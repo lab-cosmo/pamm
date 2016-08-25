@@ -79,8 +79,10 @@
       INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
       INTEGER nbootstrap, rndidx, rngidx, nn, na, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr
-      DOUBLE PRECISION r, Q
-      
+      ! Variables for Bayesian Bandwidth estimation
+      DOUBLE PRECISION r
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp
       ! IN/OUT probs
       LOGICAL saveprobs, savevor, skipvoronois, pilotboot
       
@@ -94,6 +96,7 @@
       INTEGER adaptive                            ! iterations for adaptively refine the sigmas
       INTEGER neblike                             ! iterations for neblike path search
       DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1, dummd2, convchk
+
       ! DOUBLE PRECISION maxrgrid, minrgrid
       DOUBLE PRECISION mixbeta
 
@@ -358,6 +361,8 @@
       ALLOCATE(adB(ngrid,ngrid),adB1(ngrid,ngrid),adA(ngrid), adw(nsamples))
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
+      ! Allocate variables for bayesian bandidth estimate
+      ALLOCATE(Q(D,D),Qtmp(D,D),xm(D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -429,7 +434,34 @@
       sigma2 = (sum(dsqrt(rgrid))/ngrid)**2
 !     ESTIMATE FOLLOWING ZHOUGAB ET AL. (spherical case, 1D)
       r=DBLE(nsamples)**(2.0/dble(D+4))
-      Q=SUM(x(:,:)**2)/nsamples-(SUM(x(:,:))/nsamples)**2
+
+!     Micheles Q estimation
+!      Q=SUM(x(:,:)**2)/nsamples-(SUM(x(:,:))/nsamples)**2
+
+!     A Multidimensional approach would need a covariance sample matrix here
+!     which is according to wikipedia (https://en.wikipedia.org/wiki/Estimation
+!     _of_covariance_matrices) for the grid points given by for 1D this gives 
+!     the same result as the previous one
+      IF(verbose) WRITE(*,*) "Calculating the sample covariance matrix"
+      ! first calculate the mean in each dimension
+      DO j=1,D
+        xm(j) = SUM(x(j,:))/nsamples
+      ENDDO
+      Q = 0.0d0
+      DO i=1,nsamples
+        Qtmp = 0.0d0
+        DO j=1,D
+         DO k=1,D
+            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
+          ENDDO
+        ENDDO
+        Q = Q + Qtmp
+      ENDDO
+      Q = Q/(nsamples-1)
+      
+      IF(saveprobs) CALL savemat(outputfile,"Qij",D,Q,0)
+      
+           
       tmpadb = 0.0d0
       DO i=1,ngrid
         sigma2(i)=0.0d0
@@ -439,9 +471,9 @@
           ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
           ! cycle just inside the polyhedra using the neighbour list          
           DO k=pnlist(j)+1,pnlist(j+1)
-            tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
-            sigma2(i) = sigma2(i) + (Q+tmpad) / (Q+tmpad)**((r+1d0)*0.5d0)            
-            tmpadb=tmpadb+1.0d0/ (Q+tmpad)**((r+1d0)*0.5d0)     
+            !tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
+            !sigma2(i) = sigma2(i) + (Q+tmpad) / (Q+tmpad)**((r+1.0d0)*0.5d0)            
+            !tmpadb=tmpadb+1.0d0/ (Q+tmpad)**((r+1.0d0)*0.5d0)     
           ENDDO
         ENDDO
         sigma2(i)=sigma2(i)/tmpadb
@@ -612,12 +644,12 @@
           ! sigma2= 1.0d0/(normri*(1.0d0+normwj*kderr**2.0d0)*prob)**(2.0/DBLE(D))
           
           ! get the inverse of the probdij matrix
-          IF(saveprobs) CALL savedij(outputfile,ngrid,adB,na)
+          IF(saveprobs) CALL savemat(outputfile,"initial",ngrid,adB,na)
           do i=1,ngrid
              adB(i,i)=adB(i,i)+0.1d0
           enddo
           CALL invmatrix(ngrid,adB,adB1)
-          IF(saveprobs) CALL savedij("inverse",ngrid,adB1,na)
+          IF(saveprobs) CALL savemat(outputfile,"inverse",ngrid,adB1,na)
           sigma2 = sigma2 *( 1.0 + MATMUL(adB1, 1/(1.0d0+normwj*kderr**2.0d0)- adA) )          
       ENDDO
 
@@ -1599,16 +1631,23 @@
 
       END SUBROUTINE savegrid
       
-      SUBROUTINE savedij(outputfile,ngrid,probdij,na)
+      SUBROUTINE savemat(outputfile,matrixname,dmn,mat,na)
          ! Store results from adaptive runs in a file
          ! 
          ! Args:
-         !    outputfile     : Dimensionality of a point
+         !    outputfile     : prefix for the outputfile
+         !    matrixname     : name of the matrix to store
+         !    dmn            : dimensions of the matrix 
+         !                     (only squared matrices allowed)
+         !    mat            : the matrix itself
+         !    na             : if in a loop use this to add a
+         !                     number to the end of the file name
          ! ...
          
-         CHARACTER(LEN=1024), INTENT(IN) :: outputfile         
-         INTEGER, INTENT(IN) :: ngrid
-         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: probdij
+         CHARACTER(LEN=1024), INTENT(IN) :: outputfile      
+         CHARACTER(LEN=1024), INTENT(IN) :: matrixname      
+         INTEGER, INTENT(IN) :: dmn                
+         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: mat
          INTEGER, INTENT(IN) :: na
          
          INTEGER i,j    
@@ -1621,18 +1660,18 @@
            WRITE(comment,"((I2))") na
          ENDIF
          
-         OPEN(UNIT=12,FILE=trim(outputfile)//".dij." &
+         OPEN(UNIT=12,FILE=trim(outputfile)//"."//matrixname//"." &
            //trim(comment),STATUS='REPLACE',ACTION='WRITE')
 
-         DO i=1,ngrid
+         DO i=1,dmn
            ! write first the grid point
-           DO j=1,ngrid
+           DO j=1,dmn
              !WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", y(j,i)
-             WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", probdij(i,j)
+             WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", mat(i,j)
            ENDDO
            WRITE(12,*) ""
          ENDDO
          CLOSE(UNIT=12)
 
-      END SUBROUTINE savedij
+      END SUBROUTINE savemat
    END PROGRAM pamm
