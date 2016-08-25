@@ -420,30 +420,21 @@
                                      npvoronoi,iminij,wj,rgrid, &
                                      outputfile)
 
-!      DO i=1,ngrid
-!         sigma2(i)=rgrid(i)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))         
-!         ! This is not working properly..
-!         ! Need to sort this out for circular data
-!         !IF(PERIODIC) THEN
-!         !   ! Batschelet's angular deviation
-!         !   tmperr=(360.0d0/twopi)*DSQRT(2.0d0*(1.0d0-rgrid(i)))
-!         !   sigma2(i)=tmperr*(nsamples**(-1.0d0/(D+4)))
-!         !ENDIF
-!      ENDDO
-!      sigma2 = sum(rgrid)/ngrid ! just use a constant sigma2 throughout for a start
-      sigma2 = (sum(dsqrt(rgrid))/ngrid)**2
-!     ESTIMATE FOLLOWING ZHOUGAB ET AL. (spherical case, 1D)
+
+!     just use a constant sigma2 throughout for a start
+      !sigma2 = (sum(dsqrt(rgrid))/ngrid)**2
+
+!     A Multidimensional approach which follows the Zhuogab et al. 
+!     (multivariate, nD) needs a covariance sample matrix.
+!     According to wikipedia (https://en.wikipedia.org/wiki/Estimation
+!     _of_covariance_matrices) this is given by the following.
+!     For 1D this gives the same result as the 1D case of Michele.  
+
       r=DBLE(nsamples)**(2.0/dble(D+4))
-
-!     Micheles Q estimation
-!      Q=SUM(x(:,:)**2)/nsamples-(SUM(x(:,:))/nsamples)**2
-
-!     A Multidimensional approach would need a covariance sample matrix here
-!     which is according to wikipedia (https://en.wikipedia.org/wiki/Estimation
-!     _of_covariance_matrices) for the grid points given by for 1D this gives 
-!     the same result as the previous one
+      
       IF(verbose) WRITE(*,*) "Calculating the sample covariance matrix"
       ! first calculate the mean in each dimension
+      ! TODO: Add periodicity
       DO j=1,D
         xm(j) = SUM(x(j,:))/nsamples
       ENDDO
@@ -451,7 +442,7 @@
       DO i=1,nsamples
         Qtmp = 0.0d0
         DO j=1,D
-         DO k=1,D
+          DO k=1,D
             Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
           ENDDO
         ENDDO
@@ -459,36 +450,38 @@
       ENDDO
       Q = Q/(nsamples-1)
       
+!     A Multidimensional approach which follows the Zhuogab et al. 
+!     However, if we want to have univariate gaussians the covariance
+!     matrix will be diagonal and all elements will be equal.
+
+!     use micheles 1D Q estimation
+      DO j=1,D
+        DO k=1,D
+          Q(i,j)=SUM(x(:,:)**2)/nsamples-(SUM(x(:,:))/nsamples)**2
+        ENDDO
+      ENDDO
+       
+      ! if it is desired to write this matrix in file, do this
       IF(saveprobs) CALL savemat(outputfile,"Qij",D,Q,0)
-      
            
       tmpadb = 0.0d0
       DO i=1,ngrid
         sigma2(i)=0.0d0
         tmpadb = 0.0d0
         DO j=1,ngrid
+          IF(i.eq.j) CYCLE
           ! do not compute contribution from far far away points
           ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
           ! cycle just inside the polyhedra using the neighbour list          
           DO k=pnlist(j)+1,pnlist(j+1)
-            !tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
-            !sigma2(i) = sigma2(i) + (Q+tmpad) / (Q+tmpad)**((r+1.0d0)*0.5d0)            
-            !tmpadb=tmpadb+1.0d0/ (Q+tmpad)**((r+1.0d0)*0.5d0)     
+            tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
+            sigma2(i) = sigma2(i) + (Q(i,j)+tmpad) / (Q(i,j)+tmpad)**((r+1.0d0)*0.5d0)            
+            tmpadb=tmpadb+1.0d0/ (Q(i,j)+tmpad)**((r+1.0d0)*0.5d0)     
           ENDDO
         ENDDO
         sigma2(i)=sigma2(i)/tmpadb
       ENDDO
       sigma2=sigma2/(r-d)   
-!      DO i=1,ngrid
-!         sigma2(i)=rgrid(i)*(nsamples**(-1.0d0/(DBLE(D)+4.0d0)))         
-!         ! This is not working properly..
-!         ! Need to sort this out for circular data
-!         !IF(PERIODIC) THEN
-!         !   ! Batschelet's angular deviation
-!         !   tmperr=(360.0d0/twopi)*DSQRT(2.0d0*(1.0d0-rgrid(i)))
-!         !   sigma2(i)=tmperr*(nsamples**(-1.0d0/(D+4)))
-!         !ENDIF
-!      ENDDO
 
 
       ! do either a regular run with constant sigma2(j) for estimating
