@@ -21,7 +21,7 @@
 
 FF=gfortran
 FFLAGS=-O3 -g -Wall -Wno-maybe-uninitialized -cpp # -fopenmp
-LDFLAGS=-llapack
+LDFLAGS=-llapack -lblas
 MODULES=libpamm.f90 xyz.f90 random.f90
 OBJECTS=$(MODULES:.f90=.o)
 TOOLS=pamm hbpamm

@@ -81,8 +81,9 @@
       DOUBLE PRECISION tmperr, tmpcheck, qserr
       ! Variables for Bayesian Bandwidth estimation
       DOUBLE PRECISION r, detdistQ, sumdetdistQ
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm 
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, distmat
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi
       ! IN/OUT probs
       LOGICAL saveprobs, savevor, skipvoronois, pilotboot
       
@@ -362,7 +363,7 @@
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for bayesian bandidth estimate
-      ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D))
+      ALLOCATE(Q(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -438,59 +439,104 @@
       DO j=1,D
         xm(j) = SUM(x(j,:))/nsamples
       ENDDO
-      Q = 0.0d0
-      DO i=1,nsamples
-        Qtmp = 0.0d0
+      
+      ! computes sample covariance matrix quickly
+      IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
+      CALL DGEMM("T", "N", D, D, nsamples, 1d0, x, nsamples, x, nsamples, 0.d0, Q, D) 
+      DO i=1,D
         DO j=1,D
-          DO k=1,D
-            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
-          ENDDO
+          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
         ENDDO
-        Q = Q + Qtmp
       ENDDO
-      Q = Q/(nsamples-1)
-      WRITE(*,*) Q
+      Q = Q/(nsamples - 1)
+!      Q = 0.0d0
+!      DO i=1,nsamples
+!        Qtmp = 0.0d0
+!        DO j=1,D
+!          DO k=1,D
+!            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
+!          ENDDO
+!        ENDDO
+!        Q = Q + Qtmp
+!      ENDDO
+!      Q = Q/(nsamples-1)
       
 !     A Multidimensional approach which follows the Zhuogab et al. 
 !     However, if we want to have univariate gaussians the covariance
 !     matrix will be diagonal and all elements will be equal.
-
-!     use micheles 1D Q estimation
-      DO j=1,D
-        DO k=1,D
-          Q(i,j)=SUM(x(:,:)**2)/nsamples-(SUM(x(:,:))/nsamples)**2
-        ENDDO
-      ENDDO
        
-      ! if it is desired to write this matrix in file, do this
+      ! if it is desired to write this matrix in a file, do this
       IF(saveprobs) CALL savemat(outputfile,"Qij",D,Q,0)
-           
-      distmat = 0.0d0
+      
+      IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
+      DO i=1,ngrid
+        sumdetdistQ = 0.0d0
+        Hi(:,:,i) = 0
+        DO j=1,ngrid
+          IF(i.eq.j) CYCLE          
+          ! do not compute contribution from far far away points
+          ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+          ! cycle just inside the polyhedra using the neighbour list     
+          
+          DO k=pnlist(j)+1,pnlist(j+1)
+            CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
+            DO n=1,D
+              DO m=1,D
+                distmat(n,m)=Q(n,m)+xij(m)*xij(n)
+              ENDDO
+            ENDDO
+            ! calculate the determinant of |(x-y)(x-y).T+Q|        
+            detdistQ = 1d0/detmatrix(D,distmat)**((r+1.0d0)*0.5d0)            
+            Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
+            sumdetdistQ = sumdetdistQ + detdistQ
+          ENDDO
+        ENDDO
+        Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
+      ENDDO
+      Hi=Hi/(r-D)
+      
+      open(666,file="sigmas")
+      ! sigma2 is the trace of the covariance matrix
+      DO i=1,ngrid      
+        sigma2(i)=0d0
+        DO m=1,D
+          sigma2(i)=sigma2(i)+Hi(m,m,i)
+        ENDDO
+        sigma2(i) = sigma2(i)/D
+        write(666,*), y(1,i), sigma2(i)
+      ENDDO
+      close(666)
+      
+      tmpadb = 0.0d0
       DO i=1,ngrid
         sigma2(i)=0.0d0
-        distmat = 0.0d0
-        sumdetdistQ = 0.0d0
+        tmpadb = 0.0d0
         DO j=1,ngrid
-          IF(i.eq.j) CYCLE
           ! do not compute contribution from far far away points
           ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
           ! cycle just inside the polyhedra using the neighbour list          
           DO k=pnlist(j)+1,pnlist(j+1)
-            ! calculate the distance matrix (x-y)(x-y).T
-            DO m=1,D
-              DO n=1,D
-                distmat(m,n) = (x(m,k)-y(m,j)) * (x(n,k)-y(n,j))
-              ENDDO
-            ENDDO
-            ! calculate the determinant of |(x-y)(x-y).T+Q|
-            detdistQ = detmatrix(D,distmat+Q)
-            sigma2(i) = sigma2(i) + detdistQ / detdistQ**((r+1.0d0)*0.5d0)            
-            sumdetdistQ = sumdetdistQ + 1.0d0/ detdistQ**((r+1.0d0)*0.5d0)     
+            tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
+            sigma2(i) = sigma2(i) + (Q(1,1)+tmpad) / (Q(1,1)+tmpad)**((r+1d0)*0.5d0)            
+            tmpadb=tmpadb+1.0d0/ (Q(1,1)+tmpad)**((r+1d0)*0.5d0)     
           ENDDO
         ENDDO
-        sigma2(i)=sigma2(i)/sumdetdistQ
+        sigma2(i)=sigma2(i)/tmpadb
       ENDDO
-      sigma2=sigma2/(r-D)        
+      sigma2=sigma2/(r-d)      
+      
+      
+      open(666,file="sigmas-old")
+      ! sigma2 is the trace of the covariance matrix
+      DO i=1,ngrid      
+        sigma2(i)=0d0
+        DO m=1,D
+          sigma2(i)=sigma2(i)+Hi(m,m,i)
+        ENDDO
+        sigma2(i) = sigma2(i)/D
+        write(666,*), y(1,i), sigma2(i)
+      ENDDO
+      close(666)  
       
 !      tmpadb = 0.0d0
 !      DO i=1,ngrid
@@ -874,6 +920,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu,normri)
       DEALLOCATE(adA,adB,adB1)
+      DEALLOCATE(Q,distmat,xm,xij,Hi)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
       CALL EXIT(0)
