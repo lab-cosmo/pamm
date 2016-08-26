@@ -443,13 +443,15 @@
         Qtmp = 0.0d0
         DO j=1,D
           DO k=1,D
-            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
+            dummd1=DSQRT(pammr2(1,period(j),x(j,i),xm(j)))
+            dummd2=DSQRT(pammr2(1,period(k),x(k,i),xm(k)))
+            Qtmp(j,k) = dummd1*dummd2
+            !Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
           ENDDO
         ENDDO
         Q = Q + Qtmp
       ENDDO
       Q = Q/(nsamples-1)
-      WRITE(*,*) Q
       
 !     A Multidimensional approach which follows the Zhuogab et al. 
 !     However, if we want to have univariate gaussians the covariance
@@ -479,7 +481,10 @@
             ! calculate the distance matrix (x-y)(x-y).T
             DO m=1,D
               DO n=1,D
-                distmat(m,n) = (x(m,k)-y(m,j)) * (x(n,k)-y(n,j))
+                dummd1=DSQRT(pammr2(1,period(m),x(m,k),y(m,j)))
+                dummd2=DSQRT(pammr2(1,period(n),x(n,k),y(n,j)))
+                distmat(m,n) = dummd1*dummd2
+                !distmat(m,n) = (x(m,k)-y(m,j)) * (x(n,k)-y(n,j))
               ENDDO
             ENDDO
             ! calculate the determinant of |(x-y)(x-y).T+Q|
@@ -812,20 +817,27 @@
             DO ii=1,D
                DO jj=1,D
                   IF(periodic)THEN
-                     ! Minimum Image Convention
-                     dummd1 = (y(ii,i) - vmclusters(k)%mean(ii)) / period(ii)
-                     dummd1 = dummd1 - dnint(dummd1)                          
-                     dummd1 = dummd1 * period(ii)
-                     
-                     dummd2 = (y(jj,i)-vmclusters(k)%mean(jj)) / period(jj)
-                     dummd2 = dummd2 - dnint(dummd2)                          
-                     dummd2 = dummd2 * period(jj)
+!                     ! Minimum Image Convention
+!                     dummd1 = (y(ii,i) - vmclusters(k)%mean(ii)) / period(ii)
+!                     dummd1 = dummd1 - dnint(dummd1)                          
+!                     dummd1 = dummd1 * period(ii)
+!                     
+!                     dummd2 = (y(jj,i)-vmclusters(k)%mean(jj)) / period(jj)
+!                     dummd2 = dummd2 - dnint(dummd2)                          
+!                     dummd2 = dummd2 * period(jj)
+!                     
+                     dummd1=DSQRT(pammr2(1,period(ii),y(ii,i),vmclusters(k)%mean(ii)))
+                     dummd2=DSQRT(pammr2(1,period(jj),y(jj,i),vmclusters(k)%mean(jj)))
                      
                      vmclusters(k)%cov(ii,jj)= vmclusters(k)%cov(ii,jj)+prob(i)* &
                                                dummd1 * dummd2
+                                            
                   ELSE
+                     dummd1=DSQRT(pammr2(1,period(ii),y(ii,i),clusters(k)%mean(ii)))
+                     dummd2=DSQRT(pammr2(1,period(jj),y(jj,i),clusters(k)%mean(jj)))
+                     
                      clusters(k)%cov(ii,jj)=clusters(k)%cov(ii,jj)+prob(i)* &
-                       (y(ii,i)-clusters(k)%mean(ii))*(y(jj,i)-clusters(k)%mean(jj))
+                                               dummd1 * dummd2
                   ENDIF
                ENDDO
             ENDDO
