@@ -460,6 +460,22 @@
          call DGETRI(D,IM,D,IPIV,WORK,D,info)
       END SUBROUTINE
 
+      DOUBLE PRECISION FUNCTION trmatrix(D,M)
+        ! trace of a square matrix
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D,D) , INTENT(IN) :: M
+
+         INTEGER :: i
+
+         trmatrix = 0.0d0
+        ! sigma2 is the trace of the covariance matrix
+         DO i=1,D      
+           trmatrix = trmatrix + M(i,i)
+         ENDDO
+         RETURN
+         
+      END FUNCTION trmatrix
+
       DOUBLE PRECISION FUNCTION detmatrix(D,M)
         ! determinant of a square matrix
          INTEGER, INTENT(IN) :: D

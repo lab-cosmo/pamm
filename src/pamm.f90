@@ -47,7 +47,7 @@
       INTEGER ngrid                                           ! Number of samples extracted using minmax
 
       INTEGER jmax,ii,jj
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, &
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, bigp, &
                                                      msmu, tmpmsmu, pcluster, px, &
                                                      oldsigma2, normri
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
@@ -73,17 +73,15 @@
       
       ! BOOTSTRAP
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: adB, adB1
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: adA, adw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: proberr
       INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
       INTEGER nbootstrap, rndidx, rngidx, nn, na, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr
       ! Variables for Bayesian Bandwidth estimation
       DOUBLE PRECISION r, detdistQ, sumdetdistQ
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, distmat
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       ! IN/OUT probs
       LOGICAL saveprobs, savevor, skipvoronois, pilotboot
       
@@ -103,7 +101,7 @@
 
       INTEGER i,j,k,m,n,ikde,counter,dummyi1,endf ! Counters and dummy variable
 
-      DOUBLE PRECISION bigp, bigperr, tmpbigp, gnorm
+      DOUBLE PRECISION  bigperr, tmpbigp, gnorm
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile="out"
       clusterfile="NULL"
@@ -358,12 +356,11 @@
       ALLOCATE(y(D,ngrid), npvoronoi(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
       ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
       ALLOCATE(diff(D), msmu(D), tmpmsmu(D), oldsigma2(ngrid), normri(ngrid))
-      ALLOCATE(proberr(ngrid))
-      ALLOCATE(adB(ngrid,ngrid),adB1(ngrid,ngrid),adA(ngrid), adw(nsamples))
+      ALLOCATE(proberr(ngrid),normgmulti(ngrid),bigp(ngrid))
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for bayesian bandidth estimate
-      ALLOCATE(Q(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid))
+      ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -442,25 +439,36 @@
       
       ! computes sample covariance matrix quickly
       IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
-      CALL DGEMM("T", "N", D, D, nsamples, 1d0, x, nsamples, x, nsamples, 0.d0, Q, D) 
-      DO i=1,D
+!      CALL DGEMM("T", "N", D, D, nsamples, 1.0d0, x, nsamples, x, nsamples, 0.0d0, Q, D) 
+!      DO i=1,D
+!        DO j=1,D
+!          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
+!        ENDDO
+!      ENDDO
+!      Q = Q/(nsamples-1)
+      Q = 0.0d0
+      DO i=1,nsamples
+        Qtmp = 0.0d0
         DO j=1,D
-          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
+          DO k=1,D
+            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
+          ENDDO
         ENDDO
+        Q = Q + Qtmp
       ENDDO
-      Q = Q/(nsamples-1)
-      
+      Q = Q/(nsamples-1) 
+ 
 !     A Multidimensional approach which follows the Zhuogab et al. 
 !     However, if we want to have univariate gaussians the covariance
 !     matrix will be diagonal and all elements will be equal.
       ! if it is desired to write this matrix in a file, do this
-      IF(saveprobs) CALL savemat(outputfile,"Qij",D,Q,0)
+      IF(saveprobs) CALL savemat(outputfile,"Qij",D,Q)
       
       IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
       
       DO i=1,ngrid
         sumdetdistQ = 0.0d0
-        Hi(:,:,i) = 0d0
+        Hi(:,:,i) = 0.0d0
         DO j=1,ngrid
 
           ! do not compute contribution from far far away points
@@ -474,8 +482,8 @@
                 distmat(n,m)=xij(m)*xij(n)
               ENDDO
             ENDDO
-            ! calculate the determinant of |(x-y)(x-y).T+Q|    
-            detdistQ = 1d0/detmatrix(D,Q+distmat)**((r+1.0d0)*0.5d0)            
+            ! calculate the determinant of |(x-y)(x-y).T+Q|   
+            detdistQ = 1.0d0/detmatrix(D,Q+distmat)**((r+1.0d0)*0.5d0)     
             Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
             sumdetdistQ = sumdetdistQ + detdistQ
           ENDDO 
@@ -484,15 +492,17 @@
       ENDDO
       Hi=Hi/(r-D)
       
-      ! sigma2 is the trace of the covariance matrix
-      DO i=1,ngrid      
-        sigma2(i)=0d0
-        DO m=1,D
-          sigma2(i)=sigma2(i)+Hi(m,m,i)
-        ENDDO
-        sigma2(i) = sigma2(i)/D
-      ENDDO
+      ! invert H and get the determinant just once
       
+      DO i=1, ngrid 
+        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+        normgmulti(i) = 1.0d0/dsqrt((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+      ENDDO
+
+      ! get an estimation of the spherical sigma2 around the point
+      DO i=1,ngrid
+        sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
+      ENDDO
 
       ! do either a regular run with constant sigma2(j) for estimating
       ! the probability density, use just bootstrapping or do an 
@@ -501,161 +511,129 @@
       IF(verbose) WRITE(*,*) &
           "Computing kernel density on reference points."
 
-        normri = sigma2**(DBLE(D)/2.0d0)    
-        proberr = 0.0d0    
+      prob = 0.0d0
+      bigp = 0.0d0
+      
+      DO i=1,ngrid
+        DO j=1,ngrid
+          ! do not compute KDEs for points that belong to far away Voronoi
+          IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
         
-        DO na=1, adaptive
+          dummd1 = 0.0d0
+          ! cycle just inside the polyhedra using the neighbour list
+          DO k=pnlist(j)+1,pnlist(j+1)
+            IF(periodic)THEN
+              tmpkernel = wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
+            ELSE
+              tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,i))
+            ENDIF     
+            dummd1 = dummd1 + tmpkernel    
+!            tmpad = tmpad / adw(nlist(k))
+!            adA(i) = adA(i) + tmpad
+!            adB(i,j) = adB(i,j) + tmpad * 0.5d0*pammr2(D,period,y(:,i),x(:,nlist(k)))/sigma2(j)
+          ENDDO
+          
+          ! get the non-normalized prob, used to compute the estimate of the error
+          bigp(i) = bigp(i) + dummd1
+          ! We now have to normalize the kernel
+          prob(i) = prob(i) + dummd1*normgmulti(i)
+          !adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
+          !adB(i,j) = adB(i,j) * (twopi*sigma2(j))**(dble(D)/2.0d0)
+        ENDDO          
+      ENDDO
+      prob=prob/normwj
+      bigp=bigp/normwj
+      
+      ! ---
+      ! Computing the error
+      ! ---
+      
+      ! We're taking the Tr(M) but maybe we should diagonalize M
+      ! before doing that.
+      DO i=1,ngrid
         
-          adB = 0.0d0
-          adA = 0.0d0
-          prob = 0.0d0
+        proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0)   
+     !   WRITE(*,*) prob(i),bigp(i), proberr(i)
+        
+      ENDDO
+      
+
+      ! This is the mode in which we use bootstrapping to estimate
+      ! the error of our KDE and use this for an adaptive tuning
+      ! of sigma
+
+
+      IF(nbootstrap > 0) probboot = 0.0d0
           
-          ! assign point weights normalization
-          adw = 0.0d0
-          DO i=1,ngrid
-            DO j=1,ngrid
-              IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE  
-              
-              DO k=pnlist(j)+1,pnlist(j+1)
-              
-                IF(periodic)THEN
-                  adw(nlist(k)) = adw(nlist(k)) + fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
-                ELSE
-                  adw(nlist(k)) = adw(nlist(k)) + fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
-                ENDIF 
-              ENDDO
-            ENDDO
-          ENDDO
-          adw = adw * wj
+      !$omp parallel &
+      !$omp default (none) &
+      !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose, &
+      !$omp         iminij,nsamples,nbssample,npvoronoi,periodic,nbstot) &
+      !$omp private (i,j,tmpkernel,rndidx)
+      !$omp DO
           
-          DO i=1,ngrid
-            DO j=1,ngrid
-              ! do not compute KDEs for points that belong to far away Voronoi
-              IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-            
-              tmpadb = 0.0
-              ! cycle just inside the polyhedra using the neighbour list
-              DO k=pnlist(j)+1,pnlist(j+1)
-                IF(periodic)THEN
-                  tmpad = wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
-                ELSE
-                  tmpad = wj(nlist(k))*fkernel(D,period,sigma2(j),y(:,i),x(:,nlist(k)))
-                ENDIF     
-                prob(i) = prob(i) + tmpad    
-                tmpad = tmpad / adw(nlist(k))
-                adA(i) = adA(i) + tmpad
-                adB(i,j) = adB(i,j) + tmpad * 0.5d0*pammr2(D,period,y(:,i),x(:,nlist(k)))/sigma2(j)
-              ENDDO
-              
-              !adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
-              !adB(i,j) = adB(i,j) * (twopi*sigma2(j))**(dble(D)/2.0d0)
-            ENDDO          
-          ENDDO
-          prob=prob/normwj
-          adA=adA/normwj
-          adB=adB/normwj
-
-          ! This is the mode in which we use bootstrapping to estimate
-          ! the error of our KDE and use this for an adaptive tuning
-          ! of sigma
-
-
-          IF(pilotboot .OR. (mode.eq.2)) THEN
-            probboot = 0.0d0
-              
-        !$omp parallel &
-        !$omp default (none) &
-        !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose, &
-        !$omp         iminij,nsamples,nbssample,npvoronoi,periodic,nbstot) &
-        !$omp private (i,j,tmpkernel,rndidx)
-        !$omp DO
-              
-            ! START of bootstrapping run
-            DO nn=1,nbootstrap
-              
-              
+      ! START of bootstrapping run
+      DO nn=1,nbootstrap
+        
+        
 #ifdef _OPENMP
-              IF(verbose) WRITE(*,*) &
-                    "Bootstrapping, run ", nn , " thread n. : ", omp_get_thread_num() 
+        IF(verbose) WRITE(*,*) &
+              "Bootstrapping, run ", nn , " thread n. : ", omp_get_thread_num() 
 #else
-              IF(verbose) WRITE(*,*) &
-                    "Bootstrapping, run ", nn
+        IF(verbose) WRITE(*,*) &
+              "Bootstrapping, run ", nn
 #endif
 
-              ! rather than selecting nsel random points, we select a random 
-              ! number of points from each voronoi. this makes it possible 
-              ! to apply some simplifications and avoid computing distances 
-              ! from far-away voronoi
-              nbstot=0
-              DO j=1,ngrid
-                nbssample=random_binomial(nsamples, DBLE(npvoronoi(j))/DBLE(nsamples))
-                nbstot = nbstot+nbssample
-                       
-                DO i=1,ngrid
-                ! localization: do not compute KDEs for points that belong to far away Voronoi
-                ! one could make this a bit more sophisticated, but this should be enough
-                  IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE 
-                  
-                  tmpkernel=0.0d0
-                  DO k=1,nbssample
-                    rndidx = int(npvoronoi(j)*random_uniform())+1
-                    rndidx = nlist(pnlist(j)+rndidx)
-                    ! the vector that contains the Voronoi assignations is iminij   
-                    ! do not compute KDEs for points that belong to far away Voronoi
-                    IF(periodic)THEN
-                      tmpkernel = tmpkernel + fkernelvm(D,period, & 
-                        sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
-                    ELSE
-                      tmpkernel = tmpkernel + fkernel(D,period, & 
-                        sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
-                    ENDIF
-                  ENDDO
-                  probboot(i,nn) = probboot(i,nn) + tmpkernel
-                ENDDO
+        ! rather than selecting nsel random points, we select a random 
+        ! number of points from each voronoi. this makes it possible 
+        ! to apply some simplifications and avoid computing distances 
+        ! from far-away voronoi
+        nbstot=0
+        DO j=1,ngrid
+          nbssample=random_binomial(nsamples, DBLE(npvoronoi(j))/DBLE(nsamples))
+          nbstot = nbstot+nbssample
+                 
+          DO i=1,ngrid
+          ! localization: do not compute KDEs for points that belong to far away Voronoi
+          ! one could make this a bit more sophisticated, but this should be enough
+            IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE 
+            
+            tmpkernel=0.0d0
+            DO k=1,nbssample
+              rndidx = int(npvoronoi(j)*random_uniform())+1
+              rndidx = nlist(pnlist(j)+rndidx)
+              ! the vector that contains the Voronoi assignations is iminij   
+              ! do not compute KDEs for points that belong to far away Voronoi
+              IF(periodic)THEN
+                tmpkernel = tmpkernel + fkernelvm(D,period, & 
+                  sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+              ELSE
+                tmpkernel = tmpkernel + fkernel(D,period, & 
+                  sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+              ENDIF
+            ENDDO
+            probboot(i,nn) = probboot(i,nn) + tmpkernel
+          ENDDO
 
-              ENDDO
-              probboot(:,nn) = probboot(:,nn)/nbstot  
+        ENDDO
+        probboot(:,nn) = probboot(:,nn)/nbstot  
 
-            ENDDO 
-            ! END of bootstrapping run
-                      ! get the error from the bootstrap
-            proberr = 0.0d0
-            DO i=1,ngrid
-              ! this is the SD of the probability density (relative error)
-              proberr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap) ) / prob(i)
-            ENDDO 
-     !$omp ENDDO   
-     !$omp END PARALLEL
-          ENDIF
-          
-          ! do the magic of adaptive rescaling
-          IF (verbose) write(*,*) &
-            "Adaptive run ", na, "/", adaptive, " with", nbootstrap," bootstrap cycles", &
-            ", target error ", kderr 
+      ENDDO 
+      ! END of bootstrapping run
+      !$omp ENDDO   
+      !$omp END PARALLEL
+      
+      ! get the error from the bootstrap if bootstrap was set
+      IF(nbootstrap > 0) THEN
+        proberr = 0.0d0
+        DO i=1,ngrid
+          ! this is the SD of the probability density (relative error)
+          proberr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap) ) / prob(i)
+        ENDDO 
+      ENDIF
 
-          ! if desired write out the stuff
-          IF(saveprobs) CALL savegrid(outputfile,D,ngrid,y,prob,proberr,sigma2,adA,na,adaptive)
-          
-          ! calculate the geometric normalization
-          IF(pilotboot .OR. (mode.eq.2)) THEN
-             normri = 1.0d0 / (sigma2**(DBLE(D)/2.0d0) * twopi**(DBLE(D)/2.0d0) &
-                            * prob * (1.0d0 + normwj * proberr**2.0d0))
-             pilotboot=.false.
-          ENDIF
-                            
-          ! rescale the sigmas
-          ! sigma2= 1.0d0/(normri*(1.0d0+normwj*kderr**2.0d0)*prob)**(2.0/DBLE(D))
-          
-          ! get the inverse of the probdij matrix
-          IF(saveprobs) CALL savemat(outputfile,"initial",ngrid,adB,na)
-          do i=1,ngrid
-             adB(i,i)=adB(i,i)+0.1d0
-          enddo
-          CALL invmatrix(ngrid,adB,adB1)
-          IF(saveprobs) CALL savemat(outputfile,"inverse",ngrid,adB1,na)
-          sigma2 = sigma2 *( 1.0 + MATMUL(adB1, 1/(1.0d0+normwj*kderr**2.0d0)- adA) )          
-      ENDDO
-
+      ! if desired write out the stuff
+      IF(saveprobs) CALL savegrid(outputfile,D,ngrid,y,prob,proberr,Hi)
 
       idxroot=0
       ! Start quick shift
@@ -859,11 +837,10 @@
       DEALLOCATE(x,wj)
       DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm)
-      DEALLOCATE(pnlist,nlist,iminij)
+      DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu,normri)
-      DEALLOCATE(adA,adB,adB1)
-      DEALLOCATE(Q,distmat,xm,xij,Hi)
+      DEALLOCATE(Q,Qtmp,distmat,xm,xij,Hi,Hiinv,normgmulti)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
       CALL EXIT(0)
@@ -1423,9 +1400,30 @@
          ENDIF
          
       END FUNCTION qs_next
+      
+      DOUBLE PRECISION FUNCTION fmultikernel(D,period,x,y,icov)
+         ! Return the multivariate gaussian density
+         ! Args:
+         !    gpars: gaussian parameters
+         !    x: point in wich estimate the value of the gaussian
+         
+         INTEGER , INTENT(IN) :: D
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: x(D)
+         DOUBLE PRECISION, INTENT(IN) :: y(D)
+         DOUBLE PRECISION, INTENT(IN) :: icov(D,D)
+         DOUBLE PRECISION dv(D),tmpv(D),xcx
+         
+         CALL pammrij(D, period, x, y, dv)
+         tmpv = matmul(dv,icov)
+         xcx = dot_product(dv,tmpv)
+
+         fmultikernel = dexp(-0.5d0*xcx)
+      END FUNCTION fmultikernel
 
       DOUBLE PRECISION FUNCTION fkernel(D,period,sig2,vc,vp)
-            ! Calculate the (normalized) gaussian kernel
+            ! Calculate the gaussian kernel
+            ! The normalization has to be done outside
             !
             ! Args:
             !    sig2: sig**2
@@ -1439,8 +1437,10 @@
             DOUBLE PRECISION, INTENT(IN) :: vp(D)
 
 
-            fkernel=(1/( (twopi*sig2)**(dble(D)/2) ))* &
-                    dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
+           ! fkernel=(1/( (twopi*sig2)**(dble(D)/2) ))* &
+           !         dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
+           
+            fkernel= dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
                     
       END FUNCTION fkernel
       
@@ -1590,8 +1590,8 @@
          ENDDO
          CLOSE(UNIT=12)
       END SUBROUTINE savevoronois
-      
-      SUBROUTINE savegrid(outputfile,D,ngrid,y,prob,proberr,sigma2,esta,na,adaptive)     
+
+      SUBROUTINE savegrid(outputfile,D,ngrid,y,prob,proberr,Hi)     
          ! Store results from adaptive runs in a file
          ! 
          ! Args:
@@ -1604,23 +1604,13 @@
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: prob
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: proberr
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: esta
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: sigma2
-         INTEGER, INTENT(IN) :: na
-         INTEGER, INTENT(IN) :: adaptive
+         DOUBLE PRECISION, DIMENSION(D,D,ngrid), INTENT(IN) :: Hi
          
          INTEGER i,j    
 
-        
-         ! write out the grid
-         IF(na<10)THEN
-           WRITE(comment,"((I1))") na
-         ELSE
-           WRITE(comment,"((I2))") na
-         ENDIF
          
-         OPEN(UNIT=12,FILE=trim(outputfile)//".probs." &
-           //trim(comment),STATUS='REPLACE',ACTION='WRITE')
+         OPEN(UNIT=12,FILE=trim(outputfile)//".probs" &
+           ,STATUS='REPLACE',ACTION='WRITE')
 
          ! header
          WRITE(12,*) "# Dimensionality, NGrids // point, probability, error, sigma"
@@ -1635,14 +1625,13 @@
            WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", prob(i)
            ! write the error
            WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", proberr(i)
-           WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", dsqrt(sigma2(i))    
-           WRITE(12,"((A1,ES25.9E4))") " ",  esta(i)
+           WRITE(12,"((A1,ES25.9E4))") " ", DSQRT(trmatrix(D,Hi(:,:,i))/DBLE(D))   
          ENDDO
          CLOSE(UNIT=12)
 
       END SUBROUTINE savegrid
       
-      SUBROUTINE savemat(outputfile,matrixname,dmn,mat,na)
+      SUBROUTINE savemat(outputfile,matrixname,dmn,mat)
          ! Store results from adaptive runs in a file
          ! 
          ! Args:
@@ -1659,20 +1648,13 @@
          CHARACTER(LEN=1024), INTENT(IN) :: matrixname      
          INTEGER, INTENT(IN) :: dmn                
          DOUBLE PRECISION, DIMENSION(dmn,dmn), INTENT(IN) :: mat
-         INTEGER, INTENT(IN) :: na
          
          INTEGER i,j    
 
         
          ! write out the grid
-         IF(na<10)THEN
-           WRITE(comment,"((I1))") na
-         ELSE
-           WRITE(comment,"((I2))") na
-         ENDIF
-         
-         OPEN(UNIT=12,FILE=trim(outputfile)//"."//matrixname//"." &
-           //trim(comment),STATUS='REPLACE',ACTION='WRITE')
+         OPEN(UNIT=12,FILE=trim(outputfile)//"."//matrixname, &
+              STATUS='REPLACE',ACTION='WRITE')
 
          DO i=1,dmn
            ! write first the grid point
