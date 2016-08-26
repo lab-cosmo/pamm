@@ -633,7 +633,7 @@
          rij = (ri-rj)
          
          DO k = 1, D
-            IF (period(k)==0.0d0) CONTINUE
+            IF (period(k)<=0.0d0) CYCLE            
             ! scaled lenght
             rij(k) = rij(k)/period(k)
             ! Finds the smallest separation between the images of the atom i and j

@@ -449,31 +449,20 @@
         ENDDO
       ENDDO
       Q = Q/(nsamples - 1)
-!      Q = 0.0d0
-!      DO i=1,nsamples
-!        Qtmp = 0.0d0
-!        DO j=1,D
-!          DO k=1,D
-!            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
-!          ENDDO
-!        ENDDO
-!        Q = Q + Qtmp
-!      ENDDO
-!      Q = Q/(nsamples-1)
       
 !     A Multidimensional approach which follows the Zhuogab et al. 
 !     However, if we want to have univariate gaussians the covariance
 !     matrix will be diagonal and all elements will be equal.
-       
       ! if it is desired to write this matrix in a file, do this
       IF(saveprobs) CALL savemat(outputfile,"Qij",D,Q,0)
       
       IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
+      
       DO i=1,ngrid
         sumdetdistQ = 0.0d0
-        Hi(:,:,i) = 0
+        Hi(:,:,i) = 0d0
         DO j=1,ngrid
-          IF(i.eq.j) CYCLE          
+
           ! do not compute contribution from far far away points
           ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
           ! cycle just inside the polyhedra using the neighbour list     
@@ -482,20 +471,19 @@
             CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
             DO n=1,D
               DO m=1,D
-                distmat(n,m)=Q(n,m)+xij(m)*xij(n)
+                distmat(n,m)=xij(m)*xij(n)
               ENDDO
             ENDDO
-            ! calculate the determinant of |(x-y)(x-y).T+Q|        
-            detdistQ = 1d0/detmatrix(D,distmat)**((r+1.0d0)*0.5d0)            
+            ! calculate the determinant of |(x-y)(x-y).T+Q|    
+            detdistQ = 1d0/detmatrix(D,Q+distmat)**((r+1.0d0)*0.5d0)            
             Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
             sumdetdistQ = sumdetdistQ + detdistQ
-          ENDDO
+          ENDDO 
         ENDDO
-        Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
+        Hi(:,:,i)=Q+Hi(:,:,i)/sumdetdistQ
       ENDDO
       Hi=Hi/(r-D)
       
-      open(666,file="sigmas")
       ! sigma2 is the trace of the covariance matrix
       DO i=1,ngrid      
         sigma2(i)=0d0
@@ -503,60 +491,8 @@
           sigma2(i)=sigma2(i)+Hi(m,m,i)
         ENDDO
         sigma2(i) = sigma2(i)/D
-        write(666,*), y(1,i), sigma2(i)
       ENDDO
-      close(666)
       
-      tmpadb = 0.0d0
-      DO i=1,ngrid
-        sigma2(i)=0.0d0
-        tmpadb = 0.0d0
-        DO j=1,ngrid
-          ! do not compute contribution from far far away points
-          ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-          ! cycle just inside the polyhedra using the neighbour list          
-          DO k=pnlist(j)+1,pnlist(j+1)
-            tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
-            sigma2(i) = sigma2(i) + (Q(1,1)+tmpad) / (Q(1,1)+tmpad)**((r+1d0)*0.5d0)            
-            tmpadb=tmpadb+1.0d0/ (Q(1,1)+tmpad)**((r+1d0)*0.5d0)     
-          ENDDO
-        ENDDO
-        sigma2(i)=sigma2(i)/tmpadb
-      ENDDO
-      sigma2=sigma2/(r-d)      
-      
-      
-      open(666,file="sigmas-old")
-      ! sigma2 is the trace of the covariance matrix
-      DO i=1,ngrid      
-        sigma2(i)=0d0
-        DO m=1,D
-          sigma2(i)=sigma2(i)+Hi(m,m,i)
-        ENDDO
-        sigma2(i) = sigma2(i)/D
-        write(666,*), y(1,i), sigma2(i)
-      ENDDO
-      close(666)  
-      
-!      tmpadb = 0.0d0
-!      DO i=1,ngrid
-!        sigma2(i)=0.0d0
-!        tmpadb = 0.0d0
-!        DO j=1,ngrid
-!          IF(i.eq.j) CYCLE
-!          ! do not compute contribution from far far away points
-!          ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-!          ! cycle just inside the polyhedra using the neighbour list          
-!          DO k=pnlist(j)+1,pnlist(j+1)
-!            tmpad=pammr2(D,period,y(:,i),x(:,nlist(k)))
-!            sigma2(i) = sigma2(i) + (Q(i,j)+tmpad) / (Q(i,j)+tmpad)**((r+1.0d0)*0.5d0)            
-!            tmpadb=tmpadb+1.0d0/ (Q(i,j)+tmpad)**((r+1.0d0)*0.5d0)     
-!          ENDDO
-!        ENDDO
-!        sigma2(i)=sigma2(i)/tmpadb
-!      ENDDO
-!      sigma2=sigma2/(r-d)   
-
 
       ! do either a regular run with constant sigma2(j) for estimating
       ! the probability density, use just bootstrapping or do an 
