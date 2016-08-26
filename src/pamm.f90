@@ -519,20 +519,27 @@
             DO ii=1,D
                DO jj=1,D
                   IF(periodic)THEN
-                     ! Minimum Image Convention
-                     dummd1 = (y(ii,i) - vmclusters(k)%mean(ii)) / period(ii)
-                     dummd1 = dummd1 - dnint(dummd1)                          
-                     dummd1 = dummd1 * period(ii)
-                     
-                     dummd2 = (y(jj,i)-vmclusters(k)%mean(jj)) / period(jj)
-                     dummd2 = dummd2 - dnint(dummd2)                          
-                     dummd2 = dummd2 * period(jj)
+!                     ! Minimum Image Convention
+!                     dummd1 = (y(ii,i) - vmclusters(k)%mean(ii)) / period(ii)
+!                     dummd1 = dummd1 - dnint(dummd1)                          
+!                     dummd1 = dummd1 * period(ii)
+!                     
+!                     dummd2 = (y(jj,i)-vmclusters(k)%mean(jj)) / period(jj)
+!                     dummd2 = dummd2 - dnint(dummd2)                          
+!                     dummd2 = dummd2 * period(jj)
+!                     
+                     dummd1=DSQRT(pammr2(1,period(ii),y(ii,i),vmclusters(k)%mean(ii)))
+                     dummd2=DSQRT(pammr2(1,period(jj),y(jj,i),vmclusters(k)%mean(jj)))
                      
                      vmclusters(k)%cov(ii,jj)= vmclusters(k)%cov(ii,jj)+probnmm(i)* &
                                                dummd1 * dummd2
+                                            
                   ELSE
+                     dummd1=DSQRT(pammr2(1,period(ii),y(ii,i),clusters(k)%mean(ii)))
+                     dummd2=DSQRT(pammr2(1,period(jj),y(jj,i),clusters(k)%mean(jj)))
+                     
                      clusters(k)%cov(ii,jj)=clusters(k)%cov(ii,jj)+probnmm(i)* &
-                       (y(ii,i)-clusters(k)%mean(ii))*(y(jj,i)-clusters(k)%mean(jj))
+                                               dummd1 * dummd2
                   ENDIF
                ENDDO
             ENDDO
