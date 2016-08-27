@@ -439,24 +439,28 @@
       
       ! computes sample covariance matrix quickly
       IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
-!      CALL DGEMM("T", "N", D, D, nsamples, 1.0d0, x, nsamples, x, nsamples, 0.0d0, Q, D) 
-!      DO i=1,D
-!        DO j=1,D
-!          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
-!        ENDDO
-!      ENDDO
-!      Q = Q/(nsamples-1)
-      Q = 0.0d0
-      DO i=1,nsamples
-        Qtmp = 0.0d0
+      !CALL DGEMM("T", "N", D, D, nsamples, 1.0d0, x, nsamples, x, nsamples, 0.0d0, Q, D) 
+      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, x, D, x, D, 0.0d0, Q, D) 
+      DO i=1,D
         DO j=1,D
-          DO k=1,D
-            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
-          ENDDO
+          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
         ENDDO
-        Q = Q + Qtmp
       ENDDO
-      Q = Q/(nsamples-1) 
+      Q = Q/(nsamples-1)
+!      write(*,*) Q
+      
+!      Q = 0.0d0
+!      DO i=1,nsamples
+!        Qtmp = 0.0d0
+!        DO j=1,D
+!          DO k=1,D
+!            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
+!          ENDDO
+!        ENDDO
+ !       Q = Q + Qtmp
+ !     ENDDO
+ !     Q = Q/(nsamples-1) 
+ !     write(*,*) "manual", Q
  
 !     A Multidimensional approach which follows the Zhuogab et al. 
 !     However, if we want to have univariate gaussians the covariance
