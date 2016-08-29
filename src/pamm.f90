@@ -439,24 +439,28 @@
       
       ! computes sample covariance matrix quickly
       IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
-!      CALL DGEMM("T", "N", D, D, nsamples, 1.0d0, x, nsamples, x, nsamples, 0.0d0, Q, D) 
-!      DO i=1,D
-!        DO j=1,D
-!          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
-!        ENDDO
-!      ENDDO
-!      Q = Q/(nsamples-1)
-      Q = 0.0d0
-      DO i=1,nsamples
-        Qtmp = 0.0d0
+      !CALL DGEMM("T", "N", D, D, nsamples, 1.0d0, x, nsamples, x, nsamples, 0.0d0, Q, D) 
+      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, x, D, x, D, 0.0d0, Q, D) 
+      DO i=1,D
         DO j=1,D
-          DO k=1,D
-            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
-          ENDDO
+          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
         ENDDO
-        Q = Q + Qtmp
       ENDDO
-      Q = Q/(nsamples-1) 
+      Q = Q/(nsamples-1)
+!      write(*,*) Q
+      
+!      Q = 0.0d0
+!      DO i=1,nsamples
+!        Qtmp = 0.0d0
+!        DO j=1,D
+!          DO k=1,D
+!            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
+!          ENDDO
+!        ENDDO
+ !       Q = Q + Qtmp
+ !     ENDDO
+ !     Q = Q/(nsamples-1) 
+ !     write(*,*) "manual", Q
  
 !     A Multidimensional approach which follows the Zhuogab et al. 
 !     However, if we want to have univariate gaussians the covariance
@@ -600,17 +604,21 @@
                 tmpkernel = tmpkernel + fkernelvm(D,period, & 
                   sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
               ELSE
-                !tmpkernel = tmpkernel + fkernel(D,period, & 
-                !  sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
-                tmpkernel = tmpkernel + fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,i))
+                tmpkernel = tmpkernel + fmultikernel(D,period,y(:,i),x(:,rndidx), & 
+                            Hiinv(:,:,iminij(rndidx)))
               ENDIF
             ENDDO
-            probboot(i,nn) = probboot(i,nn) + tmpkernel
+            ! we have to normalize it
+            IF(periodic)THEN
+               probboot(i,nn) = probboot(i,nn) + tmpkernel
+            ELSE
+               probboot(i,nn) = probboot(i,nn) + tmpkernel*normgmulti(i)
+            ENDIF 
           ENDDO
 
         ENDDO
-        probboot(:,nn) = probboot(:,nn)/nbstot  
-
+        probboot(:,nn) = probboot(:,nn)/nbstot
+        
       ENDDO 
 
       ! END of bootstrapping run
@@ -1432,10 +1440,8 @@
             DOUBLE PRECISION, INTENT(IN) :: vp(D)
 
 
-           ! fkernel=(1/( (twopi*sig2)**(dble(D)/2) ))* &
-           !         dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
-           
-            fkernel= dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
+            fkernel=(1/( (twopi*sig2)**(dble(D)/2) ))* &
+                    dexp(-pammr2(D,period,vc,vp)*0.5/sig2)
                     
       END FUNCTION fkernel
       
