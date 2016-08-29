@@ -76,7 +76,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: proberr
       INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
       INTEGER nbootstrap, rndidx, rngidx, nn, na, nbssample, nbstot
-      DOUBLE PRECISION tmperr, tmpcheck, qserr
+      DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for Bayesian Bandwidth estimation
       DOUBLE PRECISION r, detdistQ, sumdetdistQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti
@@ -500,8 +500,19 @@
       ! invert H and get the determinant just once
       
       DO i=1, ngrid 
-        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-        normgmulti(i) = 1.0d0/dsqrt((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+        !IF(periodic)THEN
+        !  dummd1=1.0d0
+        !  DO jj=1,D
+        !     concentrationK=1.0d0/Hi(jj,jj,i)
+        !     ! this is to avoid numerical errors
+        !     !IF(DLOG(Hi(jj,jj,i)).lt.(-2)) concentrationK=100.0d0
+        !     dummd1=dummd1*BESSI0(concentrationK)*twopi
+        !  ENDDO
+        !  normgmulti(i) = 1.0d0/dummd1
+        !ELSE
+          CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+          normgmulti(i) = 1.0d0/dsqrt((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+        !ENDIF
       ENDDO
 
       ! get an estimation of the spherical sigma2 around the point
@@ -533,11 +544,17 @@
           dummd1 = 0.0d0
           ! cycle just inside the polyhedra using the neighbour list
           DO k=pnlist(j)+1,pnlist(j+1)
-            IF(periodic)THEN
-              tmpkernel = wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
-            ELSE
+            !IF(periodic)THEN
+            !  dummd2=1.0d0
+            !  CALL pammrij(D, period, y(:,i),x(:,nlist(k)), xij)
+            !  DO jj=1,D
+            !     dummd2=dummd2* &
+            !            fkernelvm(Hi(jj,jj,j),xij(jj))
+            !  ENDDO
+            !  tmpkernel = wj(nlist(k))*dummd2                  
+            !ELSE
               tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
-            ENDIF     
+            !ENDIF     
             dummd1 = dummd1 + tmpkernel    
 !            tmpad = tmpad / adw(nlist(k))
 !            adA(i) = adA(i) + tmpad
@@ -561,10 +578,9 @@
       
       ! We're taking the Tr(M) but maybe we should diagonalize M
       ! before doing that.
-      DO i=1,ngrid
-        
+      DO i=1,ngrid      
         proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0)   
-     !   WRITE(*,*) prob(i),bigp(i), proberr(i)
+    !  WRITE(*,*) prob(i),bigp(i), proberr(i)
         
       ENDDO
       
@@ -615,13 +631,18 @@
               rndidx = nlist(pnlist(j)+rndidx)
               ! the vector that contains the Voronoi assignations is iminij   
               ! do not compute KDEs for points that belong to far away Voronoi
-              IF(periodic)THEN
-                tmpkernel = tmpkernel + fkernelvm(D,period, & 
-                  sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
-              ELSE
-                tmpkernel = tmpkernel + fmultikernel(D,period,y(:,i),x(:,rndidx), & 
-                            Hiinv(:,:,iminij(rndidx)))
-              ENDIF
+              !IF(periodic)THEN
+              !  dummd2=1.0d0
+              !  CALL pammrij(D, period, y(:,i),x(:,rndidx), xij)
+              !  DO jj=1,D
+              !     dummd2=dummd2* &
+              !            fkernelvm(Hi(jj,jj,iminij(rndidx)),xij(jj))
+              !  ENDDO
+              !  tmpkernel = tmpkernel + dummd2 
+              !ELSE
+              tmpkernel = tmpkernel + fmultikernel(D,period,y(:,i),x(:,rndidx), & 
+                          Hiinv(:,:,iminij(rndidx)))
+              !ENDIF
             ENDDO
             ! we have to normalize it
             probboot(i,nn) = probboot(i,nn) + tmpkernel*normgmulti(j)
@@ -1466,25 +1487,23 @@
                     
       END FUNCTION fkernel
       
-      DOUBLE PRECISION FUNCTION fkernelvm(D,period,sig2,vc,vp)
-            ! Calculate the (normalized) von Mises kernel
+      DOUBLE PRECISION FUNCTION fkernelvm(sig2,dist)
+            ! Calculate the univariate von Mises kernel
             !
             ! Args:
             !    sig2: sig**2
-            !    vc: voronoi center's vector
-            !    vp: point's vector
+            !    dist: distance between the two points
 
-            INTEGER, INTENT(IN) :: D
-            DOUBLE PRECISION, INTENT(IN) :: period(D)
             DOUBLE PRECISION, INTENT(IN) :: sig2
-            DOUBLE PRECISION, INTENT(IN) :: vc(D)
-            DOUBLE PRECISION, INTENT(IN) :: vp(D)
+            DOUBLE PRECISION, INTENT(IN) :: dist
             DOUBLE PRECISION vv
+            
+            ! this is just to avoid errors related to the numerical precision
             vv=1.0d0/sig2
-            IF(DLOG(sig2).lt.(-2)) vv=100.0d0
+            !IF(DLOG(sig2).lt.(-2)) vv=100.0d0
            
-            fkernelvm=DEXP(DCOS(DSQRT(pammr2(D,period,vc,vp)))*vv)/ &
-                      (BESSI0(vv)*twopi)
+            fkernelvm=DEXP(DCOS(dist)*vv)!/ &
+                      !(BESSI0(vv)*twopi)
                     
       END FUNCTION fkernelvm
 
