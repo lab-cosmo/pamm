@@ -214,6 +214,8 @@
                READ(cmdbuffer,*) nmsopt
             ELSEIF (ccmd == 5) THEN ! cut-off for quick-shift
                READ(cmdbuffer,*) lambda
+               IF (lambda.LE.0.0d0) STOP "The lambda should be real positive number!"
+               lambda2=lambda*lambda
             ELSEIF (ccmd == 7) THEN ! number of grid points
                READ(cmdbuffer,*) ngrid
             ELSEIF (ccmd == 12) THEN ! read zeta 
@@ -430,7 +432,7 @@
 
       r=DBLE(nsamples)**(2.0/dble(D+4))
       
-      IF(verbose) WRITE(*,*) "Calculating the sample covariance matrix"
+      IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
       ! first calculate the mean in each dimension
       ! TODO: Add periodicity
       DO j=1,D
@@ -438,7 +440,6 @@
       ENDDO
       
       ! computes sample covariance matrix quickly
-      IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
       !CALL DGEMM("T", "N", D, D, nsamples, 1.0d0, x, nsamples, x, nsamples, 0.0d0, Q, D) 
       CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, x, D, x, D, 0.0d0, Q, D) 
       DO i=1,D
@@ -466,7 +467,7 @@
 !     However, if we want to have univariate gaussians the covariance
 !     matrix will be diagonal and all elements will be equal.
       ! if it is desired to write this matrix in a file, do this
-      IF(saveprobs) CALL savemat(outputfile,"Qij",D,Q)
+      IF(saveprobs) CALL savemat("Qij",D,Q)
       
       IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
       
@@ -507,7 +508,13 @@
       DO i=1,ngrid
         sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
       ENDDO
-
+      
+      ! set the lambda to be used in the old version of QS 
+      IF(lambda.LT.0)THEN
+         lambda2=SUM(sigma2(:))/ngrid
+         lambda=5.0d0*DSQRT(lambda2)
+         lambda2=lambda*lambda
+      ENDIF
       ! do either a regular run with constant sigma2(j) for estimating
       ! the probability density, use just bootstrapping or do an 
       ! iterative scheme with or without bootstrapping
@@ -527,19 +534,27 @@
           ! cycle just inside the polyhedra using the neighbour list
           DO k=pnlist(j)+1,pnlist(j+1)
             IF(periodic)THEN
-              ! get the non-normalized prob, used to compute the estimate of the error
-              bigp(i) = bigp(i) + wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
+              tmpkernel = wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
             ELSE
-              bigp(i) = bigp(i) + wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,i))
+              tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
             ENDIF     
+            dummd1 = dummd1 + tmpkernel    
+!            tmpad = tmpad / adw(nlist(k))
+!            adA(i) = adA(i) + tmpad
+!            adB(i,j) = adB(i,j) + tmpad * 0.5d0*pammr2(D,period,y(:,i),x(:,nlist(k)))/sigma2(j)
           ENDDO
+          
+          ! get the non-normalized prob, used to compute the estimate of the error
+          bigp(i) = bigp(i) + dummd1
           ! We now have to normalize the kernel
-          prob(i) = prob(i) + bigp(i)*normgmulti(i)
+          prob(i) = prob(i) + dummd1*normgmulti(j)
+          !adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
+          !adB(i,j) = adB(i,j) * (twopi*sigma2(j))**(dble(D)/2.0d0)
         ENDDO          
       ENDDO
       prob=prob/normwj
       bigp=bigp/normwj
-      
+   
       ! ---
       ! Computing the error
       ! ---
@@ -609,11 +624,7 @@
               ENDIF
             ENDDO
             ! we have to normalize it
-            IF(periodic)THEN
-               probboot(i,nn) = probboot(i,nn) + tmpkernel
-            ELSE
-               probboot(i,nn) = probboot(i,nn) + tmpkernel*normgmulti(i)
-            ENDIF 
+            probboot(i,nn) = probboot(i,nn) + tmpkernel*normgmulti(j)
           ENDDO
 
         ENDDO
@@ -629,9 +640,8 @@
       IF(nbootstrap > 0) THEN
         proberr = 0.0d0
         DO i=1,ngrid
-          probboot(i,:) = probboot(i,:) * normgmulti(i)
           ! this is the SD of the probability density (relative error)
-          proberr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap) ) / prob(i)
+          proberr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) ) / prob(i)
         ENDDO 
       ENDIF
 
@@ -640,6 +650,7 @@
 
       idxroot=0
       ! Start quick shift
+
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
          qspath=0
@@ -687,7 +698,7 @@
          !print out the squared absolute error
          WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , &
                                                         " " , prob(i), " " , &
-                                                   proberr(i), " ",  sigma2(i) 
+                                                   proberr(i), " ",  DSQRT(sigma2(i)) 
          ! accumulate the normalization factor for the pks
          normpks=normpks+prob(i)
       ENDDO
@@ -1276,13 +1287,22 @@
       INTEGER FUNCTION qs_next(ngrid,idx,prob,distmm,rgrid,kderr,qserr,lambda2, &
                                verbose,neblike,nbootstrap,errors)
          ! Return the index of the closest point higher in P
-         !
+         ! 
          ! Args:
-         !    ngrid: number of grid points
-         !    idx: current point
-         !    lambda: cut-off in the jump
-         !    prob: density estimations
-         !    distmm: distances matrix
+         !    ngrid:   number of grid points
+         !    idx:     current point
+         !    prob:    density estimations
+         !    distmm:  distances matrix
+         !    rgrid:  
+         !    kderr:
+         !    qserr:
+         !    lambda2: cut-off in the jump
+         !    verbose:
+         !    neblike
+         !    nbootstrap
+         !    errors
+
+
          IMPLICIT NONE
          INTEGER, INTENT(IN) :: ngrid
          DOUBLE PRECISION, INTENT(IN), DIMENSION(ngrid) :: rgrid
@@ -1390,11 +1410,12 @@
          ELSE
             qs_next=idx
             DO j=1,ngrid
-               IF(prob(j)>prob(idx))THEN
+               IF((prob(j)-errors(j))>(prob(idx)+errors(idx)))THEN
                   ! ok, check the error associated
+                  
                   !relerr=DSQRT(errors(j)**2+errors(idx)**2)
                   !IF(((prob(j)-prob(idx))/relerr)>qserr) CYCLE
-                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(lambda2)))THEN
+                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(lambda2))) THEN
                      dmin=distmm(idx,j)
                      qs_next=j
                   ENDIF
@@ -1591,7 +1612,7 @@
          ENDDO
          CLOSE(UNIT=12)
       END SUBROUTINE savevoronois
-
+      
       SUBROUTINE savegrid(outputfile,D,ngrid,y,prob,proberr,Hi)     
          ! Store results from adaptive runs in a file
          ! 
@@ -1632,7 +1653,7 @@
 
       END SUBROUTINE savegrid
       
-      SUBROUTINE savemat(outputfile,matrixname,dmn,mat)
+      SUBROUTINE savemat(outputfile,dmn,mat)
          ! Store results from adaptive runs in a file
          ! 
          ! Args:
@@ -1641,12 +1662,9 @@
          !    dmn            : dimensions of the matrix 
          !                     (only squared matrices allowed)
          !    mat            : the matrix itself
-         !    na             : if in a loop use this to add a
-         !                     number to the end of the file name
-         ! ...
+         ! 
          
-         CHARACTER(LEN=1024), INTENT(IN) :: outputfile      
-         CHARACTER(LEN=1024), INTENT(IN) :: matrixname      
+         CHARACTER(LEN=1024), INTENT(IN) :: outputfile          
          INTEGER, INTENT(IN) :: dmn                
          DOUBLE PRECISION, DIMENSION(dmn,dmn), INTENT(IN) :: mat
          
@@ -1654,16 +1672,12 @@
 
         
          ! write out the grid
-         OPEN(UNIT=12,FILE=trim(outputfile)//"."//matrixname, &
+         OPEN(UNIT=12,FILE=trim(outputfile), &
               STATUS='REPLACE',ACTION='WRITE')
 
          DO i=1,dmn
            ! write first the grid point
-           DO j=1,dmn
-             !WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", y(j,i)
-             WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", mat(i,j)
-           ENDDO
-           WRITE(12,*) ""
+           WRITE(12,*) " ", mat(i,:)
          ENDDO
          CLOSE(UNIT=12)
 
