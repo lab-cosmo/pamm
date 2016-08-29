@@ -523,22 +523,14 @@
           ! cycle just inside the polyhedra using the neighbour list
           DO k=pnlist(j)+1,pnlist(j+1)
             IF(periodic)THEN
-              tmpkernel = wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
+              ! get the non-normalized prob, used to compute the estimate of the error
+              bigp(i) = bigp(i) + wj(nlist(k))*fkernelvm(D,period,sigma2(j),y(:,i),x(:,nlist(k)))                  
             ELSE
-              tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,i))
+              bigp(i) = bigp(i) + wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,i))
             ENDIF     
-            dummd1 = dummd1 + tmpkernel    
-!            tmpad = tmpad / adw(nlist(k))
-!            adA(i) = adA(i) + tmpad
-!            adB(i,j) = adB(i,j) + tmpad * 0.5d0*pammr2(D,period,y(:,i),x(:,nlist(k)))/sigma2(j)
           ENDDO
-          
-          ! get the non-normalized prob, used to compute the estimate of the error
-          bigp(i) = bigp(i) + dummd1
           ! We now have to normalize the kernel
-          prob(i) = prob(i) + dummd1*normgmulti(i)
-          !adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
-          !adB(i,j) = adB(i,j) * (twopi*sigma2(j))**(dble(D)/2.0d0)
+          prob(i) = prob(i) + bigp(i)*normgmulti(i)
         ENDDO          
       ENDDO
       prob=prob/normwj
@@ -608,8 +600,9 @@
                 tmpkernel = tmpkernel + fkernelvm(D,period, & 
                   sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
               ELSE
-                tmpkernel = tmpkernel + fkernel(D,period, & 
-                  sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                !tmpkernel = tmpkernel + fkernel(D,period, & 
+                !  sigma2(iminij(rndidx)),y(:,i),x(:,rndidx))
+                tmpkernel = tmpkernel + fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,i))
               ENDIF
             ENDDO
             probboot(i,nn) = probboot(i,nn) + tmpkernel
@@ -619,6 +612,7 @@
         probboot(:,nn) = probboot(:,nn)/nbstot  
 
       ENDDO 
+
       ! END of bootstrapping run
       !$omp ENDDO   
       !$omp END PARALLEL
@@ -627,6 +621,7 @@
       IF(nbootstrap > 0) THEN
         proberr = 0.0d0
         DO i=1,ngrid
+          probboot(i,:) = probboot(i,:) * normgmulti(i)
           ! this is the SD of the probability density (relative error)
           proberr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap) ) / prob(i)
         ENDDO 
