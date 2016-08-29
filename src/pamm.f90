@@ -94,7 +94,7 @@
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       INTEGER adaptive                            ! iterations for adaptively refine the sigmas
       INTEGER neblike                             ! iterations for neblike path search
-      DOUBLE PRECISION lambda, lambda2, msw, alpha, zeta, kderr, dummd1, dummd2, convchk
+      DOUBLE PRECISION lambda, msw, alpha, zeta, kderr, dummd1, dummd2, convchk, lambda2
 
       ! DOUBLE PRECISION maxrgrid, minrgrid
       DOUBLE PRECISION mixbeta
@@ -511,10 +511,10 @@
       
       ! set the lambda to be used in the old version of QS 
       IF(lambda.LT.0)THEN
-         lambda2=SUM(sigma2(:))/ngrid
-         lambda=5.0d0*DSQRT(lambda2)
+         lambda=5.0d0 * SUM( DSQRT(sigma2(:)) )/ngrid
          lambda2=lambda*lambda
       ENDIF
+      
       ! do either a regular run with constant sigma2(j) for estimating
       ! the probability density, use just bootstrapping or do an 
       ! iterative scheme with or without bootstrapping
@@ -658,8 +658,8 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-             qs_next(ngrid,qspath(counter),prob,distmm,rgrid,kderr,qserr,lambda2, & 
-                     verbose,neblike,nbootstrap,proberr)
+            qs_next(ngrid,qspath(counter),prob,distmm,rgrid,kderr,qserr,lambda2, & 
+                    verbose,neblike,nbootstrap,proberr)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
