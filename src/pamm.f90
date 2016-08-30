@@ -543,6 +543,7 @@
           IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
         
           dummd1 = 0.0d0
+          IF(periodic .and. (nbootstrap.eq.0)) tmpcheck=0.0d0
           ! cycle just inside the polyhedra using the neighbour list
           DO k=pnlist(j)+1,pnlist(j+1)
             IF(periodic)THEN
@@ -552,7 +553,10 @@
                  dummd2=dummd2* &
                         fkernelvm(Hiinv(jj,jj,j),xij(jj))
               ENDDO
-              tmpkernel = wj(nlist(k))*dummd2                  
+              tmpkernel = wj(nlist(k))*dummd2
+              IF(nbootstrap.eq.0) &
+                tmpcheck = tmpcheck + &
+                 wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
             ELSE
               tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
             ENDIF     
@@ -563,7 +567,13 @@
           ENDDO
           
           ! get the non-normalized prob, used to compute the estimate of the error
-          bigp(i) = bigp(i) + dummd1
+          IF(periodic .and. (nbootstrap.eq.0)) THEN
+            ! If we are using VM kernels and we are not estimating the error using BS
+            ! then estimate the error using a gaussian kernel
+            bigp(i) = bigp(i) + tmpcheck
+          ELSE
+            bigp(i) = bigp(i) + dummd1
+          ENDIF
           ! We now have to normalize the kernel
           prob(i) = prob(i) + dummd1*normgmulti(j)
           !adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
@@ -579,10 +589,8 @@
       
       ! We're taking the Tr(M) but maybe we should diagonalize M
       ! before doing that.
-      DO i=1,ngrid      
-        proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0)   
-    !  WRITE(*,*) prob(i),bigp(i), proberr(i)
-        
+      DO i=1,ngrid  
+        proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0)          
       ENDDO
       
 
@@ -809,14 +817,6 @@
                DO jj=1,D
                   IF(periodic)THEN
 !                     ! Minimum Image Convention
-!                     dummd1 = (y(ii,i) - vmclusters(k)%mean(ii)) / period(ii)
-!                     dummd1 = dummd1 - dnint(dummd1)                          
-!                     dummd1 = dummd1 * period(ii)
-!                     
-!                     dummd2 = (y(jj,i)-vmclusters(k)%mean(jj)) / period(jj)
-!                     dummd2 = dummd2 - dnint(dummd2)                          
-!                     dummd2 = dummd2 * period(jj)
-!                     
                      dummd1=DSQRT(pammr2(1,period(ii),y(ii,i),vmclusters(k)%mean(ii)))
                      dummd2=DSQRT(pammr2(1,period(jj),y(jj,i),vmclusters(k)%mean(jj)))
                      
@@ -1344,7 +1344,7 @@
          DOUBLE PRECISION :: dmin,relerr
             
          dmin=1.0d100
-         
+         relerr=0.1d0
 ! find the nearest point with higher probability         
          IF(neblike>0)THEN
             ndx=idx
@@ -1386,8 +1386,8 @@
                   !       EXIT
                   !   ENDIF
                   !ELSE
-                     IF ((prob(path(i))-prob(idx))/ &
-                        (prob(path(i))+prob(idx))<-3*kderr) THEN 
+                     IF ( ((prob(path(i))-prob(idx))/ &
+                        (prob(path(i))+prob(idx))<-3*relerr) )THEN 
                          qs_next = idx
                          fsaddle = .true.
                          EXIT
@@ -1433,7 +1433,9 @@
             qs_next=idx
             DO j=1,ngrid
                !IF((prob(j)-errors(j))>(prob(idx)+errors(idx)))THEN
-               IF((prob(j))>(prob(idx)))THEN
+               IF(((prob(j))>(prob(idx))) .or. &
+                 ! try to use the error info to estimate if the case to jump
+                 ((prob(j)-errors(j))>(prob(idx)+errors(idx))))THEN
                   ! ok, check the error associated
                   
                   !relerr=DSQRT(errors(j)**2+errors(idx)**2)
