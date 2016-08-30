@@ -472,6 +472,8 @@
       IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
       
       DO i=1,ngrid
+        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+               WRITE(*,*) i,"/",ngrid
         sumdetdistQ = 0.0d0
         Hi(:,:,i) = 0.0d0
         DO j=1,ngrid
@@ -1366,6 +1368,11 @@
             IF (ndx/=idx) THEN         
                npath = 0
                ! builds a discrete near-linear path between the end points
+     
+     ! TO BE CHECKED. Somehow there could be a SIGSEV if the array is not initialized
+     ! to an initial value. There is an error somewhere that has to be debugged
+      path=idx
+      
                CALL build_path(ngrid, path, idx, ndx, npath, distmm, rgrid) 
                ! refine the path aiming for a "maximum probability path" 
                IF (npath > 2) THEN  ! does a few iterations for path refinement
@@ -1386,8 +1393,11 @@
                   !       EXIT
                   !   ENDIF
                   !ELSE
-                     IF ( ((prob(path(i))-prob(idx))/ &
-                        (prob(path(i))+prob(idx))<-3*relerr) )THEN 
+                     !IF ( ((prob(path(i))-prob(idx))/ &
+                     !   (prob(path(i))+prob(idx))<-3*relerr) )THEN 
+                     IF(prob(path(i))<prob(path(idx)))THEN
+                     !   (prob(path(i))+prob(idx))<-3*relerr) )THEN
+                         IF(errors(idx)/errors(path(i))<0.3d0) CYCLE 
                          qs_next = idx
                          fsaddle = .true.
                          EXIT
