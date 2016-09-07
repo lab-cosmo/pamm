@@ -554,18 +554,16 @@
       IF (adaptive>0) THEN
         IF(verbose) WRITE(*,*) &
           "Using a locally adaptive bayesian scheme to refine bandwidths"
-        
+
+        Qi = 0.0d0 
+        Qiinv = 0.0d0
+        wQ = 0.0d0  
         
         DO nadaptive=0,adaptive-1
-        
-        
-          Qi = 0.0d0 
-          Qiinv = 0.0d0
-          wQ = 0.0d0  
           DO i=1,ngrid
             
             IF(verbose .AND. (modulo(i,100).EQ.0)) &
-                 WRITE(*,*) i,"/",ngrid," of cycle ",nadaptive+1,"/",adaptive
+                 WRITE(*,*) i,"/",ngrid
             
             IF (nadaptive==0) THEN
               ! set initial Qi
@@ -582,7 +580,11 @@
 
   !            DO ii=1,D
   !              Qi(ii,ii,i) = 1.0d100
-  !            ENDDO           
+  !            ENDDO          
+              OPEN(UNIT=12,FILE="sigma.probs", &
+                   STATUS='REPLACE',ACTION='WRITE')
+              WRITE(12,*) " ", sigma2
+              CLOSE(UNIT=12) 
             ENDIF
             ! create also the inverts of Qi matrices
             CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
@@ -641,7 +643,11 @@
             Hi(:,:,i)=Hi(:,:,i)/(ri-D)
           ENDDO   
           
+          IF(verbose) &
+                 WRITE(*,*) "Local apdaptive Bayesian cycle ",nadaptive+1,"/",adaptive
+          
           ! invert H and get the determinant just once
+          ! TODO: after debugging, this can be outside the loop
         
           DO i=1, ngrid 
             CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
@@ -655,10 +661,10 @@
               ENDDO
               normgmulti(i) = 1.0d0/dummd1
             ELSE
-              
               normgmulti(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
             ENDIF
           ENDDO
+
 
           ! get an estimation of the spherical sigma2 around the point
           DO i=1,ngrid
@@ -672,12 +678,19 @@
              lambda2=lambda*lambda
           ENDIF
           
+          ! debug stuff
           dummd1 = 0.0d0
-          DO i=1,ngrid
+          DO j=1,ngrid
             dummd1 = dummd1 + trmatrix(D,Q)/ngrid
           ENDDO
           WRITE(*,*) "SUM(tr(Q))/ngrid: ", dummd1
           WRITE(*,*) "SUM(sigma2)/ngrid: ", SUM(sigma2)/ngrid
+          
+          OPEN(UNIT=12,FILE="sigma.probs", &
+               STATUS='OLD',POSITION='APPEND',ACTION='WRITE')
+          WRITE(12,*) " ", sigma2
+          CLOSE(UNIT=12)
+          ! end debug stuff
           
         ENDDO
         
