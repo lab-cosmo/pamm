@@ -555,118 +555,131 @@
         IF(verbose) WRITE(*,*) &
           "Using a locally adaptive bayesian scheme to refine bandwidths"
         
-        Qi = 0.0d0 
-        Qiinv = 0.0d0
-        wQ = 0.0d0  
-        DO i=1,ngrid
         
-          IF(verbose .AND. (modulo(i,100).EQ.0)) &
-               WRITE(*,*) i,"/",ngrid
-          
-          IF (nadaptive==0) THEN
-            ! on the first step set Qi to be diagonal 
-            ! using rgrid as diagonal elements
+        DO nadaptive=0,adaptive-1
+        
+        
+          Qi = 0.0d0 
+          Qiinv = 0.0d0
+          wQ = 0.0d0  
+          DO i=1,ngrid
             
-!            DO ii=1,D
-!              Qi(ii,ii,i) = rgrid(i)
-!            ENDDO
+            IF(verbose .AND. (modulo(i,100).EQ.0)) &
+                 WRITE(*,*) i,"/",ngrid," of cycle ",nadaptive+1,"/",adaptive
             
-!            DO ii=1,D
-!              Qi(ii,ii,i) = sigma2(i)
-!            ENDDO
-            
-            Qi(:,:,i) = Q
+            IF (nadaptive==0) THEN
+              ! set initial Qi
+              
+  !            DO ii=1,D
+  !              Qi(ii,ii,i) = rgrid(i)
+  !            ENDDO
+              
+  !            DO ii=1,D
+  !              Qi(ii,ii,i) = sigma2(i)
+  !            ENDDO
+              
+              Qi(:,:,i) = Q
 
-!            DO ii=1,D
-!              Qi(ii,ii,i) = 1.0d100
-!            ENDDO           
-          ENDIF
-          ! create also the inverts of Qi matrices
-          CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
-          
-          ! calculate local weights using a gaussian
-          DO j=1,nsamples
-            wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Qiinv(:,:,i))
-          ENDDO
-          ni = SUM(wQ)
-          
-          ! estimate a local r parameter for the bayesian estimate
-          ri=DBLE(ni)**(2.0/dble(D+4))
-      
-          ! calculate the mean in each dimension using an arithmetic weighted mean
-          DO j=1,D
-            xm(j) = SUM(x(j,:)*wQ)/ni
-          ENDDO
-      
-          ! do the crime against humanity method since I don't know 
-          ! yet how to implement the weight in the DGEMM routine
-          Qi(:,:,i) = 0.0d0
-          DO j=1,nsamples
-            Qtmp = 0.0d0
-            DO ii=1,D
-              DO jj=1,D
-                Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))*wQ(j)
-              ENDDO
+  !            DO ii=1,D
+  !              Qi(ii,ii,i) = 1.0d100
+  !            ENDDO           
+            ENDIF
+            ! create also the inverts of Qi matrices
+            CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
+            
+            ! calculate local weights using a gaussian
+            DO j=1,nsamples
+              wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Qiinv(:,:,i))
             ENDDO
-            Qi(:,:,i) = Qi(:,:,i) + Qtmp
-          ENDDO
-          Qi(:,:,i) = Qi(:,:,i)/ni 
-        
-          sumdetdistQ = 0.0d0
-          Hi(:,:,i) = 0.0d0
-          DO j=1,ngrid
-
-            ! do not compute contribution from far far away points
-            ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-            ! cycle just inside the polyhedra using the neighbour list     
+            ni = SUM(wQ)
             
-            DO k=pnlist(j)+1,pnlist(j+1)
-              CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
+            ! estimate a local r parameter for the bayesian estimate
+            ri=DBLE(ni)**(2.0/dble(D+4))
+        
+            ! calculate the mean in each dimension using an arithmetic weighted mean
+            DO j=1,D
+              xm(j) = SUM(x(j,:)*wQ)/ni
+            ENDDO
+        
+            ! do the crime against humanity method since I don't know 
+            ! yet how to implement the weight in the DGEMM routine
+                    
+            Qi(:,:,i) = 0.0d0
+            DO j=1,nsamples
+              Qtmp = 0.0d0
               DO ii=1,D
                 DO jj=1,D
-                  distmat(ii,jj)=xij(jj)*xij(ii)
+                  Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))
                 ENDDO
               ENDDO
-              ! calculate the determinant of |(x-y)(x-y).T+Q|   
-              detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((r+1.0d0)*0.5d0)     
-              Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
-              sumdetdistQ = sumdetdistQ + detdistQ
-            ENDDO 
-          ENDDO
-          Hi(:,:,i)=Qi(:,:,i)+Hi(:,:,i)/sumdetdistQ
-          Hi(:,:,i)=Hi(:,:,i)/(ri-D)
-        ENDDO   
-        
-        ! invert H and get the determinant just once
-      
-        DO i=1, ngrid 
-          CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-          IF(periodic)THEN
-            dummd1=1.0d0
-            DO jj=1,D
-               concentrationK=Hiinv(jj,jj,i)
-               ! this is to avoid numerical errors
-               !IF(DLOG(Hi(jj,jj,i)).lt.(-2)) concentrationK=100.0d0
-               dummd1=dummd1*BESSI0(concentrationK)*twopi
+              Qi(:,:,i) = Qi(:,:,i) + Qtmp*wQ(j)
             ENDDO
-            normgmulti(i) = 1.0d0/dummd1
-          ELSE
-            
-            normgmulti(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-          ENDIF
-        ENDDO
+            Qi(:,:,i) = Qi(:,:,i)/ni 
+          
+            sumdetdistQ = 0.0d0
+            Hi(:,:,i) = 0.0d0
+            DO j=1,ngrid
 
-        ! get an estimation of the spherical sigma2 around the point
-        DO i=1,ngrid
-          sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
-        ENDDO
+              ! do not compute contribution from far far away points
+              ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+              ! cycle just inside the polyhedra using the neighbour list     
+              
+              DO k=pnlist(j)+1,pnlist(j+1)
+                CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
+                DO ii=1,D
+                  DO jj=1,D
+                    distmat(ii,jj)=xij(jj)*xij(ii)
+                  ENDDO
+                ENDDO
+                ! calculate the determinant of |(x-y)(x-y).T+Q|   
+                detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((r+1.0d0)*0.5d0)     
+                Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
+                sumdetdistQ = sumdetdistQ + detdistQ
+              ENDDO 
+            ENDDO
+            Hi(:,:,i)=Qi(:,:,i)+Hi(:,:,i)/sumdetdistQ
+            Hi(:,:,i)=Hi(:,:,i)/(ri-D)
+          ENDDO   
+          
+          ! invert H and get the determinant just once
         
-        ! set the lambda to be used in the old version of QS 
-        IF(lambda.LT.0)THEN
-           lambda=5.0d0 * SUM( DSQRT(sigma2(:)) )/ngrid
-           
-           lambda2=lambda*lambda
-        ENDIF
+          DO i=1, ngrid 
+            CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+            IF(periodic)THEN
+              dummd1=1.0d0
+              DO jj=1,D
+                 concentrationK=Hiinv(jj,jj,i)
+                 ! this is to avoid numerical errors
+                 !IF(DLOG(Hi(jj,jj,i)).lt.(-2)) concentrationK=100.0d0
+                 dummd1=dummd1*BESSI0(concentrationK)*twopi
+              ENDDO
+              normgmulti(i) = 1.0d0/dummd1
+            ELSE
+              
+              normgmulti(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+            ENDIF
+          ENDDO
+
+          ! get an estimation of the spherical sigma2 around the point
+          DO i=1,ngrid
+            sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
+          ENDDO
+          
+          ! set the lambda to be used in the old version of QS 
+          IF(lambda.LT.0)THEN
+             lambda=5.0d0 * SUM( DSQRT(sigma2(:)) )/ngrid
+             
+             lambda2=lambda*lambda
+          ENDIF
+          
+          dummd1 = 0.0d0
+          DO i=1,ngrid
+            dummd1 = dummd1 + trmatrix(D,Q)/ngrid
+          ENDDO
+          WRITE(*,*) "SUM(tr(Q))/ngrid: ", dummd1
+          WRITE(*,*) "SUM(sigma2)/ngrid: ", SUM(sigma2)/ngrid
+          
+        ENDDO
         
       ENDIF
       !!! END OF NEW STUFF
