@@ -124,7 +124,7 @@
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
-      adaptive=2             ! don't use the adaptive
+      adaptive=0             ! don't use the adaptive
       neblike=0              ! don't use neb paths
       nbootstrap=0           ! do not use bootstrap
       qserr=8                ! threshold to accept a move in qs
@@ -559,7 +559,28 @@
         Qiinv = 0.0d0
         wQ = 0.0d0  
         
+        ! debug    
+        dummd1 = 0.0d0
+        DO j=1,ngrid
+          dummd1 = dummd1 + trmatrix(D,Q)/ngrid
+        ENDDO
+        WRITE(*,*) "SUM(tr(Q))/ngrid: ", dummd1
+        WRITE(*,*) "SUM(sigma2)/ngrid: ", SUM(sigma2)/ngrid
+        OPEN(UNIT=12,FILE="sigma.probs", &
+             STATUS='REPLACE',ACTION='WRITE')
+        WRITE(12,*) " ", sigma2
+        CLOSE(UNIT=12) 
+        OPEN(UNIT=12,FILE="grid.points", &
+             STATUS='REPLACE',ACTION='WRITE')
+        WRITE(12,*) " ", y
+        CLOSE(UNIT=12)
+        OPEN(UNIT=12,FILE="grid.Q", &
+             STATUS='REPLACE',ACTION='WRITE')
+        CLOSE(UNIT=12)
+        ! end debug
+        
         DO nadaptive=0,adaptive-1
+        
           DO i=1,ngrid
             
             IF(verbose .AND. (modulo(i,100).EQ.0)) &
@@ -580,11 +601,7 @@
 
   !            DO ii=1,D
   !              Qi(ii,ii,i) = 1.0d100
-  !            ENDDO          
-              OPEN(UNIT=12,FILE="sigma.probs", &
-                   STATUS='REPLACE',ACTION='WRITE')
-              WRITE(12,*) " ", sigma2
-              CLOSE(UNIT=12) 
+  !            ENDDO      
             ENDIF
             ! create also the inverts of Qi matrices
             CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
@@ -611,36 +628,31 @@
               Qtmp = 0.0d0
               DO ii=1,D
                 DO jj=1,D
-                  Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))
+                  Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))*wQ(j)
                 ENDDO
               ENDDO
-              Qi(:,:,i) = Qi(:,:,i) + Qtmp*wQ(j)
+              Qi(:,:,i) = Qi(:,:,i) + Qtmp
             ENDDO
             Qi(:,:,i) = Qi(:,:,i)/ni 
           
             sumdetdistQ = 0.0d0
             Hi(:,:,i) = 0.0d0
-            DO j=1,ngrid
+            DO j=1,nsamples
 
-              ! do not compute contribution from far far away points
-              ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-              ! cycle just inside the polyhedra using the neighbour list     
-              
-              DO k=pnlist(j)+1,pnlist(j+1)
-                CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
-                DO ii=1,D
-                  DO jj=1,D
-                    distmat(ii,jj)=xij(jj)*xij(ii)
-                  ENDDO
+              CALL pammrij(D, period, x(:,j), y(:,i), xij)
+              DO ii=1,D
+                DO jj=1,D
+                  distmat(ii,jj)=xij(jj)*xij(ii)
                 ENDDO
-                ! calculate the determinant of |(x-y)(x-y).T+Q|   
-                detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((r+1.0d0)*0.5d0)     
-                Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
-                sumdetdistQ = sumdetdistQ + detdistQ
-              ENDDO 
-            ENDDO
+              ENDDO
+              ! calculate the determinant of |(x-y)(x-y).T+Q|   
+              detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((r+1.0d0)*0.5d0)     
+              Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
+              sumdetdistQ = sumdetdistQ + detdistQ
+            ENDDO 
             Hi(:,:,i)=Qi(:,:,i)+Hi(:,:,i)/sumdetdistQ
             Hi(:,:,i)=Hi(:,:,i)/(ri-D)
+            
           ENDDO   
           
           IF(verbose) &
@@ -681,14 +693,22 @@
           ! debug stuff
           dummd1 = 0.0d0
           DO j=1,ngrid
-            dummd1 = dummd1 + trmatrix(D,Q)/ngrid
+            dummd1 = dummd1 + trmatrix(D,Qi(:,:,j))/ngrid
           ENDDO
-          WRITE(*,*) "SUM(tr(Q))/ngrid: ", dummd1
+          WRITE(*,*) "SUM(tr(Q))/ngrid: ", SUM(Qi(1,1,:))/ngrid
           WRITE(*,*) "SUM(sigma2)/ngrid: ", SUM(sigma2)/ngrid
           
           OPEN(UNIT=12,FILE="sigma.probs", &
                STATUS='OLD',POSITION='APPEND',ACTION='WRITE')
           WRITE(12,*) " ", sigma2
+          CLOSE(UNIT=12)
+          OPEN(UNIT=12,FILE="grid.points", &
+               STATUS='OLD',POSITION='APPEND',ACTION='WRITE')
+          WRITE(12,*) " ", y
+          CLOSE(UNIT=12)
+          OPEN(UNIT=12,FILE="grid.Q", &
+               STATUS='OLD',POSITION='APPEND',ACTION='WRITE')
+          WRITE(12,*) " ", Qi(1,1,:)
           CLOSE(UNIT=12)
           ! end debug stuff
           
