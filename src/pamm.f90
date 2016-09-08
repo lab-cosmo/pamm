@@ -32,7 +32,9 @@
       USE libpamm
       USE random
       IMPLICIT NONE
-     
+      CHARACTER(4) nstring1
+      CHARACTER(4) nstring2
+      
       INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 
       CHARACTER(LEN=1024) :: outputfile, clusterfile          ! The output file prefix
@@ -80,7 +82,7 @@
       ! Variables for Bayesian Bandwidth estimation
       DOUBLE PRECISION r, detdistQ, sumdetdistQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat, invdistQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       ! Variables for locally adaptive Bayesian Bandwidth estimation
       DOUBLE PRECISION ni, ri
@@ -371,7 +373,7 @@
       ! Allocate variables for bayesian bandidth estimate
       ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ! Allocate variables for locally adaptive bayesian refinement
-      ALLOCATE(wQ(nsamples),Qi(D,D,ngrid),Qiinv(D,D,ngrid))
+      ALLOCATE(wQ(nsamples),Qi(D,D,ngrid),Qiinv(D,D,ngrid),invdistQ(D,D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -439,7 +441,7 @@
 !     _of_covariance_matrices) this is given by the following.
 !     For 1D this gives the same result as the 1D case of Michele.  
 
-      r=DBLE(nsamples)**(2.0/dble(D+4))
+      r=DBLE(nsamples)**(2.0/DBLE(D+4))+DBLE(D)
       
       IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
       ! first calculate the mean in each dimension
@@ -500,11 +502,11 @@
             ENDDO
             ! calculate the determinant of |(x-y)(x-y).T+Q|   
             detdistQ = 1.0d0/detmatrix(D,Q+distmat)**((r+1.0d0)*0.5d0)     
-            Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
+            Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Q+distmat)
             sumdetdistQ = sumdetdistQ + detdistQ
           ENDDO 
         ENDDO
-        Hi(:,:,i)=Q+Hi(:,:,i)/sumdetdistQ
+        Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
       ENDDO
       Hi=Hi/(r-D)
       
@@ -540,80 +542,70 @@
       ENDIF
       
       
-      
-      
-      
-      
-      
-      
-      
       !!! NEW STUFF: Locally adaptive Q estimation
       !!! using a broad gaussian filter on the distance
       !!! between grid point and sample points
       
+      ! debug
+      ! write out initial Q and sigma
+      WRITE(nstring1,'(I0.3)') nadaptive
+      OPEN(UNIT=12,FILE="sigma.probs."//TRIM(nstring1), &
+           STATUS='REPLACE',ACTION='WRITE')
+      DO i=1,ngrid
+        WRITE(12,*) y(:,i), SQRT(sigma2(i)), trmatrix(D,Q)/DBLE(D)
+      ENDDO
+      CLOSE(UNIT=12)
+      ! debug
+
       IF (adaptive>0) THEN
         IF(verbose) WRITE(*,*) &
-          "Using a locally adaptive bayesian scheme to refine bandwidths"
+          "Adaptive local bayesian scheme"
 
         Qi = 0.0d0 
         Qiinv = 0.0d0
         wQ = 0.0d0  
         
-        ! debug    
-        dummd1 = 0.0d0
-        DO j=1,ngrid
-          dummd1 = dummd1 + trmatrix(D,Q)/ngrid
-        ENDDO
-        WRITE(*,*) "SUM(tr(Q))/ngrid: ", dummd1
-        WRITE(*,*) "SUM(sigma2)/ngrid: ", SUM(sigma2)/ngrid
-        OPEN(UNIT=12,FILE="sigma.probs", &
-             STATUS='REPLACE',ACTION='WRITE')
-        WRITE(12,*) " ", sigma2
-        CLOSE(UNIT=12) 
-        OPEN(UNIT=12,FILE="grid.points", &
-             STATUS='REPLACE',ACTION='WRITE')
-        WRITE(12,*) " ", y
-        CLOSE(UNIT=12)
-        OPEN(UNIT=12,FILE="grid.Q", &
-             STATUS='REPLACE',ACTION='WRITE')
-        CLOSE(UNIT=12)
-        ! end debug
-        
         DO nadaptive=0,adaptive-1
-        
+          
+          IF(verbose) &
+            WRITE(*,*) nadaptive+1,"/",adaptive
+          
           DO i=1,ngrid
             
             IF(verbose .AND. (modulo(i,100).EQ.0)) &
                  WRITE(*,*) i,"/",ngrid
-            
+            ! set initial Qi
+!            IF (nadaptive==0) THEN
+!              Qi(:,:,i) = Q   
+!            ENDIF
             IF (nadaptive==0) THEN
-              ! set initial Qi
-              
-  !            DO ii=1,D
-  !              Qi(ii,ii,i) = rgrid(i)
-  !            ENDDO
-              
-  !            DO ii=1,D
-  !              Qi(ii,ii,i) = sigma2(i)
-  !            ENDDO
-              
-              Qi(:,:,i) = Q
-
-  !            DO ii=1,D
-  !              Qi(ii,ii,i) = 1.0d100
-  !            ENDDO      
+              Qi(:,:,i) = Hi(:,:,i)*36.0d0   
             ENDIF
-            ! create also the inverts of Qi matrices
+            
+            ! calculate inverts of Qi matrices
             CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
             
             ! calculate local weights using a gaussian
+            ! TODO: Maybe this should be multivariate too?
             DO j=1,nsamples
               wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Qiinv(:,:,i))
             ENDDO
+                        
+            ! debug
+!            WRITE(nstring1,'(I0.4)') nadaptive
+!            WRITE(nstring2,'(I0.4)') i
+!            OPEN(UNIT=12,FILE=TRIM("wQ.points.")//TRIM(nstring1)//"_"//TRIM(nstring2), &
+!               STATUS='REPLACE',ACTION='WRITE')
+!            DO ii=1,nsamples
+!              WRITE(12,*) x(:,ii),wQ(ii)
+!            ENDDO
+!            CLOSE(UNIT=12)
+            ! debug
+            
             ni = SUM(wQ)
             
             ! estimate a local r parameter for the bayesian estimate
-            ri=DBLE(ni)**(2.0/dble(D+4))
+            ri=DBLE(ni)**(2.0d0/DBLE(D+4))+DBLE(D)
         
             ! calculate the mean in each dimension using an arithmetic weighted mean
             DO j=1,D
@@ -634,33 +626,57 @@
               Qi(:,:,i) = Qi(:,:,i) + Qtmp
             ENDDO
             Qi(:,:,i) = Qi(:,:,i)/ni 
-          
+            
+            ! using quadratic loss function
             sumdetdistQ = 0.0d0
             Hi(:,:,i) = 0.0d0
             DO j=1,nsamples
 
+              ! calculate (x-y)(x-y).T
               CALL pammrij(D, period, x(:,j), y(:,i), xij)
+              
               DO ii=1,D
                 DO jj=1,D
                   distmat(ii,jj)=xij(jj)*xij(ii)
                 ENDDO
               ENDDO
               ! calculate the determinant of |(x-y)(x-y).T+Q|   
-              detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((r+1.0d0)*0.5d0)     
-              Hi(:,:,i) = Hi(:,:,i) + detdistQ * distmat
+              detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((ri+1.0d0)*0.5d0)     
+              Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Qi(:,:,i)+distmat)
               sumdetdistQ = sumdetdistQ + detdistQ
+              
             ENDDO 
-            Hi(:,:,i)=Qi(:,:,i)+Hi(:,:,i)/sumdetdistQ
+            Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
             Hi(:,:,i)=Hi(:,:,i)/(ri-D)
+
+              
+
+            ! using entropy loss function
+!            sumdetdistQ = 0.0d0
+!            Hi(:,:,i) = 0.0d0
+!            DO j=1,nsamples
+
+!              ! calculate (x-y)(x-y).T
+!              CALL pammrij(D, period, x(:,j), y(:,i), xij)
+!              DO ii=1,D
+!                DO jj=1,D
+!                  distmat(ii,jj)=xij(jj)*xij(ii)
+!                ENDDO
+!              ENDDO
+!              ! calculate the determinant of |(x-y)(x-y).T+Q|   
+!              detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((r+1.0d0)*0.5d0)
+!              CALL invmatrix(D,Qi(:,:,i)+distmat,invdistQ)     
+!              Hi(:,:,i) = Hi(:,:,i)+detdistQ*invdistQ
+!              sumdetdistQ = sumdetdistQ + detdistQ
+!            ENDDO
+!            Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ 
+!            CALL invmatrix(D,Hi(:,:,i),Hi(:,:,i))     
+!            Hi(:,:,i)=Hi(:,:,i)/(ri+1)
             
           ENDDO   
           
-          IF(verbose) &
-                 WRITE(*,*) "Local apdaptive Bayesian cycle ",nadaptive+1,"/",adaptive
-          
           ! invert H and get the determinant just once
           ! TODO: after debugging, this can be outside the loop
-        
           DO i=1, ngrid 
             CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
             IF(periodic)THEN
@@ -677,7 +693,6 @@
             ENDIF
           ENDDO
 
-
           ! get an estimation of the spherical sigma2 around the point
           DO i=1,ngrid
             sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
@@ -686,32 +701,20 @@
           ! set the lambda to be used in the old version of QS 
           IF(lambda.LT.0)THEN
              lambda=5.0d0 * SUM( DSQRT(sigma2(:)) )/ngrid
-             
              lambda2=lambda*lambda
           ENDIF
           
-          ! debug stuff
-          dummd1 = 0.0d0
-          DO j=1,ngrid
-            dummd1 = dummd1 + trmatrix(D,Qi(:,:,j))/ngrid
+          ! debug
+          ! write out the Qi and sigma
+          WRITE(nstring1,'(I0.3)') nadaptive+1
+          OPEN(UNIT=12,FILE="sigma.probs."//TRIM(nstring1), &
+               STATUS='REPLACE',ACTION='WRITE')
+          DO i=1,ngrid
+            WRITE(12,*) y(:,i), SQRT(sigma2(i)), trmatrix(D,Qi(:,:,i))/DBLE(D)
           ENDDO
-          WRITE(*,*) "SUM(tr(Q))/ngrid: ", SUM(Qi(1,1,:))/ngrid
-          WRITE(*,*) "SUM(sigma2)/ngrid: ", SUM(sigma2)/ngrid
-          
-          OPEN(UNIT=12,FILE="sigma.probs", &
-               STATUS='OLD',POSITION='APPEND',ACTION='WRITE')
-          WRITE(12,*) " ", sigma2
           CLOSE(UNIT=12)
-          OPEN(UNIT=12,FILE="grid.points", &
-               STATUS='OLD',POSITION='APPEND',ACTION='WRITE')
-          WRITE(12,*) " ", y
-          CLOSE(UNIT=12)
-          OPEN(UNIT=12,FILE="grid.Q", &
-               STATUS='OLD',POSITION='APPEND',ACTION='WRITE')
-          WRITE(12,*) " ", Qi(1,1,:)
-          CLOSE(UNIT=12)
-          ! end debug stuff
-          
+          ! debug
+ 
         ENDDO
         
       ENDIF
@@ -1075,6 +1078,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu,normri)
       DEALLOCATE(Q,Qtmp,distmat,xm,xij,Hi,Hiinv,normgmulti)
+      DEALLOCATE(wQ,Qi,Qiinv,invdistQ)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
       CALL EXIT(0)
