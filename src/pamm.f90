@@ -508,6 +508,8 @@
         CALL invmatrix(D,Sw,Sinv)   
         
         DO i=1,ngrid
+          IF(verbose .AND. (modulo(i,100).EQ.0)) &
+            WRITE(*,*) i,"/",ngrid
           ! calculate local weights using a spherical gaussian
           DO j=1,nsamples
             wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Sinv)
