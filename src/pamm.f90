@@ -85,8 +85,8 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat, invdistQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       ! Variables for locally adaptive Bayesian Bandwidth estimation
-      DOUBLE PRECISION ni, ri
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wQ
+      !DOUBLE PRECISION ni, ri
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wQ, ni, ri
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Qiinv
       
       
@@ -373,7 +373,7 @@
       ! Allocate variables for bayesian bandidth estimate
       ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ! Allocate variables for locally adaptive bayesian refinement
-      ALLOCATE(wQ(nsamples),Qi(D,D,ngrid),Qiinv(D,D,ngrid),invdistQ(D,D))
+      ALLOCATE(wQ(nsamples),ri(ngrid),ni(ngrid),Qi(D,D,ngrid),Qiinv(D,D,ngrid),invdistQ(D,D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -441,7 +441,23 @@
 !     _of_covariance_matrices) this is given by the following.
 !     For 1D this gives the same result as the 1D case of Michele.  
 
-      r=DBLE(nsamples)**(2.0/DBLE(D+4))+DBLE(D)
+!      r=DBLE(nsamples)**(2.0/DBLE(D+4))+DBLE(D)
+       r=DBLE(ngrid)**(2.0/DBLE(D+4))+DBLE(D)
+      ! apply rule of de Lima and Atuncar (2011)           
+      ! for r to ensecure stability
+      
+      ! (i)
+!      IF(r-DBLE(D) < 3.0d0) THEN
+!        r=3.0d0 + DBLE(D)
+!      ELSEIF(r-DBLE(D) >= 5.0d0) THEN
+!        r=5.0d0 + DBLE(D)
+!      ENDIF
+
+       ! (ii)
+!      IF(r-DBLE(D) > 5.0d0) r=5.0d0 + DBLE(D)
+
+       ! (iii) 
+!      r = 5.0d0 + DBLE(D)      
       
       IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
       ! first calculate the mean in each dimension
@@ -501,7 +517,7 @@
               ENDDO
             ENDDO
             ! calculate the determinant of |(x-y)(x-y).T+Q|   
-            detdistQ = 1.0d0/detmatrix(D,Q+distmat)**((r+1.0d0)*0.5d0)     
+            detdistQ = detmatrix(D,Q+distmat)**(-(r+1.0d0)*0.5d0)     
             Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Q+distmat)
             sumdetdistQ = sumdetdistQ + detdistQ
           ENDDO 
@@ -552,7 +568,7 @@
       OPEN(UNIT=12,FILE="sigma.probs."//TRIM(nstring1), &
            STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
-        WRITE(12,*) y(:,i), SQRT(sigma2(i)), trmatrix(D,Q)/DBLE(D)
+        WRITE(12,*) y(:,i), SQRT(sigma2(i)), trmatrix(D,Q)/DBLE(D), nsamples, r
       ENDDO
       CLOSE(UNIT=12)
       ! debug
@@ -576,12 +592,13 @@
                  WRITE(*,*) i,"/",ngrid
             ! set initial Qi
 !            IF (nadaptive==0) THEN
-!              Qi(:,:,i) = Q   
+!              Qi(:,:,i) = Q 
 !            ENDIF
             IF (nadaptive==0) THEN
-              Qi(:,:,i) = Hi(:,:,i)*36.0d0   
+              Qi(:,:,i) = Q
             ENDIF
-            
+!            Qi(:,:,i) = Hi(:,:,i)
+
             ! calculate inverts of Qi matrices
             CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
             
@@ -591,26 +608,29 @@
               wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Qiinv(:,:,i))
             ENDDO
                         
-            ! debug
-!            WRITE(nstring1,'(I0.4)') nadaptive
-!            WRITE(nstring2,'(I0.4)') i
-!            OPEN(UNIT=12,FILE=TRIM("wQ.points.")//TRIM(nstring1)//"_"//TRIM(nstring2), &
-!               STATUS='REPLACE',ACTION='WRITE')
-!            DO ii=1,nsamples
-!              WRITE(12,*) x(:,ii),wQ(ii)
-!            ENDDO
-!            CLOSE(UNIT=12)
-            ! debug
-            
-            ni = SUM(wQ)
+            ni(i) = SUM(wQ)
             
             ! estimate a local r parameter for the bayesian estimate
-            ri=DBLE(ni)**(2.0d0/DBLE(D+4))+DBLE(D)
-        
+            ri(i)=ni(i)**(2.0d0/DBLE(D+4))+DBLE(D)
+            ! apply rule (i) of de Lima and Atuncar (2011)           
+            ! to ensecure stability
+!            IF(ri(i)-DBLE(D) < 3.0d0) THEN
+!              ri(i)=3.0d0 + DBLE(D)
+!            ELSEIF(ri(i)-DBLE(D) >= 5.0d0) THEN
+!              ri(i)=5.0d0 + DBLE(D)
+!            ENDIF
+           
+            IF(ri(i)-DBLE(D) < 5.0d0) ri(i)=5.0d0 + DBLE(D)
+
+!            ri(i) = 5.0d0 + DBLE(D)
+                    
             ! calculate the mean in each dimension using an arithmetic weighted mean
             DO j=1,D
-              xm(j) = SUM(x(j,:)*wQ)/ni
+              xm(j) = SUM(x(j,:)*wQ)/ni(i)
             ENDDO
+            
+            ! normalize weights to use weighted sample mean
+            wQ = wQ / SUM(wQ)
         
             ! do the crime against humanity method since I don't know 
             ! yet how to implement the weight in the DGEMM routine
@@ -625,54 +645,34 @@
               ENDDO
               Qi(:,:,i) = Qi(:,:,i) + Qtmp
             ENDDO
-            Qi(:,:,i) = Qi(:,:,i)/ni 
-            
+            Qi(:,:,i) = Qi(:,:,i)/(1.0d0 - SUM(wQ**2.0d0))
+           
             ! using quadratic loss function
             sumdetdistQ = 0.0d0
             Hi(:,:,i) = 0.0d0
-            DO j=1,nsamples
-
-              ! calculate (x-y)(x-y).T
-              CALL pammrij(D, period, x(:,j), y(:,i), xij)
-              
-              DO ii=1,D
-                DO jj=1,D
-                  distmat(ii,jj)=xij(jj)*xij(ii)
+            DO j=1,ngrid
+              ! do not compute contribution from far far away points
+              ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+              ! cycle just inside the polyhedra using the neighbour list     
+              DO k=pnlist(j)+1,pnlist(j+1)
+                ! include cycle to avoid instabilities if ni is close to one
+                IF (i.EQ.k) CYCLE
+                ! calculate (x-y)(x-y).T
+                CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
+                DO ii=1,D
+                  DO jj=1,D
+                    distmat(ii,jj)=xij(jj)*xij(ii)
+                  ENDDO
                 ENDDO
-              ENDDO
-              ! calculate the determinant of |(x-y)(x-y).T+Q|   
-              detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((ri+1.0d0)*0.5d0)     
-              Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Qi(:,:,i)+distmat)
-              sumdetdistQ = sumdetdistQ + detdistQ
-              
+                ! calculate the determinant of |(x-y)(x-y).T+Q|     
+                detdistQ = detmatrix(D,Qi(:,:,i)+distmat)**(-(ri(i)+1.0d0)*0.5d0)     
+                Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Qi(:,:,i)+distmat)
+                sumdetdistQ = sumdetdistQ + detdistQ
+              ENDDO    
             ENDDO 
             Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
-            Hi(:,:,i)=Hi(:,:,i)/(ri-D)
+            Hi(:,:,i)=Hi(:,:,i)/(ri(i)-D)
 
-              
-
-            ! using entropy loss function
-!            sumdetdistQ = 0.0d0
-!            Hi(:,:,i) = 0.0d0
-!            DO j=1,nsamples
-
-!              ! calculate (x-y)(x-y).T
-!              CALL pammrij(D, period, x(:,j), y(:,i), xij)
-!              DO ii=1,D
-!                DO jj=1,D
-!                  distmat(ii,jj)=xij(jj)*xij(ii)
-!                ENDDO
-!              ENDDO
-!              ! calculate the determinant of |(x-y)(x-y).T+Q|   
-!              detdistQ = 1.0d0/detmatrix(D,Qi(:,:,i)+distmat)**((r+1.0d0)*0.5d0)
-!              CALL invmatrix(D,Qi(:,:,i)+distmat,invdistQ)     
-!              Hi(:,:,i) = Hi(:,:,i)+detdistQ*invdistQ
-!              sumdetdistQ = sumdetdistQ + detdistQ
-!            ENDDO
-!            Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ 
-!            CALL invmatrix(D,Hi(:,:,i),Hi(:,:,i))     
-!            Hi(:,:,i)=Hi(:,:,i)/(ri+1)
-            
           ENDDO   
           
           ! invert H and get the determinant just once
@@ -710,7 +710,7 @@
           OPEN(UNIT=12,FILE="sigma.probs."//TRIM(nstring1), &
                STATUS='REPLACE',ACTION='WRITE')
           DO i=1,ngrid
-            WRITE(12,*) y(:,i), SQRT(sigma2(i)), trmatrix(D,Qi(:,:,i))/DBLE(D)
+            WRITE(12,*) y(:,i), SQRT(sigma2(i)), trmatrix(D,Qi(:,:,i))/DBLE(D), ni(i), ri(i)
           ENDDO
           CLOSE(UNIT=12)
           ! debug
@@ -1078,7 +1078,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu,normri)
       DEALLOCATE(Q,Qtmp,distmat,xm,xij,Hi,Hiinv,normgmulti)
-      DEALLOCATE(wQ,Qi,Qiinv,invdistQ)
+      DEALLOCATE(wQ,ni,ri,Qi,Qiinv,invdistQ)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
       CALL EXIT(0)
