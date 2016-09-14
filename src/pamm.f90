@@ -431,27 +431,13 @@
       ENDDO
       
       ! computes sample covariance matrix quickly
-!      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, x, D, x, D, 0.0d0, Q, D) 
-!      DO i=1,D
-!        DO j=1,D
-!          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
-!        ENDDO
-!      ENDDO
-!      Q = Q/(nsamples-1)
-       ! use the old-fashioned version to include periodicity
-       Q = 0.0d0
-       DO j=1,nsamples
-         Qtmp = 0.0d0
-         DO ii=1,D
-           DO jj=1,D
-             CALL pammrij(1, period(ii), x(ii,j), xm(ii), dummd1)
-             CALL pammrij(1, period(jj), x(jj,j), xm(jj), dummd2)
-             Qtmp(ii,jj) = dummd1*dummd2
-           ENDDO
-         ENDDO
-         Q = Q + Qtmp
-       ENDDO
-        Q = Q / (nsamples-1.0d0))
+      Q = 0.0d0
+      DO j=1,nsamples
+        CALL pammrij(D, period, x(:,j), xm, xij)
+        CALL DGEMM("N", "T", D, D, 1, 1.0d0, xij, D, xij, D, 0.0d0, Qtmp, D)
+        Q = Q + Qtmp
+      ENDDO
+      Q = Q / (nsamples-1.0d0)
 
       IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
       
@@ -549,14 +535,8 @@
           ! yet how to implement the weight in the DGEMM routine
           Qi(:,:,i) = 0.0d0
           DO j=1,nsamples
-            Qtmp = 0.0d0
-            DO ii=1,D
-              DO jj=1,D
-                CALL pammrij(1, period(ii), x(ii,j), xm(ii), dummd1)
-                CALL pammrij(1, period(jj), x(jj,j), xm(jj), dummd2)
-                Qtmp(ii,jj) = dummd1*dummd2*wQ(j)
-              ENDDO
-            ENDDO
+            CALL pammrij(D, period, x(:,j), xm, xij)
+            CALL DGEMM("N", "T", D, D, 1, 1.0d0, xij, D, xij, D, 0.0d0, Qtmp, D)
             Qi(:,:,i) = Qi(:,:,i) + Qtmp
           ENDDO
           Qi(:,:,i) = Qi(:,:,i)/(1.0d0 - SUM(wQ**2.0d0))
