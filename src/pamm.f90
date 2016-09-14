@@ -168,6 +168,8 @@
             ccmd = 17
          ELSEIF (cmdbuffer == "-mode") THEN       ! Different working modalities
             ccmd = 18
+         ELSEIF (cmdbuffer == "-r") THEN       ! r parameter of bayesian approach
+            ccmd = 19
          ELSEIF (cmdbuffer == "-skipvoronois") THEN  ! save the KDE estimates in a file
             skipvoronois= .true.
          ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
@@ -230,6 +232,8 @@
                READ(cmdbuffer,*) mode
                IF(mode.eq.1) pilotboot = .true.
                IF((mode.lt.0) .or. (mode.gt.2)) STOP "PAMM has just 3 running mode!"
+            ELSEIF (ccmd == 19) THEN ! set r parameter of bayesian approach
+               READ(cmdbuffer,*) r
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
                IF (D<0) STOP "Dimensionality (-d) must precede the periodic lenghts (-p). "
                par_count = 1
@@ -430,7 +434,7 @@
 !     _of_covariance_matrices) this is given by the following.
 !     For 1D this gives the same result as the 1D case of Michele.  
 
-      r=DBLE(nsamples)**(2.0/dble(D+4))
+      r=DBLE(ngrid)**(2.0/dble(D+4))
       
       IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
       ! first calculate the mean in each dimension
@@ -483,6 +487,7 @@
           ! cycle just inside the polyhedra using the neighbour list     
           
           DO k=pnlist(j)+1,pnlist(j+1)
+            IF (i.EQ.k) CYCLE
             CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
             DO n=1,D
               DO m=1,D
@@ -941,6 +946,7 @@
          WRITE(*,*) "                             These will improve the adaptive scheme assumed in 0. "
          WRITE(*,*) "                         2 = Always use bootstrap to estimate both the probability  "
          WRITE(*,*) "                             and the errors for each adaptive cycle. Slowest approach. "
+         WRITE(*,*) "   -r                : Set r parameter of Bayesian approach [automatic]"
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
