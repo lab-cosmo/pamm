@@ -125,7 +125,7 @@
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       skipvoronois = .false. ! don't read the Voronoi associations 
-      
+      r = -1.0d0             ! r parameter of bayesian approach
       mixbeta = 0.1
       
       D=-1
@@ -434,7 +434,8 @@
 !     _of_covariance_matrices) this is given by the following.
 !     For 1D this gives the same result as the 1D case of Michele.  
 
-      r=DBLE(ngrid)**(2.0/dble(D+4))
+      IF (r.LT.0.0d0) r=DBLE(ngrid)**(2.0/DBLE(D+4))+DBLE(D)
+      WRITE(*,*) "r: ", r
       
       IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
       ! first calculate the mean in each dimension
