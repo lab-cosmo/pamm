@@ -32,8 +32,6 @@
       USE libpamm
       USE random
       IMPLICIT NONE
-      CHARACTER(4) nstring1
-      CHARACTER(4) nstring2
       
       INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 
@@ -77,16 +75,16 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: proberr
       INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
-      INTEGER nbootstrap, rndidx, rngidx, nn, nadaptive, nbssample, nbstot
+      INTEGER nbootstrap, rndidx, rngidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for Bayesian Bandwidth estimation
       DOUBLE PRECISION r, detdistQ, sumdetdistQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat, invdistQ
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       ! Variables for locally adaptive Bayesian Bandwidth estimation
-      !DOUBLE PRECISION ni, ri
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wQ, ni, ri
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Sw, Sinv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Qiinv
       
       
@@ -100,9 +98,8 @@
       LOGICAL verbose, fpost                      ! flag for verbosity
       LOGICAL weighted                            ! flag for using weigheted data
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
-      INTEGER adaptive                            ! iterations for adaptively refine the sigmas
       INTEGER neblike                             ! iterations for neblike path search
-      DOUBLE PRECISION lambda, msw, alpha, zeta, kderr, dummd1, dummd2, convchk, lambda2
+      DOUBLE PRECISION lambda, msw, alpha, zeta, kderr, dummd1, dummd2, convchk, lambda2, adaptive
 
       ! DOUBLE PRECISION maxrgrid, minrgrid
       DOUBLE PRECISION mixbeta
@@ -126,14 +123,13 @@
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
-      adaptive=0             ! don't use the adaptive
+      adaptive= -1.0d0       ! don't use adaptive
       neblike=0              ! don't use neb paths
       nbootstrap=0           ! do not use bootstrap
       qserr=8                ! threshold to accept a move in qs
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       skipvoronois = .false. ! don't read the Voronoi associations 
-      nadaptive = 0          ! set cycle number of adaptive refinement to zero
       
       mixbeta = 0.1
       
@@ -167,16 +163,14 @@
             ccmd = 10
          ELSEIF (cmdbuffer == "-neblike") THEN  ! use neb paths between the qs points
             ccmd = 13
-         ELSEIF (cmdbuffer == "-adaptive") THEN  ! refine adptively sigma2
-            ccmd = 14
+         ELSEIF (cmdbuffer == "-adp") THEN  ! refine adptively sigma
+            ccmd = 18
          ELSEIF (cmdbuffer == "-qserr") THEN  ! threshold for the qs assignation
             ccmd = 15
          ELSEIF (cmdbuffer == "-readprobs") THEN  ! read a file containing the grid points + info
             ccmd = 16
          ELSEIF (cmdbuffer == "-readvoronis") THEN  ! read a file containing the Voronoi associations
             ccmd = 17
-         ELSEIF (cmdbuffer == "-mode") THEN       ! Different working modalities
-            ccmd = 18
          ELSEIF (cmdbuffer == "-skipvoronois") THEN  ! save the KDE estimates in a file
             skipvoronois= .true.
          ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
@@ -231,14 +225,10 @@
                READ(cmdbuffer,*) zeta
             ELSEIF (ccmd == 13) THEN ! activate neb like behaviour 
                READ(cmdbuffer,*) neblike
-            ELSEIF (ccmd == 14) THEN ! activate adaptive refining of sigma 
-               READ(cmdbuffer,*) adaptive
             ELSEIF (ccmd == 15) THEN ! read threshold for the qs assignation 
                READ(cmdbuffer,*) qserr
-            ELSEIF (ccmd == 18) THEN ! set the mode of KDE refining
-               READ(cmdbuffer,*) mode
-               IF(mode.eq.1) pilotboot = .true.
-               IF((mode.lt.0) .or. (mode.gt.2)) STOP "PAMM has just 3 running mode!"
+            ELSEIF (ccmd == 18) THEN ! read localization parameter for adaptive 
+               READ(cmdbuffer,*) adaptive
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
                IF (D<0) STOP "Dimensionality (-d) must precede the periodic lenghts (-p). "
                par_count = 1
@@ -373,7 +363,7 @@
       ! Allocate variables for bayesian bandidth estimate
       ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ! Allocate variables for locally adaptive bayesian refinement
-      ALLOCATE(wQ(nsamples),ri(ngrid),ni(ngrid),Qi(D,D,ngrid),Qiinv(D,D,ngrid),invdistQ(D,D))
+      ALLOCATE(wQ(nsamples),ri(ngrid),ni(ngrid),Qi(D,D,ngrid),Qiinv(D,D,ngrid),Sw(D,D),Sinv(D,D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -431,43 +421,16 @@
                                      npvoronoi,iminij,wj,rgrid, &
                                      outputfile)
 
-
-!     just use a constant sigma2 throughout for a start
-      !sigma2 = (sum(dsqrt(rgrid))/ngrid)**2
-
-!     A Multidimensional approach which follows the Zhuogab et al. 
-!     (multivariate, nD) needs a covariance sample matrix.
-!     According to wikipedia (https://en.wikipedia.org/wiki/Estimation
-!     _of_covariance_matrices) this is given by the following.
-!     For 1D this gives the same result as the 1D case of Michele.  
-
-!      r=DBLE(nsamples)**(2.0/DBLE(D+4))+DBLE(D)
-       r=DBLE(ngrid)**(2.0/DBLE(D+4))+DBLE(D)
-      ! apply rule of de Lima and Atuncar (2011)           
-      ! for r to ensecure stability
-      
-      ! (i)
-!      IF(r-DBLE(D) < 3.0d0) THEN
-!        r=3.0d0 + DBLE(D)
-!      ELSEIF(r-DBLE(D) >= 5.0d0) THEN
-!        r=5.0d0 + DBLE(D)
-!      ENDIF
-
-       ! (ii)
-!      IF(r-DBLE(D) > 5.0d0) r=5.0d0 + DBLE(D)
-
-       ! (iii) 
-!      r = 5.0d0 + DBLE(D)      
+      r=DBLE(nsamples)**(2.0/DBLE(D+4))+DBLE(D)
       
       IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
+      
       ! first calculate the mean in each dimension
-      ! TODO: Add periodicity
       DO j=1,D
         xm(j) = SUM(x(j,:))/nsamples
       ENDDO
       
       ! computes sample covariance matrix quickly
-      !CALL DGEMM("T", "N", D, D, nsamples, 1.0d0, x, nsamples, x, nsamples, 0.0d0, Q, D) 
       CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, x, D, x, D, 0.0d0, Q, D) 
       DO i=1,D
         DO j=1,D
@@ -475,26 +438,6 @@
         ENDDO
       ENDDO
       Q = Q/(nsamples-1)
-!      write(*,*) Q
-      
-!      Q = 0.0d0
-!      DO i=1,nsamples
-!        Qtmp = 0.0d0
-!        DO j=1,D
-!          DO k=1,D
-!            Qtmp(j,k) = (x(j,i)-xm(j))*(x(k,i)-xm(k))
-!          ENDDO
-!        ENDDO
- !       Q = Q + Qtmp
- !     ENDDO
- !     Q = Q/(nsamples-1) 
- !     write(*,*) "manual", Q
- 
-!     A Multidimensional approach which follows the Zhuogab et al. 
-!     However, if we want to have univariate gaussians the covariance
-!     matrix will be diagonal and all elements will be equal.
-      ! if it is desired to write this matrix in a file, do this
-      IF(saveprobs) CALL savemat("Qij",D,Q)
       
       IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
       
@@ -503,13 +446,9 @@
                WRITE(*,*) i,"/",ngrid
         sumdetdistQ = 0.0d0
         Hi(:,:,i) = 0.0d0
-        DO j=1,ngrid
-
-          ! do not compute contribution from far far away points
-          ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-          ! cycle just inside the polyhedra using the neighbour list     
-          
+        DO j=1,ngrid      
           DO k=pnlist(j)+1,pnlist(j+1)
+            IF (i.EQ.k) CYCLE
             CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
             DO n=1,D
               DO m=1,D
@@ -526,8 +465,113 @@
       ENDDO
       Hi=Hi/(r-D)
       
-      ! invert H and get the determinant just once
+      !!! NEW STUFF: Locally adaptive Q estimation
+      !!! using a broad gaussian filter on the distance
+      !!! between grid point and sample points
       
+      ! debug
+      OPEN(UNIT=12,FILE="sigma.probs.init", &
+           STATUS='REPLACE',ACTION='WRITE')
+      DO i=1,ngrid
+        DO ii=1,D
+          WRITE(12,"(ES15.4E4)",ADVANCE = "NO") y(ii,i)
+        ENDDO
+        DO ii=1,D
+          DO jj=1,D
+            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Hi(ii,jj,i)
+          ENDDO
+        ENDDO
+        DO ii=1,D
+          DO jj=1,D
+            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Q(ii,jj)
+          ENDDO
+        ENDDO
+        WRITE(12,*) nsamples, r
+      ENDDO
+      CLOSE(UNIT=12)
+      ! debug
+
+      IF (adaptive.GT.0.0d0) THEN
+      
+        IF(verbose) WRITE(*,*) &
+          "Adaptive bayesian scheme"
+
+        Qi = 0.0d0 
+        Qiinv = 0.0d0
+        wQ = 0.0d0  
+        
+        ! set initial localization matrix
+        Sw = 0.0d0 
+        DO ii=1,D
+          Sw(ii,ii) = adaptive
+        ENDDO 
+        CALL invmatrix(D,Sw,Sinv)   
+        
+        DO i=1,ngrid
+          ! calculate local weights using a spherical gaussian
+          DO j=1,nsamples
+            wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Sinv)
+          ENDDO
+                      
+          ni(i) = SUM(wQ)
+          
+          IF (ni(i).LE.2.0d0) &
+            WRITE(*,*) "WARNING: less than two points for bayesian estimation, increase locality!"
+          
+          ! estimate a local r parameter for the bayesian estimate
+          ri(i)=ni(i)**(2.0d0/DBLE(D+4))+DBLE(D)
+                  
+          ! calculate the mean in each dimension using an arithmetic weighted mean
+          DO j=1,D
+            xm(j) = SUM(x(j,:)*wQ)/ni(i)
+          ENDDO
+          
+          ! normalize weights to use weighted sample mean
+          wQ = wQ / SUM(wQ)
+      
+          ! do the crime against humanity method since I don't know 
+          ! yet how to implement the weight in the DGEMM routine
+          Qi(:,:,i) = 0.0d0
+          DO j=1,nsamples
+            Qtmp = 0.0d0
+            DO ii=1,D
+              DO jj=1,D
+                Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))*wQ(j)
+              ENDDO
+            ENDDO
+            Qi(:,:,i) = Qi(:,:,i) + Qtmp
+          ENDDO
+          Qi(:,:,i) = Qi(:,:,i)/(1.0d0 - SUM(wQ**2.0d0))
+         
+          ! using quadratic loss function
+          sumdetdistQ = 0.0d0
+          Hi(:,:,i) = 0.0d0
+          DO j=1,ngrid 
+            DO k=pnlist(j)+1,pnlist(j+1)
+              ! include cycle to avoid instabilities if ni is close to one
+              IF (i.EQ.k) CYCLE
+              ! calculate (x-y)(x-y).T
+              CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
+              DO ii=1,D
+                DO jj=1,D
+                  distmat(ii,jj)=xij(jj)*xij(ii)
+                ENDDO
+              ENDDO
+              ! calculate the determinant of |(x-y)(x-y).T+Q|     
+              detdistQ = detmatrix(D,Qi(:,:,i)+distmat)**(-(ri(i)+1.0d0)*0.5d0)     
+              Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Qi(:,:,i)+distmat)
+              sumdetdistQ = sumdetdistQ + detdistQ
+            ENDDO    
+          ENDDO 
+          Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
+          Hi(:,:,i)=Hi(:,:,i)/(ri(i)-D)
+
+        ENDDO   
+        
+      ENDIF
+      !!! END OF NEW STUFF
+      
+      ! invert H and get the determinant just once
       DO i=1, ngrid 
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
         IF(periodic)THEN
@@ -540,7 +584,6 @@
           ENDDO
           normgmulti(i) = 1.0d0/dummd1
         ELSE
-          
           normgmulti(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
         ENDIF
       ENDDO
@@ -553,184 +596,31 @@
       ! set the lambda to be used in the old version of QS 
       IF(lambda.LT.0)THEN
          lambda=5.0d0 * SUM( DSQRT(sigma2(:)) )/ngrid
-         
          lambda2=lambda*lambda
       ENDIF
       
-      
-      !!! NEW STUFF: Locally adaptive Q estimation
-      !!! using a broad gaussian filter on the distance
-      !!! between grid point and sample points
-      
       ! debug
-      ! write out initial Q and sigma
-      WRITE(nstring1,'(I0.3)') nadaptive
-      OPEN(UNIT=12,FILE="sigma.probs."//TRIM(nstring1), &
+      ! write out the Qi and sigma
+      OPEN(UNIT=12,FILE="sigma.probs.final", &
            STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
-        WRITE(12,*) y(:,i), SQRT(sigma2(i)), trmatrix(D,Q)/DBLE(D), nsamples, r
+        DO ii=1,D
+          WRITE(12,"(ES15.4E4)",ADVANCE = "NO") y(ii,i)
+        ENDDO
+        DO ii=1,D
+          DO jj=1,D
+            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Hi(ii,jj,i)
+          ENDDO
+        ENDDO
+        DO ii=1,D
+          DO jj=1,D
+            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Qi(ii,jj,i)
+          ENDDO
+        ENDDO
+        WRITE(12,*) ni(i), ri(i)
       ENDDO
       CLOSE(UNIT=12)
       ! debug
-
-      IF (adaptive>0) THEN
-        IF(verbose) WRITE(*,*) &
-          "Adaptive local bayesian scheme"
-
-        Qi = 0.0d0 
-        Qiinv = 0.0d0
-        wQ = 0.0d0  
-        
-        DO nadaptive=0,adaptive-1
-          
-          IF(verbose) &
-            WRITE(*,*) nadaptive+1,"/",adaptive
-          
-          DO i=1,ngrid
-            
-            IF(verbose .AND. (modulo(i,100).EQ.0)) &
-                 WRITE(*,*) i,"/",ngrid
-            ! set initial Qi
-!            IF (nadaptive==0) THEN
-!              Qi(:,:,i) = Q 
-!            ENDIF
-            IF (nadaptive==0) THEN
-              Qi(:,:,i) = Q
-            ENDIF
-!            Qi(:,:,i) = Hi(:,:,i)
-
-            ! calculate inverts of Qi matrices
-            CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
-            
-            ! calculate local weights using a gaussian
-            ! TODO: Maybe this should be multivariate too?
-            DO j=1,nsamples
-              wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Qiinv(:,:,i))
-            ENDDO
-                        
-            ni(i) = SUM(wQ)
-            
-            ! estimate a local r parameter for the bayesian estimate
-            ri(i)=ni(i)**(2.0d0/DBLE(D+4))+DBLE(D)
-            ! apply rule (i) of de Lima and Atuncar (2011)           
-            ! to ensecure stability
-!            IF(ri(i)-DBLE(D) < 3.0d0) THEN
-!              ri(i)=3.0d0 + DBLE(D)
-!            ELSEIF(ri(i)-DBLE(D) >= 5.0d0) THEN
-!              ri(i)=5.0d0 + DBLE(D)
-!            ENDIF
-           
-            IF(ri(i)-DBLE(D) < 5.0d0) ri(i)=5.0d0 + DBLE(D)
-
-!            ri(i) = 5.0d0 + DBLE(D)
-                    
-            ! calculate the mean in each dimension using an arithmetic weighted mean
-            DO j=1,D
-              xm(j) = SUM(x(j,:)*wQ)/ni(i)
-            ENDDO
-            
-            ! normalize weights to use weighted sample mean
-            wQ = wQ / SUM(wQ)
-        
-            ! do the crime against humanity method since I don't know 
-            ! yet how to implement the weight in the DGEMM routine
-                    
-            Qi(:,:,i) = 0.0d0
-            DO j=1,nsamples
-              Qtmp = 0.0d0
-              DO ii=1,D
-                DO jj=1,D
-                  Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))*wQ(j)
-                ENDDO
-              ENDDO
-              Qi(:,:,i) = Qi(:,:,i) + Qtmp
-            ENDDO
-            Qi(:,:,i) = Qi(:,:,i)/(1.0d0 - SUM(wQ**2.0d0))
-           
-            ! using quadratic loss function
-            sumdetdistQ = 0.0d0
-            Hi(:,:,i) = 0.0d0
-            DO j=1,ngrid
-              ! do not compute contribution from far far away points
-              ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-              ! cycle just inside the polyhedra using the neighbour list     
-              DO k=pnlist(j)+1,pnlist(j+1)
-                ! include cycle to avoid instabilities if ni is close to one
-                IF (i.EQ.k) CYCLE
-                ! calculate (x-y)(x-y).T
-                CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
-                DO ii=1,D
-                  DO jj=1,D
-                    distmat(ii,jj)=xij(jj)*xij(ii)
-                  ENDDO
-                ENDDO
-                ! calculate the determinant of |(x-y)(x-y).T+Q|     
-                detdistQ = detmatrix(D,Qi(:,:,i)+distmat)**(-(ri(i)+1.0d0)*0.5d0)     
-                Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Qi(:,:,i)+distmat)
-                sumdetdistQ = sumdetdistQ + detdistQ
-              ENDDO    
-            ENDDO 
-            Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
-            Hi(:,:,i)=Hi(:,:,i)/(ri(i)-D)
-
-          ENDDO   
-          
-          ! invert H and get the determinant just once
-          ! TODO: after debugging, this can be outside the loop
-          DO i=1, ngrid 
-            CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-            IF(periodic)THEN
-              dummd1=1.0d0
-              DO jj=1,D
-                 concentrationK=Hiinv(jj,jj,i)
-                 ! this is to avoid numerical errors
-                 !IF(DLOG(Hi(jj,jj,i)).lt.(-2)) concentrationK=100.0d0
-                 dummd1=dummd1*BESSI0(concentrationK)*twopi
-              ENDDO
-              normgmulti(i) = 1.0d0/dummd1
-            ELSE
-              normgmulti(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-            ENDIF
-          ENDDO
-
-          ! get an estimation of the spherical sigma2 around the point
-          DO i=1,ngrid
-            sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
-          ENDDO
-          
-          ! set the lambda to be used in the old version of QS 
-          IF(lambda.LT.0)THEN
-             lambda=5.0d0 * SUM( DSQRT(sigma2(:)) )/ngrid
-             lambda2=lambda*lambda
-          ENDIF
-          
-          ! debug
-          ! write out the Qi and sigma
-          WRITE(nstring1,'(I0.3)') nadaptive+1
-          OPEN(UNIT=12,FILE="sigma.probs."//TRIM(nstring1), &
-               STATUS='REPLACE',ACTION='WRITE')
-          DO i=1,ngrid
-            WRITE(12,*) y(:,i), SQRT(sigma2(i)), trmatrix(D,Qi(:,:,i))/DBLE(D), ni(i), ri(i)
-          ENDDO
-          CLOSE(UNIT=12)
-          ! debug
- 
-        ENDDO
-        
-      ENDIF
-      !!! END OF NEW STUFF
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      ! do either a regular run with constant sigma2(j) for estimating
-      ! the probability density, use just bootstrapping or do an 
-      ! iterative scheme with or without bootstrapping
       
       IF(verbose) WRITE(*,*) &
         "Computing kernel density on reference points"
@@ -762,9 +652,6 @@
               tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
             ENDIF     
             dummd1 = dummd1 + tmpkernel    
-!            tmpad = tmpad / adw(nlist(k))
-!            adA(i) = adA(i) + tmpad
-!            adB(i,j) = adB(i,j) + tmpad * 0.5d0*pammr2(D,period,y(:,i),x(:,nlist(k)))/sigma2(j)
           ENDDO
           
           ! get the non-normalized prob, used to compute the estimate of the error
@@ -777,8 +664,6 @@
           ENDIF
           ! We now have to normalize the kernel
           prob(i) = prob(i) + dummd1*normgmulti(j)
-          !adA(i) = adA(i) + tmpadb * (twopi*sigma2(j))**(dble(D)/2.0d0)
-          !adB(i,j) = adB(i,j) * (twopi*sigma2(j))**(dble(D)/2.0d0)
         ENDDO          
       ENDDO
       prob=prob/normwj
@@ -1078,7 +963,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu,normri)
       DEALLOCATE(Q,Qtmp,distmat,xm,xij,Hi,Hiinv,normgmulti)
-      DEALLOCATE(wQ,ni,ri,Qi,Qiinv,invdistQ)
+      DEALLOCATE(wQ,ni,ri,Qi,Qiinv,Sw,Sinv)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
       CALL EXIT(0)
@@ -1115,7 +1000,7 @@
          WRITE(*,*) "                         output.pamm (cluster parameters) "
          WRITE(*,*) "   -l lambda         : Quick shift cutoff [automatic] "
          WRITE(*,*) "                       (Not used with the -neblike flag active)"
-         WRITE(*,*) "   -targeterror      : Relative target error use to adaptively refine the KDE [0.1]"
+         WRITE(*,*) "   -targeterror      : Relative target error use to adaptively refine the KDE [default: 0.1]"
          WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift [8]"
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -bootstrap N      : Number of iteretions to do when using bootstrapping "
@@ -1132,15 +1017,7 @@
          WRITE(*,*) "   -saveprobs        : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
-         WRITE(*,*) "   -adaptive N       : Maximum number of adaptive cycles to be done. [2] "
-         WRITE(*,*) "   -mode M           : Set the working modality for the adaptive scheme used to refine "
-         WRITE(*,*) "                       the KDE bandwiths. "
-         WRITE(*,*) "                         0 = [Default] Scheme based on a simple binomial assumption for "
-         WRITE(*,*) "                             the errors. Fastest approach. "
-         WRITE(*,*) "                         1 = Compute the errors using a pilot bootstrap estimate. "
-         WRITE(*,*) "                             These will improve the adaptive scheme assumed in 0. "
-         WRITE(*,*) "                         2 = Always use bootstrap to estimate both the probability  "
-         WRITE(*,*) "                             and the errors for each adaptive cycle. Slowest approach. "
+         WRITE(*,*) "   -adp sigma        : Localization width for local bayesian run [default: off] "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
