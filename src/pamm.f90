@@ -431,14 +431,28 @@
       ENDDO
       
       ! computes sample covariance matrix quickly
-      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, x, D, x, D, 0.0d0, Q, D) 
-      DO i=1,D
-        DO j=1,D
-          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
-        ENDDO
-      ENDDO
-      Q = Q/(nsamples-1)
-      
+!      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, x, D, x, D, 0.0d0, Q, D) 
+!      DO i=1,D
+!        DO j=1,D
+!          Q(i,j) = Q(i,j) - xm(i)*xm(j)*nsamples
+!        ENDDO
+!      ENDDO
+!      Q = Q/(nsamples-1)
+       ! use the old-fashioned version to include periodicity
+       Q = 0.0d0
+       DO j=1,nsamples
+         Qtmp = 0.0d0
+         DO ii=1,D
+           DO jj=1,D
+             CALL pammrij(1, period(ii), x(ii,j), xm(ii), dummd1)
+             CALL pammrij(1, period(jj), x(jj,j), xm(jj), dummd2)
+             Qtmp(ii,jj) = dummd1*dummd2
+           ENDDO
+         ENDDO
+         Q = Q + Qtmp
+       ENDDO
+        Q = Q / (nsamples-1.0d0))
+
       IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
       
       DO i=1,ngrid
@@ -465,9 +479,9 @@
       ENDDO
       Hi=Hi/(r-D)
       
-      !!! NEW STUFF: Locally adaptive Q estimation
-      !!! using a broad gaussian filter on the distance
-      !!! between grid point and sample points
+      ! Locally adaptive Q estimation
+      ! using a broad gaussian filter on the distance
+      ! between grid point and sample points
       
       ! debug
       OPEN(UNIT=12,FILE="sigma.probs.init", &
@@ -538,7 +552,9 @@
             Qtmp = 0.0d0
             DO ii=1,D
               DO jj=1,D
-                Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))*wQ(j)
+                CALL pammrij(1, period(ii), x(ii,j), xm(ii), dummd1)
+                CALL pammrij(1, period(jj), x(jj,j), xm(jj), dummd2)
+                Qtmp(ii,jj) = dummd1*dummd2*wQ(j)
               ENDDO
             ENDDO
             Qi(:,:,i) = Qi(:,:,i) + Qtmp
@@ -571,7 +587,6 @@
         ENDDO   
         
       ENDIF
-      !!! END OF NEW STUFF
       
       ! invert H and get the determinant just once
       DO i=1, ngrid 
