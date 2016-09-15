@@ -49,7 +49,7 @@
       INTEGER jmax,ii,jj
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, bigp, &
                                                      msmu, tmpmsmu, pcluster, px, &
-                                                     oldsigma2, normri
+                                                     oldsigma2
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
       INTEGER seed                                            ! seed for the random number generator
@@ -83,7 +83,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       ! Variables for locally adaptive Bayesian Bandwidth estimation
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wQ, ni, ri
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wQ, ni, ri, tmpd1, tmpd2
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Sw, Sinv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Qiinv
       
@@ -356,7 +356,7 @@
       ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
       ALLOCATE(y(D,ngrid), npvoronoi(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
       ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
-      ALLOCATE(diff(D), msmu(D), tmpmsmu(D), oldsigma2(ngrid), normri(ngrid))
+      ALLOCATE(diff(D), msmu(D), tmpmsmu(D), oldsigma2(ngrid))
       ALLOCATE(proberr(ngrid),normgmulti(ngrid),bigp(ngrid))
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
@@ -364,6 +364,9 @@
       ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ! Allocate variables for locally adaptive bayesian refinement
       ALLOCATE(wQ(nsamples),ri(ngrid),ni(ngrid),Qi(D,D,ngrid),Qiinv(D,D,ngrid),Sw(D,D),Sinv(D,D))
+      ! Allocate two rank-1 vectors for periodicity calculations with pammrij
+      ALLOCATE(tmpd1(1),tmpd2(1))
+      
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -421,80 +424,103 @@
                                      npvoronoi,iminij,wj,rgrid, &
                                      outputfile)
 
-      r=DBLE(nsamples)**(2.0/DBLE(D+4))+DBLE(D)
-      
-      IF(verbose) WRITE(*,*) "Computing sample covariance matrix"
-      
-      ! first calculate the mean in each dimension
-      DO j=1,D
-        xm(j) = SUM(x(j,:))/nsamples
-      ENDDO
-      
-      ! computes sample covariance matrix quickly
-      Q = 0.0d0
-      DO j=1,nsamples
-        CALL pammrij(D, period, x(:,j), xm, xij)
-        CALL DGEMM("N", "T", D, D, 1, 1.0d0, xij, D, xij, D, 0.0d0, Qtmp, D)
-        Q = Q + Qtmp
-      ENDDO
-      Q = Q / (nsamples-1.0d0)
-
-      IF(verbose) WRITE(*,*) "Bayesian estimate of kernel widths"      
-      
-      DO i=1,ngrid
-        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-               WRITE(*,*) i,"/",ngrid
-        sumdetdistQ = 0.0d0        
-        Hi(:,:,i) = 0.0d0
-        DO j=1,ngrid      
-          DO k=pnlist(j)+1,pnlist(j+1)
-            IF (i.EQ.k) CYCLE
-            CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
-            DO n=1,D
-              DO m=1,D
-                distmat(n,m)=xij(m)*xij(n)
-              ENDDO
+      IF (adaptive.LE.0.0d0) THEN
+        IF(verbose) WRITE(*,*) &
+          "Global bayesian estimate of kernel widths"  
+        
+        ! estimate r using Scotts general rule  
+        r=DBLE(nsamples)**(2.0/DBLE(D+4))+DBLE(D)
+          
+        ! first calculate the mean in each dimension
+        ! if periodic use method from wikipedia:
+        ! https://en.wikipedia.org/wiki/Mean_of_circular_quantities
+        ! regular mean of circular data is ill-defined
+        IF (periodic) THEN
+          DO j=1,D
+            dummd1 = SUM(SIN(x(j,:)))/nsamples
+            dummd2 = SUM(COS(x(j,:)))/nsamples
+            xm(j) = ATAN(dummd1/dummd2)
+            IF (dummd2<0.0d0) THEN
+              xm(j) = xm(j) + twopi/2.0d0
+            ELSEIF (dummd1<0.0d0 .AND. dummd2>0.0d0) THEN
+              xm(j) = xm(j) + twopi        
+            ENDIF
+          ENDDO
+        ELSE
+          DO j=1,D
+            xm(j) = SUM(x(j,:))/nsamples
+          ENDDO
+        ENDIF
+        
+        ! estimate global covariance matrix
+        Q = 0.0d0
+        DO j=1,nsamples
+          DO ii=1,D
+            DO jj=1,D       
+              CALL pammrij(1, period(ii), x(ii,j), xm(ii), tmpd1)
+              CALL pammrij(1, period(jj), x(jj,j), xm(jj), tmpd2)
+              Qtmp(ii,jj) = tmpd1(1)*tmpd2(1)
+              ! Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))
             ENDDO
-            ! calculate the determinant of |(x-y)(x-y).T+Q|   
-            detdistQ = detmatrix(D,Q+distmat)**(-(r+1.0d0)*0.5d0)     
-            Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Q+distmat)
-            sumdetdistQ = sumdetdistQ + detdistQ
-          ENDDO 
-        ENDDO
-        Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
-      ENDDO
-      Hi=Hi/(r-D)
-      
-      ! Locally adaptive Q estimation
-      ! using a broad gaussian filter on the distance
-      ! between grid point and sample points
-      
-      ! debug
-      OPEN(UNIT=12,FILE="sigma.probs.init", &
-           STATUS='REPLACE',ACTION='WRITE')
-      DO i=1,ngrid
-        DO ii=1,D
-          WRITE(12,"(ES15.4E4)",ADVANCE = "NO") y(ii,i)
-        ENDDO
-        DO ii=1,D
-          DO jj=1,D
-            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Hi(ii,jj,i)
           ENDDO
+          Q = Q + Qtmp
         ENDDO
-        DO ii=1,D
-          DO jj=1,D
-            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Q(ii,jj)
+        Q = Q / (nsamples-1.0d0)    
+        
+        DO i=1,ngrid
+          IF(verbose .AND. (modulo(i,100).EQ.0)) &
+                 WRITE(*,*) i,"/",ngrid
+          sumdetdistQ = 0.0d0        
+          Hi(:,:,i) = 0.0d0
+          DO j=1,ngrid      
+            DO k=pnlist(j)+1,pnlist(j+1)
+              IF (i.EQ.k) CYCLE
+              CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
+              DO n=1,D
+                DO m=1,D
+                  distmat(n,m)=xij(m)*xij(n)
+                ENDDO
+              ENDDO
+              ! calculate the determinant of |(x-y)(x-y).T+Q|   
+              detdistQ = detmatrix(D,Q+distmat)**(-(r+1.0d0)*0.5d0)     
+              Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Q+distmat)
+              sumdetdistQ = sumdetdistQ + detdistQ
+            ENDDO 
           ENDDO
+          Hi(:,:,i)=Hi(:,:,i)/sumdetdistQ
         ENDDO
-        WRITE(12,*) nsamples, r
-      ENDDO
-      CLOSE(UNIT=12)
-      ! debug
+        Hi=Hi/(r-D)
+        
+        ! Locally adaptive Q estimation
+        ! using a broad gaussian filter on the distance
+        ! between grid point and sample points
+        
+        ! debug
+        OPEN(UNIT=12,FILE="sigma.global", &
+             STATUS='REPLACE',ACTION='WRITE')
+        DO i=1,ngrid
+          DO ii=1,D
+            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") y(ii,i)
+          ENDDO
+          DO ii=1,D
+            DO jj=1,D
+              WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Hi(ii,jj,i)
+            ENDDO
+          ENDDO
+          DO ii=1,D
+            DO jj=1,D
+              WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Q(ii,jj)
+            ENDDO
+          ENDDO
+          WRITE(12,*) nsamples, r
+        ENDDO
+        CLOSE(UNIT=12)
+        ! debug
 
-      IF (adaptive.GT.0.0d0) THEN
+      ELSE
       
         IF(verbose) WRITE(*,*) &
-          "Adaptive bayesian scheme"
+          "Local bayesian estimate of kernel widths"
 
         Qi = 0.0d0 
         Qiinv = 0.0d0
@@ -517,30 +543,51 @@
 
           ni(i) = SUM(wQ)
 
-          IF (ni(i).LE.2.0d0) &
-            WRITE(*,*) "WARNING: less than two points for bayesian estimation, increase locality!"
+          IF (ni(i).LE.2.0d0) WRITE(*,*) & 
+            "Warning: less than two points for bayesian estimation, increase locality!"
           
           ! estimate a local r parameter for the bayesian estimate
           ri(i)=ni(i)**(2.0d0/DBLE(D+4))+DBLE(D)
 
-          ! calculate the mean in each dimension using an arithmetic weighted mean
-          DO j=1,D
-            xm(j) = SUM(x(j,:)*wQ)/ni(i)
-          ENDDO
+          ! calculate the mean in each dimension 
+          ! using an arithmetic weighted mean
+          IF (periodic) THEN
+            DO j=1,D
+              dummd1 = SUM(SIN(x(j,:)*wQ))/ni(i)
+              dummd2 = SUM(COS(x(j,:)*wQ))/ni(i)
+              xm(j) = ATAN(dummd1/dummd2)
+              IF (dummd2<0.0d0) THEN
+                xm(j) = xm(j) + twopi/2.0d0
+              ELSEIF (dummd1<0.0d0 .AND. dummd2>0.0d0) THEN
+                xm(j) = xm(j) + twopi        
+              ENDIF
+            ENDDO
+          ELSE
+            DO j=1,D
+              xm(j) = SUM(x(j,:)*wQ)/ni(i)
+            ENDDO
+          ENDIF
           
-          ! normalize weights to use weighted sample mean
-          wQ = wQ / SUM(wQ)
-      
+          ! normalize weights for weighted covariance matrix
+          wQ = wQ/SUM(wQ)
           ! do the crime against humanity method since I don't know 
           ! yet how to implement the weight in the DGEMM routine
           Qi(:,:,i) = 0.0d0
           DO j=1,nsamples
-            CALL pammrij(D, period, x(:,j), xm, xij)
-            CALL DGEMM("N", "T", D, D, 1, 1.0d0, xij, D, xij, D, 0.0d0, Qtmp, D)
-            Qi(:,:,i) = Qi(:,:,i) + Qtmp * wQ(j)
+            Qtmp = 0.0d0
+            DO ii=1,D
+              DO jj=1,D
+                CALL pammrij(1, period(ii), x(ii,j), xm(ii), tmpd1)
+                CALL pammrij(1, period(jj), x(jj,j), xm(jj), tmpd2)
+                Qtmp(ii,jj) = tmpd1(1)*tmpd2(1)*wQ(j)
+!                Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))*wQ(j)
+              ENDDO
+            ENDDO
+            Qi(:,:,i) = Qi(:,:,i) + Qtmp
           ENDDO
-          Qi(:,:,i) = Qi(:,:,i)/(1.0d0 - SUM(wQ**2.0d0))
-         
+!          Qi(:,:,i) = Qi(:,:,i) / (ni(i)-1.0d0)
+          Qi(:,:,i) = Qi(:,:,i) / (1.0d0-SUM(wQ**2.0d0))
+          
           ! using quadratic loss function
           sumdetdistQ = 0.0d0
           Hi(:,:,i) = 0.0d0
@@ -572,7 +619,7 @@
       ! invert H and get the determinant just once
       DO i=1, ngrid 
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-        IF(periodic)THEN
+        IF(periodic) THEN
           dummd1=1.0d0
           DO jj=1,D
              concentrationK=Hiinv(jj,jj,i)
@@ -599,7 +646,7 @@
       
       ! debug
       ! write out the Qi and sigma
-      OPEN(UNIT=12,FILE="sigma.probs.final", &
+      OPEN(UNIT=12,FILE="sigma.local", &
            STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
         DO ii=1,D
@@ -959,9 +1006,9 @@
       DEALLOCATE(idxroot,qspath,distmm)
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
-      DEALLOCATE(diff,msmu,tmpmsmu,normri)
+      DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qtmp,distmat,xm,xij,Hi,Hiinv,normgmulti)
-      DEALLOCATE(wQ,ni,ri,Qi,Qiinv,Sw,Sinv)
+      DEALLOCATE(wQ,ni,ri,Qi,Qiinv,Sw,Sinv,tmpd1,tmpd2)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
       CALL EXIT(0)

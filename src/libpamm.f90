@@ -654,7 +654,7 @@
             rij(k) = rij(k)/period(k)
             ! Finds the smallest separation between the images of the atom i and j
             rij(k) = rij(k) - dnint(rij(k)) ! Minimum Image Convention
-            ! Rescale back the lenght
+            ! Rescale back the length
             rij(k) = rij(k)*period(k)
          ENDDO
          
