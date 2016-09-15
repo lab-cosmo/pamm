@@ -78,7 +78,7 @@
       INTEGER nbootstrap, rndidx, rngidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for Bayesian Bandwidth estimation
-      DOUBLE PRECISION r, detdistQ, sumdetdistQ
+      DOUBLE PRECISION r, detQi, detdistQ, sumdetdistQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
@@ -444,7 +444,7 @@
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
                WRITE(*,*) i,"/",ngrid
-        sumdetdistQ = 0.0d0
+        sumdetdistQ = 0.0d0        
         Hi(:,:,i) = 0.0d0
         DO j=1,ngrid      
           DO k=pnlist(j)+1,pnlist(j+1)
@@ -514,15 +514,15 @@
           DO j=1,nsamples
             wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Sinv)
           ENDDO
-                      
+
           ni(i) = SUM(wQ)
-          
+
           IF (ni(i).LE.2.0d0) &
             WRITE(*,*) "WARNING: less than two points for bayesian estimation, increase locality!"
           
           ! estimate a local r parameter for the bayesian estimate
           ri(i)=ni(i)**(2.0d0/DBLE(D+4))+DBLE(D)
-                  
+
           ! calculate the mean in each dimension using an arithmetic weighted mean
           DO j=1,D
             xm(j) = SUM(x(j,:)*wQ)/ni(i)
@@ -537,13 +537,14 @@
           DO j=1,nsamples
             CALL pammrij(D, period, x(:,j), xm, xij)
             CALL DGEMM("N", "T", D, D, 1, 1.0d0, xij, D, xij, D, 0.0d0, Qtmp, D)
-            Qi(:,:,i) = Qi(:,:,i) + Qtmp
+            Qi(:,:,i) = Qi(:,:,i) + Qtmp * wQ(j)
           ENDDO
           Qi(:,:,i) = Qi(:,:,i)/(1.0d0 - SUM(wQ**2.0d0))
          
           ! using quadratic loss function
           sumdetdistQ = 0.0d0
           Hi(:,:,i) = 0.0d0
+          detQi = detmatrix(D,Qi(:,:,i))
           DO j=1,ngrid 
             DO k=pnlist(j)+1,pnlist(j+1)
               ! include cycle to avoid instabilities if ni is close to one
@@ -556,7 +557,7 @@
                 ENDDO
               ENDDO
               ! calculate the determinant of |(x-y)(x-y).T+Q|     
-              detdistQ = detmatrix(D,Qi(:,:,i)+distmat)**(-(ri(i)+1.0d0)*0.5d0)     
+              detdistQ = (detmatrix(D,Qi(:,:,i)+distmat)/detQi)**(-(ri(i)+1.0d0)*0.5d0)     
               Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Qi(:,:,i)+distmat)
               sumdetdistQ = sumdetdistQ + detdistQ
             ENDDO    
@@ -566,7 +567,7 @@
 
         ENDDO   
         
-      ENDIF
+      ENDIF ! if adaptive > 0
       
       ! invert H and get the determinant just once
       DO i=1, ngrid 
