@@ -433,7 +433,8 @@
           
         ! first calculate the mean in each dimension
         ! if periodic use method from wikipedia:
-        ! https://en.wikipedia.org/wiki/Mean_of_circular_quantities
+        ! https://en.wikipedia.org/wiki/Mean_of_circular_quantities and
+        ! https://en.wikipedia.org/wiki/Directional_statistics
         ! regular mean of circular data is ill-defined
         IF (periodic) THEN
           DO j=1,D
@@ -553,8 +554,8 @@
           ! using an arithmetic weighted mean
           IF (periodic) THEN
             DO j=1,D
-              dummd1 = SUM(SIN(x(j,:)*wQ))/ni(i)
-              dummd2 = SUM(COS(x(j,:)*wQ))/ni(i)
+              dummd1 = SUM(SIN(x(j,:))*wQ)/ni(i)
+              dummd2 = SUM(COS(x(j,:))*wQ)/ni(i)
               xm(j) = ATAN(dummd1/dummd2)
               IF (dummd2<0.0d0) THEN
                 xm(j) = xm(j) + twopi/2.0d0
@@ -645,26 +646,28 @@
       ENDIF
       
       ! debug
-      ! write out the Qi and sigma
-      OPEN(UNIT=12,FILE="sigma.local", &
-           STATUS='REPLACE',ACTION='WRITE')
-      DO i=1,ngrid
-        DO ii=1,D
-          WRITE(12,"(ES15.4E4)",ADVANCE = "NO") y(ii,i)
-        ENDDO
-        DO ii=1,D
-          DO jj=1,D
-            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Hi(ii,jj,i)
+      IF (adaptive.GT.0.0d0) THEN
+        ! write out the Qi and sigma
+        OPEN(UNIT=12,FILE="sigma.local", &
+             STATUS='REPLACE',ACTION='WRITE')
+        DO i=1,ngrid
+          DO ii=1,D
+            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") y(ii,i)
           ENDDO
-        ENDDO
-        DO ii=1,D
-          DO jj=1,D
-            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Qi(ii,jj,i)
+          DO ii=1,D
+            DO jj=1,D
+              WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Hi(ii,jj,i)
+            ENDDO
           ENDDO
+          DO ii=1,D
+            DO jj=1,D
+              WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Qi(ii,jj,i)
+            ENDDO
+          ENDDO
+          WRITE(12,*) ni(i), ri(i)
         ENDDO
-        WRITE(12,*) ni(i), ri(i)
-      ENDDO
-      CLOSE(UNIT=12)
+        CLOSE(UNIT=12)
+      ENDIF
       ! debug
       
       IF(verbose) WRITE(*,*) &
@@ -687,12 +690,12 @@
               CALL pammrij(D, period, y(:,i),x(:,nlist(k)), xij)
               DO jj=1,D
                  dummd2=dummd2* &
-                        fkernelvm(Hiinv(jj,jj,j),xij(jj))
+                   fkernelvm(Hiinv(jj,jj,j),xij(jj))
               ENDDO
               tmpkernel = wj(nlist(k))*dummd2
               IF(nbootstrap.eq.0) &
                 tmpcheck = tmpcheck + &
-                 wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
+                  wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
             ELSE
               tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
             ENDIF     
