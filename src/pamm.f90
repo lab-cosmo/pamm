@@ -80,7 +80,7 @@
       ! Variables for Bayesian Bandwidth estimation
       DOUBLE PRECISION r, detQi, detdistQ, sumdetdistQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat, xtmp
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat, xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       ! Variables for locally adaptive Bayesian Bandwidth estimation
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wQ, ni, ri, tmpd1, tmpd2
@@ -362,7 +362,7 @@
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for bayesian bandidth estimate
       ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
-      ALLOCATE(xtmp(D,nsamples))
+      ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples))
       ! Allocate variables for locally adaptive bayesian refinement
       ALLOCATE(wQ(nsamples),ri(ngrid),ni(ngrid),Qi(D,D,ngrid),Qiinv(D,D,ngrid),Sw(D,D),Sinv(D,D))
       ! Allocate two rank-1 vectors for periodicity calculations with pammrij
@@ -458,7 +458,6 @@
         CALL pammxx(D,nsamples,period,x,xm,xtmp)
         CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmp, D, 0.0d0, Q, D) 
         Q = Q / (nsamples-1.0d0)
-
 
         DO i=1,ngrid
           IF(verbose .AND. (modulo(i,100).EQ.0)) &
@@ -562,23 +561,24 @@
           
           ! normalize weights for weighted covariance matrix
           wQ = wQ/SUM(wQ)
-          ! do the crime against humanity method since I don't know 
-          ! yet how to implement the weight in the DGEMM routine
-          Qi(:,:,i) = 0.0d0
-          DO j=1,nsamples
-            Qtmp = 0.0d0
-            DO ii=1,D
-              DO jj=1,D
-                CALL pammrij(1, period(ii), x(ii,j), xm(ii), tmpd1)
-                CALL pammrij(1, period(jj), x(jj,j), xm(jj), tmpd2)
-                Qtmp(ii,jj) = tmpd1(1)*tmpd2(1)*wQ(j)
-!                Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))*wQ(j)
-              ENDDO
-            ENDDO
-            Qi(:,:,i) = Qi(:,:,i) + Qtmp
-          ENDDO
-!          Qi(:,:,i) = Qi(:,:,i) / (ni(i)-1.0d0)
+          
+          ! create a weighted matrix where each row 
+          ! is the weight for each dimension 
+          !wQmat = SHAPE(RESHAPE(SPREAD(wQ,1,D),(/D,nsamples/)))
+          
+          
+!          WRITE(*,*) "wQ: ", SHAPE(RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/)))
+!          CALL pammxx(D,nsamples,period,x,xm,xtmp)
+!          WRITE(*,*) "xtmp: ", SHAPE(xtmp)
+!          WRITE(*,*) "xtmp*wQ: ", SHAPE(xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/)))
+          
+          ! calculate local weighted sample covariance matrix
+          CALL pammxx(D,nsamples,period,x,xm,xtmp)
+          ! apply the weight to one of the coordinate matrix
+          xtmpw = xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/))
+          CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qi(:,:,i), D) 
           Qi(:,:,i) = Qi(:,:,i) / (1.0d0-SUM(wQ**2.0d0))
+
           
           ! using quadratic loss function
           sumdetdistQ = 0.0d0
@@ -1004,7 +1004,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qtmp,distmat,xm,xij,Hi,Hiinv,normgmulti)
-      DEALLOCATE(xtmp)
+      DEALLOCATE(xtmp,xtmpw)
       DEALLOCATE(wQ,ni,ri,Qi,Qiinv,Sw,Sinv,tmpd1,tmpd2)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
