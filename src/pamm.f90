@@ -80,7 +80,7 @@
       ! Variables for Bayesian Bandwidth estimation
       DOUBLE PRECISION r, detQi, detdistQ, sumdetdistQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qtmp, distmat, xtmp
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       ! Variables for locally adaptive Bayesian Bandwidth estimation
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wQ, ni, ri, tmpd1, tmpd2
@@ -362,6 +362,7 @@
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for bayesian bandidth estimate
       ALLOCATE(Q(D,D),Qtmp(D,D),xm(D),distmat(D,D),xij(D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
+      ALLOCATE(xtmp(D,nsamples))
       ! Allocate variables for locally adaptive bayesian refinement
       ALLOCATE(wQ(nsamples),ri(ngrid),ni(ngrid),Qi(D,D,ngrid),Qiinv(D,D,ngrid),Sw(D,D),Sinv(D,D))
       ! Allocate two rank-1 vectors for periodicity calculations with pammrij
@@ -454,20 +455,11 @@
         ENDIF
         
         ! estimate global covariance matrix
-        Q = 0.0d0
-        DO j=1,nsamples
-          DO ii=1,D
-            DO jj=1,D       
-              CALL pammrij(1, period(ii), x(ii,j), xm(ii), tmpd1)
-              CALL pammrij(1, period(jj), x(jj,j), xm(jj), tmpd2)
-              Qtmp(ii,jj) = tmpd1(1)*tmpd2(1)
-              ! Qtmp(ii,jj) = (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))
-            ENDDO
-          ENDDO
-          Q = Q + Qtmp
-        ENDDO
-        Q = Q / (nsamples-1.0d0)    
-        
+        CALL pammxx(D,nsamples,period,x,xm,xtmp)
+        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmp, D, 0.0d0, Q, D) 
+        Q = Q / (nsamples-1.0d0)
+
+
         DO i=1,ngrid
           IF(verbose .AND. (modulo(i,100).EQ.0)) &
                  WRITE(*,*) i,"/",ngrid
@@ -517,7 +509,6 @@
         ENDDO
         CLOSE(UNIT=12)
         ! debug
-
       ELSE
       
         IF(verbose) WRITE(*,*) &
@@ -593,7 +584,9 @@
           sumdetdistQ = 0.0d0
           Hi(:,:,i) = 0.0d0
           detQi = detmatrix(D,Qi(:,:,i))
-          DO j=1,ngrid 
+          DO j=1,ngrid
+            ! do not compute KDEs for points that belong to far away Voronoi
+            !IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
             DO k=pnlist(j)+1,pnlist(j+1)
               ! include cycle to avoid instabilities if ni is close to one
               IF (i.EQ.k) CYCLE
@@ -1011,6 +1004,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qtmp,distmat,xm,xij,Hi,Hiinv,normgmulti)
+      DEALLOCATE(xtmp)
       DEALLOCATE(wQ,ni,ri,Qi,Qiinv,Sw,Sinv,tmpd1,tmpd2)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 

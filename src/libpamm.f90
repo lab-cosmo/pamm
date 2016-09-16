@@ -659,5 +659,47 @@
          ENDDO
          
       END SUBROUTINE pammrij
+      
+      DOUBLE PRECISION FUNCTION mahalanobi(D,period,x,y,icov)
+         ! Return the mahalanobi distance between two points
+         ! Args:
+         !    ...
+         
+         INTEGER , INTENT(IN) :: D
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: x(D)
+         DOUBLE PRECISION, INTENT(IN) :: y(D)
+         DOUBLE PRECISION, INTENT(IN) :: icov(D,D)
+         DOUBLE PRECISION dv(D),tmpv(D),xcx
+         
+         CALL pammrij(D, period, x, y, dv)
+         tmpv = MATMUL(dv,icov)
+         xcx = DOT_PRODUCT(dv,tmpv)
+
+         mahalanobi = xcx
+      END FUNCTION mahalanobi
+      
+      SUBROUTINE pammxx(D,n,period,x,xm,dx)
+         INTEGER, INTENT(IN) :: D
+         INTEGER, INTENT(IN) :: n
+         DOUBLE PRECISION, DIMENSION(D),   INTENT(IN) :: period
+         DOUBLE PRECISION, DIMENSION(D,n), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(D),   INTENT(IN) :: xm
+         DOUBLE PRECISION, DIMENSION(D,n), INTENT(OUT) :: dx
+         
+         INTEGER k
+         
+         DO k = 1, D
+           dx(k,:) = (x(k,:)-xm(k))
+           IF (period(k)<=0.0d0) CYCLE            
+           ! scaled lenght
+           dx(k,:) = dx(k,:)/period(k)
+           ! Finds the smallest separation between the images of the vector elements
+           dx(k,:) = dx(k,:) - DNINT(dx(k,:)) ! Minimum Image Convention
+           ! Rescale back the length
+           dx(k,:) = dx(k,:)*period(k)
+         ENDDO
+         
+      END SUBROUTINE pammxx
 
       END MODULE libpamm
