@@ -433,10 +433,14 @@
         r=DBLE(nsamples)**(2.0/DBLE(D+4))+DBLE(D)
           
         ! first calculate the mean in each dimension
-        ! if periodic use method from wikipedia:
+        
+        ! because a regular mean of circular data can be defined 
+        ! multiple times if periodic use method from wikipedia:
         ! https://en.wikipedia.org/wiki/Mean_of_circular_quantities and
         ! https://en.wikipedia.org/wiki/Directional_statistics
-        ! regular mean of circular data is ill-defined
+        ! assumption data is on any interval of length 2*pi. 
+
+        Q = 0.0d0
         IF (periodic) THEN
           DO j=1,D
             dummd1 = SUM(SIN(x(j,:)))/nsamples
@@ -455,7 +459,8 @@
         ENDIF
         
         ! estimate global covariance matrix
-        CALL pammxx(D,nsamples,period,x,xm,xtmp)
+        ! if period is set taking pbc into account
+        CALL pammxm(D,nsamples,period,x,xm,xtmp)
         CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmp, D, 0.0d0, Q, D) 
         Q = Q / (nsamples-1.0d0)
 
@@ -466,14 +471,14 @@
           Hi(:,:,i) = 0.0d0
           DO j=1,ngrid      
             DO k=pnlist(j)+1,pnlist(j+1)
-              IF (i.EQ.k) CYCLE
+              IF (i.EQ.nlist(k)) CYCLE
               CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
-              DO n=1,D
-                DO m=1,D
-                  distmat(n,m)=xij(m)*xij(n)
+              DO ii=1,D
+                DO jj=1,D
+                  distmat(ii,jj)=xij(jj)*xij(ii)
                 ENDDO
               ENDDO
-              ! calculate the determinant of |(x-y)(x-y).T+Q|   
+              ! calculate the determinant of |(x-y)(x-y).T+Q|  
               detdistQ = detmatrix(D,Q+distmat)**(-(r+1.0d0)*0.5d0)     
               Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Q+distmat)
               sumdetdistQ = sumdetdistQ + detdistQ
@@ -528,6 +533,8 @@
           IF(verbose .AND. (modulo(i,100).EQ.0)) &
             WRITE(*,*) i,"/",ngrid
           ! calculate local weights using a spherical gaussian
+          ! TODO: what should be done when points are already weighted?
+          !       (i) use product? 
           DO j=1,nsamples
             wQ(j) = fmultikernel(D,period,x(:,j),y(:,i),Sinv)
           ENDDO
@@ -559,37 +566,25 @@
             ENDDO
           ENDIF
           
-          ! normalize weights for weighted covariance matrix
-          wQ = wQ/SUM(wQ)
-          
-          ! create a weighted matrix where each row 
-          ! is the weight for each dimension 
-          !wQmat = SHAPE(RESHAPE(SPREAD(wQ,1,D),(/D,nsamples/)))
-          
-          
-!          WRITE(*,*) "wQ: ", SHAPE(RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/)))
-!          CALL pammxx(D,nsamples,period,x,xm,xtmp)
-!          WRITE(*,*) "xtmp: ", SHAPE(xtmp)
-!          WRITE(*,*) "xtmp*wQ: ", SHAPE(xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/)))
-          
-          ! calculate local weighted sample covariance matrix
-          CALL pammxx(D,nsamples,period,x,xm,xtmp)
-          ! apply the weight to one of the coordinate matrix
+          ! calculate matrix of (x-xm) taking periodicity into account
+          CALL pammxm(D,nsamples,period,x,xm,xtmp)
+          ! apply weight to one of the coordinate matrices using
+          ! replicated wQ array in which each row contains weights.
+          ! TODO: Could also be replaced by some multivariate thingie.
           xtmpw = xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/))
+          ! calculate local weighted sample covariance matrix
           CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qi(:,:,i), D) 
-          Qi(:,:,i) = Qi(:,:,i) / (1.0d0-SUM(wQ**2.0d0))
-
+          Qi(:,:,i) = Qi(:,:,i) / (ni(i)-1.0d0)
           
           ! using quadratic loss function
           sumdetdistQ = 0.0d0
           Hi(:,:,i) = 0.0d0
-          detQi = detmatrix(D,Qi(:,:,i))
           DO j=1,ngrid
-            ! do not compute KDEs for points that belong to far away Voronoi
-            !IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+            ! do not compute KDEs for points that belong to far away voronoi
+            !IF (distmm(i,j)/detmatrix(D,Sw)>36.0d0) CYCLE
             DO k=pnlist(j)+1,pnlist(j+1)
               ! include cycle to avoid instabilities if ni is close to one
-              IF (i.EQ.k) CYCLE
+              IF (i.EQ.nlist(k)) CYCLE
               ! calculate (x-y)(x-y).T
               CALL pammrij(D, period, x(:,nlist(k)), y(:,i), xij)
               DO ii=1,D
@@ -598,7 +593,7 @@
                 ENDDO
               ENDDO
               ! calculate the determinant of |(x-y)(x-y).T+Q|     
-              detdistQ = (detmatrix(D,Qi(:,:,i)+distmat)/detQi)**(-(ri(i)+1.0d0)*0.5d0)     
+              detdistQ = detmatrix(D,Qi(:,:,i)+distmat)**(-(ri(i)+1.0d0)*0.5d0)     
               Hi(:,:,i) = Hi(:,:,i) + detdistQ * (Qi(:,:,i)+distmat)
               sumdetdistQ = sumdetdistQ + detdistQ
             ENDDO    

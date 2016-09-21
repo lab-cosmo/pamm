@@ -679,7 +679,7 @@
          mahalanobi = xcx
       END FUNCTION mahalanobi
       
-      SUBROUTINE pammxx(D,n,period,x,xm,dx)
+      SUBROUTINE pammxm(D,n,period,x,xm,dx)
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: n
          DOUBLE PRECISION, DIMENSION(D),   INTENT(IN) :: period
@@ -700,6 +700,6 @@
            dx(k,:) = dx(k,:)*period(k)
          ENDDO
          
-      END SUBROUTINE pammxx
+      END SUBROUTINE pammxm
 
       END MODULE libpamm
