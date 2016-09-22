@@ -78,7 +78,7 @@
       INTEGER nbootstrap, rndidx, rngidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, locfactor
+      DOUBLE PRECISION nlocal, lfac, lfac2
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti, wQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qlocal, Sw, Sinv, xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
@@ -119,7 +119,7 @@
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
-      locfactor= -1.0d0      ! localization factor
+      lfac= -1.0d0      ! localization factor
       neblike=0              ! don't use neb paths
       nbootstrap=0           ! do not use bootstrap
       qserr=8                ! threshold to accept a move in qs
@@ -222,7 +222,7 @@
             ELSEIF (ccmd == 13) THEN ! activate neb like behaviour 
                READ(cmdbuffer,*) neblike
             ELSEIF (ccmd == 14) THEN ! read localization parameter for adaptive 
-               READ(cmdbuffer,*) locfactor
+               READ(cmdbuffer,*) lfac
             ELSEIF (ccmd == 15) THEN ! read threshold for the qs assignation 
                READ(cmdbuffer,*) qserr
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
@@ -422,37 +422,24 @@
 
       wQ = 0.0d0  
       
-      ! set initial localization matrix
-      Sw = 0.0d0 
-      DO ii=1,D
-        ! if not set use max dist between grid
-        IF (locfactor.LE.0) THEN
-          Sw(ii,ii) = SQRT(MAXVAL(rgrid))
-        ELSE
-          Sw(ii,ii) = locfactor
-        ENDIF
-      ENDDO 
-      CALL invmatrix(D,Sw,Sinv)   
-      
-      ! debug
-      ! write out Q and Hi
-      OPEN(UNIT=12,FILE="sigma.local", &
-        STATUS='REPLACE',ACTION='WRITE')
-      ! debug
+      ! if localization is not set use max dist between grid
+      IF (lfac.LE.0) lfac = SQRT(MAXVAL(rgrid))
+      lfac2 = lfac*lfac
       
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         ! calculate local weights using a spherical gaussian
-        ! TODO: what should be done when points are already weighted?
-        !       (i) use product? 
         ! TODO: Implement a more efficient loop using the mahalanobi distance
         DO j=1,nsamples
-          wQ(j) = fmultikernel(D,period,y(:,i),x(:,j),Sinv)
+          wQ(j) = EXP(-0.5d0/lfac**2.0d0*pammr2(D,period,y(:,i),x(:,j)))     
         ENDDO
+        ! when points are already weighted use product
+        wQ = wQ*wj
+        ! estimate data points in local zone
         nlocal = SUM(wQ)
         ! normalize weights
-        wQ = wQ/SUM(wQ)
+        wQ = wQ/nlocal
         
         IF (nlocal.LE.2.0d0) WRITE(*,*) & 
           "Warning: less than two points for local estimation, increase locality!"
@@ -475,9 +462,29 @@
             xm(j) = SUM(x(j,:)*wQ)
           ENDDO
         ENDIF
-        
+
         ! calculate matrix of (x-xm) taking periodicity into account
         CALL pammxm(D,nsamples,period,x,xm,xtmp)
+        
+        ! (i) using the localization to speed up things
+        
+!        Qlocal = 0.0d0
+!        DO j=1,ngrid
+!          ! use the localization to reduce computational time
+!          IF (distmm(i,j)/lfac2>36.0d0) CYCLE
+!          ! if voronoi is close enough loop over neighborlist
+!          DO k=pnlist(j)+1,pnlist(j+1)
+!            DO ii=1,D
+!              DO jj=1,D
+!                Qlocal(ii,jj) = Qlocal(ii,jj) + xtmp(ii,nlist(k))*xtmp(jj,nlist(k))*wQ(nlist(k))
+!              ENDDO
+!            ENDDO
+!          ENDDO
+!        ENDDO
+!        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
+
+        ! (ii) calculating a full weighted covariance matrix
+        
         ! apply weight to one of the coordinate matrices using
         ! replicated wQ array in which each row contains weights.
         xtmpw = xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/))
@@ -485,10 +492,11 @@
         CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
         Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
         
-        ! estimate a local H using Scotts rule of thumb
-!        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
-        ! estimate a local H using Silvermans rule of thumb
-        Hi(:,:,i) = Qlocal * (nlocal*(d+2.0d0) / 4.0d0)**(-1.0d0/(D+4.0d0))
+        ! (i)  estimate a local H using Scotts rule of thumb
+        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
+ 
+        ! (ii) estimate a local H using Silvermans rule of thumb
+!        Hi(:,:,i) = Qlocal * (nlocal*(d+2.0d0) / 4.0d0)**(-1.0d0/(D+4.0d0))
       
         ! invert H and get the determinant just once
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
@@ -508,36 +516,13 @@
         ! get an estimation of the spherical sigma2 around the point
         sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
         
-        ! debug
-        DO ii=1,D
-          WRITE(12,"(ES15.4E4)",ADVANCE = "NO") y(ii,i)
-        ENDDO
-        DO ii=1,D
-          DO jj=1,D
-            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Hi(ii,jj,i)
-          ENDDO
-        ENDDO
-        DO ii=1,D
-          DO jj=1,D
-            WRITE(12,"(ES15.4E4)",ADVANCE = "NO") Qlocal(ii,jj)
-          ENDDO
-        ENDDO
-        WRITE(12,*) nlocal
-        ! debug
       ENDDO
-      ! debug
-      CLOSE(UNIT=12)
-      ! debug
       
       ! set the lambda to be used in the old version of QS 
       IF(lambda.LT.0)THEN
          lambda=5.0d0 * SUM( DSQRT(sigma2(:)) )/ngrid
          lambda2=lambda*lambda
       ENDIF
-      
-
-
-
       
       IF(verbose) WRITE(*,*) &
         "Computing kernel density on reference points"
@@ -586,42 +571,14 @@
       prob=prob/normwj
       bigp=bigp/normwj
    
-      ! ---
-      ! Computing the error
-      ! ---
-      
-      ! We're taking the Tr(M) but maybe we should diagonalize M
-      ! before doing that.
-      DO i=1,ngrid  
-        proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0)          
-      ENDDO
-      
-
-      ! This is the mode in which we use bootstrapping to estimate
-      ! the error of our KDE and use this for an adaptive tuning
-      ! of sigma
-
+      ! use bootstrapping to estimate the error of our KDE
 
       IF(nbootstrap > 0) probboot = 0.0d0
-          
-      !$omp parallel &
-      !$omp default (none) &
-      !$omp shared (nbootstrap,ngrid,distmm,sigma2,pnlist,D,period,wj,nlist,y,x,probboot,normwj,verbose, &
-      !$omp         iminij,nsamples,nbssample,npvoronoi,periodic,nbstot) &
-      !$omp private (i,j,tmpkernel,rndidx)
-      !$omp DO
-          
+  
       ! START of bootstrapping run
       DO nn=1,nbootstrap
-        
-        
-#ifdef _OPENMP
-        IF(verbose) WRITE(*,*) &
-              "Bootstrapping, run ", nn , " thread n. : ", omp_get_thread_num() 
-#else
         IF(verbose) WRITE(*,*) &
               "Bootstrapping, run ", nn
-#endif
 
         ! rather than selecting nsel random points, we select a random 
         ! number of points from each voronoi. this makes it possible 
@@ -633,8 +590,8 @@
           nbstot = nbstot+nbssample
                  
           DO i=1,ngrid
-          ! localization: do not compute KDEs for points that belong to far away Voronoi
-          ! one could make this a bit more sophisticated, but this should be enough
+            ! localization: do not compute KDEs for points that belong to far away Voronoi
+            ! one could make this a bit more sophisticated, but this should be enough
             IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE 
             
             tmpkernel=0.0d0
@@ -647,13 +604,14 @@
                 dummd2=1.0d0
                 CALL pammrij(D, period, y(:,i),x(:,rndidx), xij)
                 DO jj=1,D
-                   dummd2=dummd2* &
-                          fkernelvm(Hiinv(jj,jj,iminij(rndidx)),xij(jj))
+                   dummd2 = dummd2 & 
+                          * fkernelvm(Hiinv(jj,jj,iminij(rndidx)),xij(jj))
                 ENDDO
                 tmpkernel = tmpkernel + dummd2 
               ELSE
-                tmpkernel = tmpkernel + fmultikernel(D,period,y(:,i),x(:,rndidx), & 
-                          Hiinv(:,:,iminij(rndidx)))
+                tmpkernel = tmpkernel &
+                          + fmultikernel(D,period,y(:,i),x(:,rndidx), & 
+                                         Hiinv(:,:,iminij(rndidx)))
               ENDIF
             ENDDO
             ! we have to normalize it
@@ -666,8 +624,10 @@
       ENDDO 
 
       ! END of bootstrapping run
-      !$omp ENDDO   
-      !$omp END PARALLEL
+      
+      ! ---
+      ! Computing the error
+      ! ---
       
       ! get the error from the bootstrap if bootstrap was set
       IF(nbootstrap > 0) THEN
@@ -676,6 +636,10 @@
           ! this is the SD of the probability density (relative error)
           proberr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) ) / prob(i)
         ENDDO 
+      ELSE
+        DO i=1,ngrid  
+          proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0)          
+        ENDDO
       ENDIF
 
       ! if desired write out the stuff
