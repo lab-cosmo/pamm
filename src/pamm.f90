@@ -78,7 +78,7 @@
       INTEGER nbootstrap, rndidx, rngidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, lfac, lfac2
+      DOUBLE PRECISION nlocal, lfac, lfac2, lfac2inv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti, wQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qlocal, Sw, Sinv, xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
@@ -425,15 +425,15 @@
       ! if localization is not set use max dist between grid
       IF (lfac.LE.0) lfac = SQRT(MAXVAL(rgrid))
       lfac2 = lfac*lfac
+      lfac2inv = 1.0d0/lfac2
       
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
-        ! calculate local weights using a spherical gaussian
-        ! TODO: Implement a more efficient loop using the mahalanobi distance
-        DO j=1,nsamples
-          wQ(j) = EXP(-0.5d0/lfac**2.0d0*pammr2(D,period,y(:,i),x(:,j)))     
-        ENDDO
+          
+        ! local weights using spherical gaussian
+        CALL pammxm(D,nsamples,period,x,y(:,i),xtmp)
+        wQ = EXP(-0.5d0*lfac2inv*SUM(xtmp**2.0d0,1)) 
         ! when points are already weighted use product
         wQ = wQ*wj
         ! estimate data points in local zone
@@ -482,16 +482,30 @@
 !          ENDDO
 !        ENDDO
 !        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
-
-        ! (ii) calculating a full weighted covariance matrix
+!        WRITE(*,*) "Qloop: ", Qlocal
         
-        ! apply weight to one of the coordinate matrices using
-        ! replicated wQ array in which each row contains weights.
         xtmpw = xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/))
-        ! calculate local weighted sample covariance matrix
-        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
-        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
+        IF(periodic) THEN
+          
+        ! (ii) speed things up by calculating only diagonal
+          
+          Qlocal = 0.0d0
+          DO jj=1,D
+            CALL DGEMM("N", "T", 1, 1, nsamples, 1.0d0, xtmp(jj,:), 1, xtmpw(jj,:), 1, 0.0d0, Qlocal(jj,jj), 1) 
+          ENDDO
+          Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
+        ELSE
         
+        ! (iii) calculating a full fledged weighted covariance matrix
+        
+          ! apply weight to one of the coordinate matrices using
+          ! replicated wQ array in which each row contains weights.
+          ! calculate local weighted sample covariance matrix
+          CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
+          Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
+        ENDIF
+        
+        ! Estimate local bandwidth        
         ! (i)  estimate a local H using Scotts rule of thumb
         Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
  
