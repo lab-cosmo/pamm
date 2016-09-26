@@ -78,7 +78,7 @@
       INTEGER nbootstrap, rndidx, rngidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, lfac, lfac2, lfac2inv
+      DOUBLE PRECISION nlocal, lfac, lfac2, prefac
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti, wQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qlocal, Sw, Sinv, xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
@@ -420,20 +420,56 @@
       IF(verbose) WRITE(*,*) &
         "Local estimate of kernel widths"
 
+      DO i=1,ngrid
+        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+          WRITE(*,*) i,"/",ngrid
+          
+        IF(periodic) THEN
+          WRITE(*,*) "not yet implemented"
+        ELSE
+          ! using a single pass algorithm to compute 
+          ! the weighted covariance matrix
+          CALL pammcov(nsamples,D,x,Qlocal)
+          WRITE(*,*) "Qw: ", Qlocal
+             
+!          DO j=1,D
+!            xm(j) = SUM(x(j,:))
+!          ENDDO
+!          xm = xm/nsamples
+!          Qlocal = 0.0d0
+!          DO j=1,nsamples
+!            DO ii=1,D
+!              DO jj=1,D
+!                Qlocal(ii,jj) = Qlocal(ii,jj) + (x(ii,j)-xm(ii))*(x(jj,j)-xm(jj))
+!              ENDDO
+!            ENDDO
+!          ENDDO
+!          Qlocal = Qlocal/(nsamples-1.0d0) 
+!          WRITE(*,*) "Qman", Qlocal
+!          
+!          CALL pammxm(D,nsamples,period,x,xm,xtmp)
+!          CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmp, D, 0.0d0, Qlocal, D) 
+!          Qlocal = Qlocal/(nsamples-1.0d0) 
+!          WRITE(*,*) "Qgemm", Qlocal
+          
+          WRITE(*,*) ""
+        ENDIF  
+      ENDDO
+
       wQ = 0.0d0  
       
       ! if localization is not set use max dist between grid
       IF (lfac.LE.0) lfac = SQRT(MAXVAL(rgrid))
       lfac2 = lfac*lfac
-      lfac2inv = 1.0d0/lfac2
-      
+      prefac = -0.5d0/lfac2
+
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
           
         ! local weights using spherical gaussian
         CALL pammxm(D,nsamples,period,x,y(:,i),xtmp)
-        wQ = EXP(-0.5d0*lfac2inv*SUM(xtmp**2.0d0,1)) 
+        wQ = EXP(prefac*SUM(xtmp**2.0d0,1)) 
         ! when points are already weighted use product
         wQ = wQ*wj
         ! estimate data points in local zone
@@ -465,45 +501,20 @@
 
         ! calculate matrix of (x-xm) taking periodicity into account
         CALL pammxm(D,nsamples,period,x,xm,xtmp)
-        
-        ! (i) using the localization to speed up things
-        
-!        Qlocal = 0.0d0
-!        DO j=1,ngrid
-!          ! use the localization to reduce computational time
-!          IF (distmm(i,j)/lfac2>36.0d0) CYCLE
-!          ! if voronoi is close enough loop over neighborlist
-!          DO k=pnlist(j)+1,pnlist(j+1)
-!            DO ii=1,D
-!              DO jj=1,D
-!                Qlocal(ii,jj) = Qlocal(ii,jj) + xtmp(ii,nlist(k))*xtmp(jj,nlist(k))*wQ(nlist(k))
-!              ENDDO
-!            ENDDO
-!          ENDDO
-!        ENDDO
-!        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
-!        WRITE(*,*) "Qloop: ", Qlocal
-        
+        ! apply weights to one of the coordinate matrices using
+        ! replicated wQ array in which each row containing the weights
         xtmpw = xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/))
         IF(periodic) THEN
-          
-        ! (ii) speed things up by calculating only diagonal
-          
+          ! speed things up by calculating only diagonal
           Qlocal = 0.0d0
           DO jj=1,D
             CALL DGEMM("N", "T", 1, 1, nsamples, 1.0d0, xtmp(jj,:), 1, xtmpw(jj,:), 1, 0.0d0, Qlocal(jj,jj), 1) 
           ENDDO
-          Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
         ELSE
-        
-        ! (iii) calculating a full fledged weighted covariance matrix
-        
-          ! apply weight to one of the coordinate matrices using
-          ! replicated wQ array in which each row contains weights.
-          ! calculate local weighted sample covariance matrix
+          ! calculating a full fledged weighted covariance matrix
           CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
-          Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
         ENDIF
+        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
         
         ! Estimate local bandwidth        
         ! (i)  estimate a local H using Scotts rule of thumb
@@ -511,8 +522,10 @@
  
         ! (ii) estimate a local H using Silvermans rule of thumb
 !        Hi(:,:,i) = Qlocal * (nlocal*(d+2.0d0) / 4.0d0)**(-1.0d0/(D+4.0d0))
-      
-        ! invert H and get the determinant just once
+       ENDDO
+       
+       DO i=1,ngrid
+        ! invert H and get the determinant
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
         IF(periodic) THEN
           dummd1=1.0d0
@@ -529,7 +542,6 @@
 
         ! get an estimation of the spherical sigma2 around the point
         sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
-        
       ENDDO
       
       ! set the lambda to be used in the old version of QS 

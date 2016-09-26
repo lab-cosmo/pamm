@@ -660,6 +660,80 @@
          
       END SUBROUTINE pammrij
       
+      SUBROUTINE pammcov(ndata,D,x,Q)
+         ! Implementation of the Welford's one pass algorithm
+         ! 
+         ! Args:
+         !    n              : number of data
+         !    D              : dimension
+         !    period         : periodicity in each dimension
+         !    x              : vector of data
+         !    y              : vector of data
+         ! 
+         
+         INTEGER, INTENT(IN) :: ndata
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D,ndata), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Q
+		
+         INTEGER i,ii,jj
+         DOUBLE PRECISION, DIMENSION(D) :: mean, delta
+         DOUBLE PRECISION, DIMENSION(D,D) :: M12
+		     
+         mean = 0.0d0
+         M12 = 0.0d0
+         DO i=1,ndata
+           delta = (x(:,i) - mean) / DBLE(i)
+           mean = mean + delta
+           ! matrix is symmetric
+           DO ii=1,D
+             DO jj=1,ii
+               M12(ii,jj) = M12(ii,jj) + DBLE(i - 1) * delta(ii) * delta(jj) - M12(ii,jj) / DBLE(i)
+             ENDDO
+           ENDDO
+         ENDDO
+         
+         ! complete lower triangular
+         DO ii=1,D
+           DO jj=1,ii-1
+             M12(jj,ii) = M12(ii,jj)
+           ENDDO
+         ENDDO
+         
+         Q = DBLE(i) / DBLE(i - 1) * M12
+      END SUBROUTINE pammcov
+      
+!      DOUBLE PRECISION FUNCTION pammcov(ndata,x,y)
+!         ! Implementation of the Welford's one pass algorithm
+!         ! 
+!         ! Args:
+!         !    ndata          : number of data
+!         !    x              : vector of data
+!         !    y              : vector of data
+!         ! 
+!         
+!         INTEGER, INTENT(IN) :: ndata
+!         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: x
+!         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: y
+!		
+!         INTEGER n
+!         DOUBLE PRECISION :: mean1, mean2
+!         DOUBLE PRECISION :: delta1, delta2
+!         DOUBLE PRECISION :: M12
+!		     
+!         mean1 = 0.0d0
+!         mean2 = 0.0d0
+!         M12 = 0.0d0
+!         DO n=1,ndata
+!           delta1 = (x(n) - mean1) / n
+!           mean1 = mean1 + delta1
+!           delta2 = (y(n) - mean2) / n
+!           mean2 = mean2 + delta2
+!           M12 = M12 + (n - 1) * delta1 * delta2 - M12 / n
+!         ENDDO
+!         pammcov = n / (n - 1) * M12
+!      END FUNCTION pammcov
+      
       DOUBLE PRECISION FUNCTION mahalanobi(D,period,x,y,icov)
          ! Return the mahalanobi distance between two points
          ! Args:
@@ -688,16 +762,21 @@
          DOUBLE PRECISION, DIMENSION(D,n), INTENT(OUT) :: dx
          
          INTEGER k
+         DOUBLE PRECISION invp
+         DOUBLE PRECISION, DIMENSION(n) :: dn
          
          DO k = 1, D
            dx(k,:) = (x(k,:)-xm(k))
+           invp = 1.0d0/period(k)
            IF (period(k)<=0.0d0) CYCLE            
            ! scaled lenght
-           dx(k,:) = dx(k,:)/period(k)
+           CALL DSCAL(n,invp,dx(k,:),1)
            ! Finds the smallest separation between the images of the vector elements
-           dx(k,:) = dx(k,:) - DNINT(dx(k,:)) ! Minimum Image Convention
+           dn = DNINT(dx(k,:))
+           CALL DSCAL(n,-1.0d0,dn,1)
+           CALL DAXPY(n,1.0d0,dx(k,:),1,dn,1) ! Minimum Image Convention
            ! Rescale back the length
-           dx(k,:) = dx(k,:)*period(k)
+           CALL DSCAL(n,period(k),dx(k,:),1)
          ENDDO
          
       END SUBROUTINE pammxm
