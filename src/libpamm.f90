@@ -660,39 +660,54 @@
          
       END SUBROUTINE pammrij
       
-      SUBROUTINE pammcov(ndata,D,x,Q)
+      SUBROUTINE pammwcov(ndata,D,x,xl,lf,Q,sumweight)
          ! Implementation of the Welford's one pass algorithm
+         ! to obtain weighted covariance matrix around a reference
+         ! point xl
          ! 
          ! Args:
          !    n              : number of data
          !    D              : dimension
-         !    period         : periodicity in each dimension
          !    x              : vector of data
-         !    y              : vector of data
+         !    xl             : reference point 
+         !    lf             : localization (weight) factor 
+         !                     for spherical gaussian
          ! 
          
          INTEGER, INTENT(IN) :: ndata
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, DIMENSION(D,ndata), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: xl
+         DOUBLE PRECISION, INTENT(IN) :: lf
          DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Q
 		
          INTEGER i,ii,jj
-         DOUBLE PRECISION, DIMENSION(D) :: mean, delta
+         DOUBLE PRECISION weight, sumweight, pf, temp
+         DOUBLE PRECISION, DIMENSION(D) :: mean, delta, R, period
          DOUBLE PRECISION, DIMENSION(D,D) :: M12
 		     
+         period = -1.0d0
+         pf = -0.5d0/(lf*lf)
+         
+         sumweight = 0.0d0
          mean = 0.0d0
          M12 = 0.0d0
          DO i=1,ndata
-           delta = (x(:,i) - mean) / DBLE(i)
-           mean = mean + delta
+           ! calculate local weight on the fly 
+           weight = EXP(pf*pammr2(D,period,xl,x(:,i)))
+           temp = weight + sumweight
+           delta = (x(:,i) - mean)
+           R = delta * weight / temp
+           mean = mean + R
            ! matrix is symmetric
            DO ii=1,D
              DO jj=1,ii
-               M12(ii,jj) = M12(ii,jj) + DBLE(i - 1) * delta(ii) * delta(jj) - M12(ii,jj) / DBLE(i)
+               M12(ii,jj) = M12(ii,jj) + sumweight * delta(ii) * R(jj)
              ENDDO
            ENDDO
+           sumweight = temp
          ENDDO
-         
+
          ! complete lower triangular
          DO ii=1,D
            DO jj=1,ii-1
@@ -700,39 +715,70 @@
            ENDDO
          ENDDO
          
-         Q = DBLE(i) / DBLE(i - 1) * M12
-      END SUBROUTINE pammcov
+         Q = M12/sumweight * DBLE(ndata)/DBLE(ndata - 1) 
+      END SUBROUTINE pammwcov
       
-!      DOUBLE PRECISION FUNCTION pammcov(ndata,x,y)
-!         ! Implementation of the Welford's one pass algorithm
-!         ! 
-!         ! Args:
-!         !    ndata          : number of data
-!         !    x              : vector of data
-!         !    y              : vector of data
-!         ! 
-!         
-!         INTEGER, INTENT(IN) :: ndata
-!         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: x
-!         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: y
-!		
-!         INTEGER n
-!         DOUBLE PRECISION :: mean1, mean2
-!         DOUBLE PRECISION :: delta1, delta2
-!         DOUBLE PRECISION :: M12
-!		     
-!         mean1 = 0.0d0
-!         mean2 = 0.0d0
-!         M12 = 0.0d0
-!         DO n=1,ndata
-!           delta1 = (x(n) - mean1) / n
-!           mean1 = mean1 + delta1
-!           delta2 = (y(n) - mean2) / n
-!           mean2 = mean2 + delta2
-!           M12 = M12 + (n - 1) * delta1 * delta2 - M12 / n
-!         ENDDO
-!         pammcov = n / (n - 1) * M12
-!      END FUNCTION pammcov
+      DOUBLE PRECISION FUNCTION pammpcov(ndata,x,y)
+         ! Implementation of the Welford's one pass algorithm
+         ! for periodic data
+         ! Args:
+         !    ndata          : number of data
+         !    x              : vector of data
+         !    y              : vector of data
+         ! 
+         
+         INTEGER, INTENT(IN) :: ndata
+         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: y
+		
+         INTEGER n
+         DOUBLE PRECISION :: mean1, mean2
+         DOUBLE PRECISION :: delta1, delta2
+         DOUBLE PRECISION :: M12
+		     
+         mean1 = 0.0d0
+         mean2 = 0.0d0
+         M12 = 0.0d0
+         DO n=1,ndata
+           delta1 = (x(n) - mean1) / n
+           mean1 = mean1 + delta1
+           delta2 = (y(n) - mean2) / n
+           mean2 = mean2 + delta2
+           M12 = M12 + (n - 1) * delta1 * delta2 - M12 / n
+         ENDDO
+         pammcov = n / (n - 1) * M12
+      END FUNCTION pammpcov
+      
+      DOUBLE PRECISION FUNCTION pammcov(ndata,x,y)
+         ! Implementation of the Welford's one pass algorithm
+         ! 
+         ! Args:
+         !    ndata          : number of data
+         !    x              : vector of data
+         !    y              : vector of data
+         ! 
+         
+         INTEGER, INTENT(IN) :: ndata
+         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: y
+		
+         INTEGER n
+         DOUBLE PRECISION :: mean1, mean2
+         DOUBLE PRECISION :: delta1, delta2
+         DOUBLE PRECISION :: M12
+		     
+         mean1 = 0.0d0
+         mean2 = 0.0d0
+         M12 = 0.0d0
+         DO n=1,ndata
+           delta1 = (x(n) - mean1) / n
+           mean1 = mean1 + delta1
+           delta2 = (y(n) - mean2) / n
+           mean2 = mean2 + delta2
+           M12 = M12 + (n - 1) * delta1 * delta2 - M12 / n
+         ENDDO
+         pammcov = n / (n - 1) * M12
+      END FUNCTION pammcov
       
       DOUBLE PRECISION FUNCTION mahalanobi(D,period,x,y,icov)
          ! Return the mahalanobi distance between two points
