@@ -718,67 +718,36 @@
          Q = M12/sumweight * DBLE(ndata)/DBLE(ndata - 1) 
       END SUBROUTINE pammwcov
       
-      DOUBLE PRECISION FUNCTION pammpcov(ndata,x,y)
-         ! Implementation of the Welford's one pass algorithm
-         ! for periodic data
-         ! Args:
-         !    ndata          : number of data
-         !    x              : vector of data
-         !    y              : vector of data
-         ! 
-         
-         INTEGER, INTENT(IN) :: ndata
-         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: x
-         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: y
-		
-         INTEGER n
-         DOUBLE PRECISION :: mean1, mean2
-         DOUBLE PRECISION :: delta1, delta2
-         DOUBLE PRECISION :: M12
-		     
-         mean1 = 0.0d0
-         mean2 = 0.0d0
-         M12 = 0.0d0
-         DO n=1,ndata
-           delta1 = (x(n) - mean1) / n
-           mean1 = mean1 + delta1
-           delta2 = (y(n) - mean2) / n
-           mean2 = mean2 + delta2
-           M12 = M12 + (n - 1) * delta1 * delta2 - M12 / n
-         ENDDO
-         pammcov = n / (n - 1) * M12
-      END FUNCTION pammpcov
-      
-      DOUBLE PRECISION FUNCTION pammcov(ndata,x,y)
-         ! Implementation of the Welford's one pass algorithm
-         ! 
-         ! Args:
-         !    ndata          : number of data
-         !    x              : vector of data
-         !    y              : vector of data
-         ! 
-         
-         INTEGER, INTENT(IN) :: ndata
-         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: x
-         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: y
-		
-         INTEGER n
-         DOUBLE PRECISION :: mean1, mean2
-         DOUBLE PRECISION :: delta1, delta2
-         DOUBLE PRECISION :: M12
-		     
-         mean1 = 0.0d0
-         mean2 = 0.0d0
-         M12 = 0.0d0
-         DO n=1,ndata
-           delta1 = (x(n) - mean1) / n
-           mean1 = mean1 + delta1
-           delta2 = (y(n) - mean2) / n
-           mean2 = mean2 + delta2
-           M12 = M12 + (n - 1) * delta1 * delta2 - M12 / n
-         ENDDO
-         pammcov = n / (n - 1) * M12
-      END FUNCTION pammcov
+!      DOUBLE PRECISION FUNCTION pammcov(ndata,x,y)
+!         ! Implementation of the Welford's one pass algorithm
+!         ! 
+!         ! Args:
+!         !    ndata          : number of data
+!         !    x              : vector of data
+!         !    y              : vector of data
+!         ! 
+!         
+!         INTEGER, INTENT(IN) :: ndata
+!         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: x
+!         DOUBLE PRECISION, DIMENSION(ndata), INTENT(IN) :: y
+!		
+!         INTEGER n
+!         DOUBLE PRECISION :: mean1, mean2
+!         DOUBLE PRECISION :: delta1, delta2
+!         DOUBLE PRECISION :: M12
+!		     
+!         mean1 = 0.0d0
+!         mean2 = 0.0d0
+!         M12 = 0.0d0
+!         DO n=1,ndata
+!           delta1 = (x(n) - mean1) / n
+!           mean1 = mean1 + delta1
+!           delta2 = (y(n) - mean2) / n
+!           mean2 = mean2 + delta2
+!           M12 = M12 + (n - 1) * delta1 * delta2 - M12 / n
+!         ENDDO
+!         pammcov = n / (n - 1) * M12
+!      END FUNCTION pammcov
       
       DOUBLE PRECISION FUNCTION mahalanobi(D,period,x,y,icov)
          ! Return the mahalanobi distance between two points
