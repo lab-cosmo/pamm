@@ -433,10 +433,13 @@
           ! TODO: check if Welford's is able to do this for periodic
           !       dimensions.
         ELSE
-          ! local covariance estimation
-          CALL pammwcov(nsamples,ngrid,D,x,y,i,pnlist,nlist,distmm,lfac,Qlocal,nlocal)
-          ! local bandwidth using Scotts rule of thumb
+          ! using a single pass algorithm to compute 
+          ! the weighted covariance matrix
+          CALL wcov(nsamples,D,x,y(:,i),lfac,Qlocal,nlocal)
+          ! Estimate local bandwidth        
+          ! (i)  estimate a local H using Scotts rule of thumb
           Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
+    
         ENDIF  
       ENDDO
 
