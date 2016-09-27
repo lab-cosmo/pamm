@@ -663,12 +663,12 @@
       SUBROUTINE wcov(ndata,D,x,xref,lf,Q,sumweight)
          ! Implementation of the Welford's one pass algorithm
          ! to obtain weighted covariance matrix around a reference
-         ! point xl
+         ! point xref
          ! 
          ! Args:
          !    n              : number of data
          !    D              : dimension
-         !    x              : vector of data
+         !    x              : sample points
          !    xref           : reference point 
          !    lf             : localization (weight) factor 
          !                     for spherical gaussian
@@ -683,7 +683,7 @@
 		
          INTEGER i,ii,jj
          DOUBLE PRECISION weight, sumweight, pf, temp
-         DOUBLE PRECISION, DIMENSION(D) :: mean, delta, R, period, dx
+         DOUBLE PRECISION, DIMENSION(D) :: mean, delta, R, dx
          DOUBLE PRECISION, DIMENSION(D,D) :: M12
 		     
          pf = -0.5d0/(lf*lf)
@@ -717,6 +717,64 @@
          
          Q = M12/sumweight * DBLE(ndata)/DBLE(ndata - 1) 
       END SUBROUTINE wcov
+      
+      SUBROUTINE pwcov(ndata,D,pbc,x,xref,lf,Q,sumweight)
+         ! Implementation of the Welford's one pass algorithm
+         ! to obtain weighted variances around a reference
+         ! point xref taking pbc into account
+         ! 
+         ! Args:
+         !    n              : number of data
+         !    D              : dimension
+         !    pbc            : periodicicity array
+         !    x              : sample points
+         !    xref           : reference point 
+         !    lf             : localization (weight) factor 
+         !                     for spherical gaussian
+         ! 
+         
+         INTEGER, INTENT(IN) :: ndata
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: pbc
+         DOUBLE PRECISION, DIMENSION(D,ndata), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: xref
+         DOUBLE PRECISION, INTENT(IN) :: lf
+         DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Q
+		
+         INTEGER i,ii
+         DOUBLE PRECISION weight, sumweight, pf, temp
+         DOUBLE PRECISION, DIMENSION(D) :: mean, delta, R, dx
+         DOUBLE PRECISION, DIMENSION(D) :: M12, mcos, msin
+		     
+         pf = -0.5d0/(lf*lf)
+         
+         sumweight = 0.0d0
+         mean = 0.0d0
+         M12 = 0.0d0
+         mcos = 0.0d0
+         msin = 0.0d0
+         DO i=1,ndata
+           ! calculate local weight on the fly
+           weight = EXP(pf*pammr2(D,pbc,xref,x(:,i)))
+           temp = weight + sumweight
+           msin = msin + SIN(x(:,i))*weight
+           mcos = mcos + COS(x(:,i))*weight
+           mean = ATAN2(msin,mcos)
+           ! could be commented b/c pammrij considers this already
+           !WHERE(mean<0.0d0) mean = mean + twopi
+           CALL pammrij(D,pbc,x(:,i),mean,delta)
+           R = delta * weight / temp
+           mean = mean + R
+           M12 = M12 + sumweight * delta * R
+           sumweight = temp
+         ENDDO
+         
+         ! off diagonal elements are set to zero
+         Q = 0.0d0
+         DO ii=1,D
+           Q(ii,ii) = M12(ii)/sumweight * DBLE(ndata)/DBLE(ndata - 1) 
+         ENDDO
+      END SUBROUTINE pwcov
       
 !      DOUBLE PRECISION FUNCTION pammcov(ndata,x,y)
 !         ! Implementation of the Welford's one pass algorithm

@@ -428,19 +428,65 @@
           WRITE(*,*) i,"/",ngrid
           
         IF(periodic) THEN
-          WRITE(*,*) "not yet implemented"
-          ! calculate only diagonal elements of covariance matrix!
-          ! TODO: check if Welford's is able to do this for periodic
-          !       dimensions.
+          ! estimate local variance
+          CALL pwcov(nsamples,D,period,x,y(:,i),lfac,Qlocal,nlocal)
         ELSE
-          ! using a single pass algorithm to compute 
-          ! the weighted covariance matrix
+          ! estimate local covariance
           CALL wcov(nsamples,D,x,y(:,i),lfac,Qlocal,nlocal)
-          ! Estimate local bandwidth        
-          ! (i)  estimate a local H using Scotts rule of thumb
-          Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
-    
-        ENDIF  
+        ENDIF
+!        WRITE(*,*) "Qwel: ", Qlocal
+!        
+!        
+!        
+!        lfac2 = lfac*lfac
+!        prefac = -0.5d0/lfac2
+!        ! local weights using spherical gaussian
+!        CALL pammxm(D,nsamples,period,x,y(:,i),xtmp)
+!        wQ = EXP(prefac*SUM(xtmp**2.0d0,1)) 
+!        ! when points are already weighted use product
+!        wQ = wQ*wj
+!        ! estimate data points in local zone
+!        nlocal = SUM(wQ)
+!        ! normalize weights
+!        wQ = wQ/nlocal
+!        
+!        IF (nlocal.LE.2.0d0) WRITE(*,*) & 
+!          "Warning: less than two points for local estimation, increase locality!"
+!        
+!        ! calculate the mean in each dimension 
+!        ! using an arithmetic weighted mean
+!        DO j=1,D
+!          dummd1 = SUM(SIN(x(j,:))*wQ)
+!          dummd2 = SUM(COS(x(j,:))*wQ)
+!          xm(j) = ATAN(dummd1/dummd2)
+!          IF (dummd2<0.0d0) THEN
+!            xm(j) = xm(j) + twopi/2.0d0
+!          ELSEIF (dummd1<0.0d0 .AND. dummd2>0.0d0) THEN
+!            xm(j) = xm(j) + twopi        
+!          ENDIF
+!        ENDDO
+
+!        ! calculate matrix of (x-xm) taking periodicity into account
+!        CALL pammxm(D,nsamples,period,x,xm,xtmp)
+!        ! apply weights to one of the coordinate matrices using
+!        ! replicated wQ array in which each row containing the weights
+!        xtmpw = xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/))
+!        ! calculating a full fledged weighted covariance matrix
+!        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
+!        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
+!        WRITE(*,*) "Qgemm: ", Qlocal
+!        WRITE(*,*) " "
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        ! estimate local bandwidth using Scotts rule of thumb
+        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))  
       ENDDO
 
 !      wQ = 0.0d0  
