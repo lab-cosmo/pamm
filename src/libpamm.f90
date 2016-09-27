@@ -660,52 +660,70 @@
          
       END SUBROUTINE pammrij
       
-      SUBROUTINE pammwcov(ndata,D,x,xl,lf,Q,sumweight)
+      SUBROUTINE pammwcov(ns,ng,D,x,y,iref,pnlist,nlist,dist,lf,Q,sumweight)
          ! Implementation of the Welford's one pass algorithm
          ! to obtain weighted covariance matrix around a reference
          ! point xl
          ! 
          ! Args:
-         !    n              : number of data
+         !    ns             : number of sample points
+         !    ng             : number of grid points
          !    D              : dimension
-         !    x              : vector of data
-         !    xl             : reference point 
+         !    x              : sample points
+         !    y              : grid points 
+         !    iref           : index of the reference grid point
+         !    pnlist         : neighborlist pointer
+         !    nlist          : neighbor list
+         !    dist           : distance matrix between grid points
          !    lf             : localization (weight) factor 
          !                     for spherical gaussian
          ! 
          
-         INTEGER, INTENT(IN) :: ndata
+         INTEGER, INTENT(IN) :: ns
+         INTEGER, INTENT(IN) :: ng
          INTEGER, INTENT(IN) :: D
-         DOUBLE PRECISION, DIMENSION(D,ndata), INTENT(IN) :: x
-         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: xl
+         DOUBLE PRECISION, DIMENSION(D,ns), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(D,ng), INTENT(IN) :: y
+         INTEGER, INTENT(IN) :: iref
+         INTEGER, DIMENSION(ng+1), INTENT(IN) :: pnlist
+         INTEGER, DIMENSION(ns), INTENT(IN) :: nlist
+         DOUBLE PRECISION, DIMENSION(ng,ng), INTENT(IN) :: dist
          DOUBLE PRECISION, INTENT(IN) :: lf
+         
          DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Q
+         DOUBLE PRECISION, INTENT(OUT) :: sumweight
 		
-         INTEGER i,ii,jj
-         DOUBLE PRECISION weight, sumweight, pf, temp
-         DOUBLE PRECISION, DIMENSION(D) :: mean, delta, R, period
+         INTEGER j,k,ii,jj
+         DOUBLE PRECISION weight, pf, temp, lf2inv
+         DOUBLE PRECISION, DIMENSION(D) :: mean, delta, R, dx
          DOUBLE PRECISION, DIMENSION(D,D) :: M12
 		     
-         period = -1.0d0
-         pf = -0.5d0/(lf*lf)
+         lf2inv = 1.0d0/(lf*lf)
+         pf = -0.5d0*lf2inv
          
          sumweight = 0.0d0
          mean = 0.0d0
          M12 = 0.0d0
-         DO i=1,ndata
-           ! calculate local weight on the fly 
-           weight = EXP(pf*pammr2(D,period,xl,x(:,i)))
-           temp = weight + sumweight
-           delta = (x(:,i) - mean)
-           R = delta * weight / temp
-           mean = mean + R
-           ! matrix is symmetric
-           DO ii=1,D
-             DO jj=1,ii
-               M12(ii,jj) = M12(ii,jj) + sumweight * delta(ii) * R(jj)
+         DO j=1,ng
+           ! do not include points that belong to far away voronois
+           IF (dist(iref,j)*lf2inv>36.0d0) CYCLE
+           ! cycle just inside the polyhedra using the neighbour list
+           DO k=pnlist(j)+1,pnlist(j+1)
+             ! calculate local weight on the fly 
+             dx = y(:,iref)-x(:,nlist(k))
+             weight = EXP(pf*DOT_PRODUCT(dx,dx))
+             temp = weight + sumweight
+             delta = (x(:,nlist(k)) - mean)
+             R = delta * weight / temp
+             mean = mean + R
+             ! matrix is symmetric
+             DO ii=1,D
+               DO jj=1,ii
+                 M12(ii,jj) = M12(ii,jj) + sumweight * delta(ii) * R(jj)
+               ENDDO
              ENDDO
+             sumweight = temp
            ENDDO
-           sumweight = temp
          ENDDO
 
          ! complete lower triangular
@@ -715,7 +733,7 @@
            ENDDO
          ENDDO
          
-         Q = M12/sumweight * DBLE(ndata)/DBLE(ndata - 1) 
+         Q = M12/sumweight * DBLE(ns)/DBLE(ns - 1) 
       END SUBROUTINE pammwcov
       
 !      DOUBLE PRECISION FUNCTION pammcov(ndata,x,y)
