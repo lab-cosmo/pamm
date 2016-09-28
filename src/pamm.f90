@@ -411,8 +411,6 @@
 
       IF(verbose) WRITE(*,*) &
         "Local estimate of kernel widths"
-      ! If not specified, all localization weights are set to one
-      IF (lfac.GT.0.0d0) prefac = -0.5d0/(lfac*lfac) 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !! 
@@ -420,10 +418,46 @@
 !!!                                                                    !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
+!      !$omp parallel &
+!      !$omp default (none) &
+!      !$omp shared (ngrid,nsamples,D,period,y,x,verbose,lfac,Hi,periodic) &
+!      !$omp private (i,Qlocal,nlocal)
+!      !$omp DO
+!      DO i=1,ngrid
+!#ifdef _OPENMP
+!         IF(verbose .AND. (modulo(i,100).EQ.0)) &
+!               WRITE(*,*) i,"/",ngrid," thread n. : ",omp_get_thread_num() 
+!#else
+!         IF(verbose .AND. (modulo(i,100).EQ.0)) &
+!               WRITE(*,*) i,"/",ngrid
+!#endif   
+!        IF(periodic) THEN
+!          ! estimate local variance
+!          CALL pwcov(nsamples,D,period,x,y(:,i),lfac,Qlocal,nlocal)
+!        ELSE
+!          ! estimate local covariance
+!          CALL wcov(nsamples,D,x,y(:,i),lfac,Qlocal,nlocal)
+!        ENDIF
+
+!        ! estimate local bandwidth using Scotts rule of thumb
+!        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))  
+!      ENDDO
+!      !$omp ENDDO
+!      !$omp END PARALLEL      
+      
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!                                                                    !! 
+!!!          Full covariance matrix estimation using DGEMM             !!
+!!!                                                                    !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  
+      ! If not specified, all localization weights are set to one
+      IF (lfac.GT.0.0d0) prefac = -0.5d0/(lfac*lfac) 
+      
       !$omp parallel &
       !$omp default (none) &
-      !$omp shared (ngrid,nsamples,D,period,y,x,verbose,lfac,Hi,periodic) &
-      !$omp private (i,Qlocal,nlocal)
+      !$omp shared (ngrid,nsamples,D,period,y,x,verbose,Hi,periodic,prefac) &
+      !$omp private (i,ii,Qlocal,nlocal,wQ,dummd1,dummd2,xtmp,xtmpw)
       !$omp DO
       DO i=1,ngrid
 #ifdef _OPENMP
@@ -432,62 +466,44 @@
 #else
          IF(verbose .AND. (modulo(i,100).EQ.0)) &
                WRITE(*,*) i,"/",ngrid
-#endif   
-        IF(periodic) THEN
-          ! estimate local variance
-          CALL pwcov(nsamples,D,period,x,y(:,i),lfac,Qlocal,nlocal)
-        ELSE
-          ! estimate local covariance
-          CALL wcov(nsamples,D,x,y(:,i),lfac,Qlocal,nlocal)
-        ENDIF
+#endif  
+          
+        ! localization
+        DO ii=1,D
+          xtmp(ii,:) = x(ii,:)-y(ii,i)
+          IF (period(ii)<=0.0d0) CYCLE    
+          ! minimum image convention     
+          xtmp(ii,:) = xtmp(ii,:) / period(ii)
+          xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
+          xtmp(ii,:) = xtmp(ii,:) * period(ii)
+        ENDDO
+        wQ = EXP(prefac*SUM(xtmp*xtmp,1))
+        nlocal = SUM(wQ) 
+        
+        ! estimate the mean
+        DO ii=1,D
+          IF (period(ii)>0.0d0) THEN
+            dummd1 = SUM(SIN(x(ii,:))*wQ)/nlocal
+            dummd2 = SUM(COS(x(ii,:))*wQ)/nlocal
+            xtmp(ii,:) = x(ii,:) - ATAN2(dummd1,dummd2)
+            ! minimum image convention
+            xtmp(ii,:) = xtmp(ii,:) / period(ii)
+            xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
+            xtmp(ii,:) = xtmp(ii,:) * period(ii)
+          ELSE
+            xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wQ)/nlocal
+          ENDIF
+          xtmpw(ii,:) = xtmp(ii,:)*wQ
+        ENDDO
+        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
+        Qlocal = Qlocal / (nlocal-1.0d0)
 
         ! estimate local bandwidth using Scotts rule of thumb
         Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))  
-      ENDDO
+      ENDDO    
       !$omp ENDDO
-      !$omp END PARALLEL      
-      
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!                                                                    !! 
-!!!          Full covariance matrix estimation using DGEMM             !!
-!!!                                                                    !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  
-!      DO i=1,ngrid
-!        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!          WRITE(*,*) i,"/",ngrid
-!          
-!        ! localization
-!        DO ii=1,D
-!          xtmp(ii,:) = x(ii,:)-y(ii,i)
-!          IF (period(ii)<=0.0d0) CYCLE    
-!          ! minimum image convention     
-!          xtmp(ii,:) = xtmp(ii,:) / period(ii)
-!          xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
-!          xtmp(ii,:) = xtmp(ii,:) * period(ii)
-!        ENDDO
-!        wQ = EXP(prefac*SUM(xtmp*xtmp,1))
-!        nlocal = SUM(wQ) 
-!        
-!        ! estimate the mean
-!        DO ii=1,D
-!          IF (period(ii)>0.0d0) THEN
-!            dummd1 = SUM(SIN(x(ii,:))*wQ)/nlocal
-!            dummd2 = SUM(COS(x(ii,:))*wQ)/nlocal
-!            xtmp(ii,:) = x(ii,:) - ATAN2(dummd1,dummd2)
-!            ! minimum image convention
-!            xtmp(ii,:) = xtmp(ii,:) / period(ii)
-!            xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
-!            xtmp(ii,:) = xtmp(ii,:) * period(ii)
-!          ELSE
-!            xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wQ)/nlocal
-!          ENDIF
-!          xtmpw(ii,:) = xtmp(ii,:)*wQ
-!        ENDDO
+      !$omp END PARALLEL 
 
-!        ! estimate local bandwidth using Scotts rule of thumb
-!        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))  
-!      ENDDO    
 
       DO i=1,ngrid
         ! invert H and get the determinant
