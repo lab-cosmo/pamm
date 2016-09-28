@@ -633,7 +633,7 @@
             ! Rescale back the lenght
             rij(k) = rij(k)*period(k)
          ENDDO
-         pammr2 = dot_product(rij, rij)
+         pammr2 = DOT_PRODUCT(rij, rij)
          
       END FUNCTION pammr2
       
@@ -680,9 +680,10 @@
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: xref
          DOUBLE PRECISION, INTENT(IN) :: lf
          DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Q
+         DOUBLE PRECISION, INTENT(out) :: sumweight
 		
          INTEGER i,ii,jj
-         DOUBLE PRECISION weight, sumweight, pf, temp
+         DOUBLE PRECISION weight, pf, temp
          DOUBLE PRECISION, DIMENSION(D) :: mean, delta, R, dx
          DOUBLE PRECISION, DIMENSION(D,D) :: M12
 		     
@@ -718,7 +719,7 @@
          Q = M12/sumweight * DBLE(ndata)/DBLE(ndata - 1) 
       END SUBROUTINE wcov
       
-      SUBROUTINE pwcov(ndata,D,pbc,x,xref,lf,Q,sumweight)
+      SUBROUTINE pwcov(ndata,D,period,x,xref,lf,Q,sumweight)
          ! Implementation of the Welford's one pass algorithm
          ! to obtain weighted variances around a reference
          ! point xref taking pbc into account
@@ -726,7 +727,7 @@
          ! Args:
          !    n              : number of data
          !    D              : dimension
-         !    pbc            : periodicicity array
+         !    period         : periodicicity array
          !    x              : sample points
          !    xref           : reference point 
          !    lf             : localization (weight) factor 
@@ -735,16 +736,17 @@
          
          INTEGER, INTENT(IN) :: ndata
          INTEGER, INTENT(IN) :: D
-         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: pbc
+         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: period
          DOUBLE PRECISION, DIMENSION(D,ndata), INTENT(IN) :: x
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: xref
          DOUBLE PRECISION, INTENT(IN) :: lf
          DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Q
+         DOUBLE PRECISION, INTENT(out) :: sumweight
 		
          INTEGER i,ii
-         DOUBLE PRECISION weight, sumweight, pf, temp
+         DOUBLE PRECISION weight, pf, temp
          DOUBLE PRECISION, DIMENSION(D) :: mean, delta, R, dx
-         DOUBLE PRECISION, DIMENSION(D) :: M12, mcos, msin
+         DOUBLE PRECISION, DIMENSION(D) :: M12, mcos, msin, mtmp
 		     
          pf = -0.5d0/(lf*lf)
          
@@ -753,18 +755,31 @@
          M12 = 0.0d0
          mcos = 0.0d0
          msin = 0.0d0
+         
+!         DO i=1,ndata
+!           ! calculate local weight on the fly
+!           weight = EXP(pf*pammr2(D,pbc,xref,x(:,i)))
+!           temp = weight + sumweight
+!           CALL pammrij(D,pbc,x(:,i),mean,delta)
+!           R = delta * weight / temp
+!           mean = mean + R
+!           ! this is not necessary, since pammrij takes care of this
+!           WHERE(mean<twopi/2.0d0) mean=mean+twopi
+!           WHERE(mean>twopi/2.0d0) mean=mean-twopi
+!           M12 = M12 + sumweight * delta * R
+!           sumweight = temp
+!         ENDDO
+
+         ! this approach is slower but gives better mean 
          DO i=1,ndata
            ! calculate local weight on the fly
-           weight = EXP(pf*pammr2(D,pbc,xref,x(:,i)))
+           weight = EXP(pf*pammr2(D,period,xref,x(:,i)))
            temp = weight + sumweight
+           CALL pammrij(D,period,x(:,i),mean,delta)
+           R = delta * weight / temp
            msin = msin + SIN(x(:,i))*weight
            mcos = mcos + COS(x(:,i))*weight
-           mean = ATAN2(msin,mcos)
-           ! could be commented b/c pammrij considers this already
-           !WHERE(mean<0.0d0) mean = mean + twopi
-           CALL pammrij(D,pbc,x(:,i),mean,delta)
-           R = delta * weight / temp
-           mean = mean + R
+           mean = ATAN2(msin,mcos) + R
            M12 = M12 + sumweight * delta * R
            sumweight = temp
          ENDDO
@@ -826,7 +841,7 @@
          mahalanobi = xcx
       END FUNCTION mahalanobi
       
-      SUBROUTINE pammxm(D,n,period,x,xm,dx)
+      SUBROUTINE pammdx(D,n,period,x,xm,dx)
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: n
          DOUBLE PRECISION, DIMENSION(D),   INTENT(IN) :: period
@@ -835,23 +850,18 @@
          DOUBLE PRECISION, DIMENSION(D,n), INTENT(OUT) :: dx
          
          INTEGER k
-         DOUBLE PRECISION invp
-         DOUBLE PRECISION, DIMENSION(n) :: dn
          
          DO k = 1, D
            dx(k,:) = (x(k,:)-xm(k))
-           invp = 1.0d0/period(k)
            IF (period(k)<=0.0d0) CYCLE            
            ! scaled lenght
-           CALL DSCAL(n,invp,dx(k,:),1)
+           dx(k,:) = dx(k,:)/period(k)
            ! Finds the smallest separation between the images of the vector elements
-           dn = DNINT(dx(k,:))
-           CALL DSCAL(n,-1.0d0,dn,1)
-           CALL DAXPY(n,1.0d0,dx(k,:),1,dn,1) ! Minimum Image Convention
+           dx(k,:) = dx(k,:) - DNINT(dx(k,:)) ! Minimum Image Convention
            ! Rescale back the length
-           CALL DSCAL(n,period(k),dx(k,:),1)
+           dx(k,:) = dx(k,:)*period(k)
          ENDDO
          
-      END SUBROUTINE pammxm
+      END SUBROUTINE pammdx
 
       END MODULE libpamm

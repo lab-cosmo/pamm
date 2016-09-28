@@ -78,8 +78,8 @@
       INTEGER nbootstrap, rndidx, rngidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, lfac, lfac2, prefac
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xm, xij, normgmulti, wQ
+      DOUBLE PRECISION nlocal, lfac, lfac2, prefac, xm
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normgmulti, wQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qlocal, Sw, Sinv, xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       
@@ -119,13 +119,15 @@
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
-      lfac= -1.0d0      ! localization factor
+      lfac = -1.0d0          ! localization factor
+      prefac = 0.0d0         ! prefector of gaussian for localization
       neblike=0              ! don't use neb paths
       nbootstrap=0           ! do not use bootstrap
       qserr=8                ! threshold to accept a move in qs
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       skipvoronois = .false. ! don't read the Voronoi associations 
+            
       
       mixbeta = 0.1
       
@@ -357,7 +359,7 @@
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
-      ALLOCATE(Qlocal(D,D),xm(D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
+      ALLOCATE(Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),xij(D))
       ALLOCATE(wQ(nsamples),Sw(D,D),Sinv(D,D))
 
@@ -377,11 +379,9 @@
       ! Definition of the distance matrix between grid points
       distmm=0.0d0
       rgrid=1d100 ! "voronoi radius" of grid points (squared)
-      IF(verbose) write(*,*) "Computing similarity matrix"
       
-      !maxrgrid=0.0d0
-      !minrgrid=1.0d100
-
+      IF(verbose) WRITE(*,*) & 
+        "Computing similarity matrix"
       !$omp parallel &
       !$omp default (none) &
       !$omp shared (ngrid,distmm,D,period,y,x,rgrid,verbose) &
@@ -402,31 +402,37 @@
             if (distmm(i,j) < rgrid(i)) rgrid(i) = distmm(i,j)
             ! the symmetrical one
             distmm(j,i) = distmm(i,j)
-            if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)  
-            
-            !! Get an estimate of the max and the min
-            ! if (rgrid(j)<minrgrid) minrgrid = distmm(i,j)
-            ! if (maxrgrid<rgrid(j)) maxrgrid = distmm(i,j)
+            if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)   
          ENDDO
       ENDDO
       !$omp ENDDO
       !$omp END PARALLEL
 
-      ! If the flag -savevoronois is set, write out voronoi info
-      IF (savevor) CALL savevoronois(D,period,nsamples,ngrid,x,y, &                    
-                                     npvoronoi,iminij,wj,rgrid, &
-                                     outputfile)
-      
+
       IF(verbose) WRITE(*,*) &
         "Local estimate of kernel widths"
+      ! If not specified, all localization weights are set to one
+      IF (lfac.GT.0.0d0) prefac = -0.5d0/(lfac*lfac) 
 
-      ! if localization is not set use max dist between grid
-      IF (lfac.LE.0) lfac = SQRT(MAXVAL(rgrid))
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!                                                                    !! 
+!!!      Covariance/Variance estimation using Welford's algorithm      !!
+!!!                                                                    !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
+      !$omp parallel &
+      !$omp default (none) &
+      !$omp shared (ngrid,nsamples,D,period,y,x,verbose,lfac,Hi,periodic) &
+      !$omp private (i,Qlocal,nlocal)
+      !$omp DO
       DO i=1,ngrid
-        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-          WRITE(*,*) i,"/",ngrid
-          
+#ifdef _OPENMP
+         IF(verbose .AND. (modulo(i,100).EQ.0)) &
+               WRITE(*,*) i,"/",ngrid," thread n. : ",omp_get_thread_num() 
+#else
+         IF(verbose .AND. (modulo(i,100).EQ.0)) &
+               WRITE(*,*) i,"/",ngrid
+#endif   
         IF(periodic) THEN
           ! estimate local variance
           CALL pwcov(nsamples,D,period,x,y(:,i),lfac,Qlocal,nlocal)
@@ -434,130 +440,56 @@
           ! estimate local covariance
           CALL wcov(nsamples,D,x,y(:,i),lfac,Qlocal,nlocal)
         ENDIF
-!        WRITE(*,*) "Qwel: ", Qlocal
-!        
-!        
-!        
-!        lfac2 = lfac*lfac
-!        prefac = -0.5d0/lfac2
-!        ! local weights using spherical gaussian
-!        CALL pammxm(D,nsamples,period,x,y(:,i),xtmp)
-!        wQ = EXP(prefac*SUM(xtmp**2.0d0,1)) 
-!        ! when points are already weighted use product
-!        wQ = wQ*wj
-!        ! estimate data points in local zone
-!        nlocal = SUM(wQ)
-!        ! normalize weights
-!        wQ = wQ/nlocal
-!        
-!        IF (nlocal.LE.2.0d0) WRITE(*,*) & 
-!          "Warning: less than two points for local estimation, increase locality!"
-!        
-!        ! calculate the mean in each dimension 
-!        ! using an arithmetic weighted mean
-!        DO j=1,D
-!          dummd1 = SUM(SIN(x(j,:))*wQ)
-!          dummd2 = SUM(COS(x(j,:))*wQ)
-!          xm(j) = ATAN(dummd1/dummd2)
-!          IF (dummd2<0.0d0) THEN
-!            xm(j) = xm(j) + twopi/2.0d0
-!          ELSEIF (dummd1<0.0d0 .AND. dummd2>0.0d0) THEN
-!            xm(j) = xm(j) + twopi        
-!          ENDIF
-!        ENDDO
 
-!        ! calculate matrix of (x-xm) taking periodicity into account
-!        CALL pammxm(D,nsamples,period,x,xm,xtmp)
-!        ! apply weights to one of the coordinate matrices using
-!        ! replicated wQ array in which each row containing the weights
-!        xtmpw = xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/))
-!        ! calculating a full fledged weighted covariance matrix
-!        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
-!        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
-!        WRITE(*,*) "Qgemm: ", Qlocal
-!        WRITE(*,*) " "
-        
-        
-        
-        
-        
-        
-        
-        
-        
         ! estimate local bandwidth using Scotts rule of thumb
         Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))  
       ENDDO
-
-!      wQ = 0.0d0  
-!      
-!      ! if localization is not set use max dist between grid
-!      IF (lfac.LE.0) lfac = SQRT(MAXVAL(rgrid))
-!      lfac2 = lfac*lfac
-!      prefac = -0.5d0/lfac2
-
+      !$omp ENDDO
+      !$omp END PARALLEL      
+      
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!                                                                    !! 
+!!!          Full covariance matrix estimation using DGEMM             !!
+!!!                                                                    !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  
 !      DO i=1,ngrid
 !        IF(verbose .AND. (modulo(i,100).EQ.0)) &
 !          WRITE(*,*) i,"/",ngrid
 !          
-!        ! local weights using spherical gaussian
-!        CALL pammxm(D,nsamples,period,x,y(:,i),xtmp)
-!        wQ = EXP(prefac*SUM(xtmp**2.0d0,1)) 
-!        ! when points are already weighted use product
-!        wQ = wQ*wj
-!        ! estimate data points in local zone
-!        nlocal = SUM(wQ)
-!        ! normalize weights
-!        wQ = wQ/nlocal
+!        ! localization
+!        DO ii=1,D
+!          xtmp(ii,:) = x(ii,:)-y(ii,i)
+!          IF (period(ii)<=0.0d0) CYCLE    
+!          ! minimum image convention     
+!          xtmp(ii,:) = xtmp(ii,:) / period(ii)
+!          xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
+!          xtmp(ii,:) = xtmp(ii,:) * period(ii)
+!        ENDDO
+!        wQ = EXP(prefac*SUM(xtmp*xtmp,1))
+!        nlocal = SUM(wQ) 
 !        
-!        IF (nlocal.LE.2.0d0) WRITE(*,*) & 
-!          "Warning: less than two points for local estimation, increase locality!"
-!        
-!        ! calculate the mean in each dimension 
-!        ! using an arithmetic weighted mean
-!        IF (periodic) THEN
-!          DO j=1,D
-!            dummd1 = SUM(SIN(x(j,:))*wQ)
-!            dummd2 = SUM(COS(x(j,:))*wQ)
-!            xm(j) = ATAN(dummd1/dummd2)
-!            IF (dummd2<0.0d0) THEN
-!              xm(j) = xm(j) + twopi/2.0d0
-!            ELSEIF (dummd1<0.0d0 .AND. dummd2>0.0d0) THEN
-!              xm(j) = xm(j) + twopi        
-!            ENDIF
-!          ENDDO
-!        ELSE
-!          DO j=1,D
-!            xm(j) = SUM(x(j,:)*wQ)
-!          ENDDO
-!        ENDIF
+!        ! estimate the mean
+!        DO ii=1,D
+!          IF (period(ii)>0.0d0) THEN
+!            dummd1 = SUM(SIN(x(ii,:))*wQ)/nlocal
+!            dummd2 = SUM(COS(x(ii,:))*wQ)/nlocal
+!            xtmp(ii,:) = x(ii,:) - ATAN2(dummd1,dummd2)
+!            ! minimum image convention
+!            xtmp(ii,:) = xtmp(ii,:) / period(ii)
+!            xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
+!            xtmp(ii,:) = xtmp(ii,:) * period(ii)
+!          ELSE
+!            xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wQ)/nlocal
+!          ENDIF
+!          xtmpw(ii,:) = xtmp(ii,:)*wQ
+!        ENDDO
 
-!        ! calculate matrix of (x-xm) taking periodicity into account
-!        CALL pammxm(D,nsamples,period,x,xm,xtmp)
-!        ! apply weights to one of the coordinate matrices using
-!        ! replicated wQ array in which each row containing the weights
-!        xtmpw = xtmp*RESHAPE(SPREAD(wQ,1,D), (/D, nsamples/))
-!        IF(periodic) THEN
-!          ! speed things up by calculating only diagonal
-!          Qlocal = 0.0d0
-!          DO jj=1,D
-!            CALL DGEMM("N", "T", 1, 1, nsamples, 1.0d0, xtmp(jj,:), 1, xtmpw(jj,:), 1, 0.0d0, Qlocal(jj,jj), 1) 
-!          ENDDO
-!        ELSE
-!          ! calculating a full fledged weighted covariance matrix
-!          CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
-!        ENDIF
-!        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
-!        
-!        ! Estimate local bandwidth        
-!        ! (i)  estimate a local H using Scotts rule of thumb
-!        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
-! 
-!        ! (ii) estimate a local H using Silvermans rule of thumb
-!!        Hi(:,:,i) = Qlocal * (nlocal*(d+2.0d0) / 4.0d0)**(-1.0d0/(D+4.0d0))
-!       ENDDO
-       
-       DO i=1,ngrid
+!        ! estimate local bandwidth using Scotts rule of thumb
+!        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))  
+!      ENDDO    
+
+      DO i=1,ngrid
         ! invert H and get the determinant
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
         IF(periodic) THEN
@@ -902,7 +834,7 @@
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu)
-      DEALLOCATE(Qlocal,xm,Hi,Hiinv,normgmulti)
+      DEALLOCATE(Qlocal,Hi,Hiinv,normgmulti)
       DEALLOCATE(xtmp,xtmpw,xij)
       DEALLOCATE(wQ,Sw,Sinv)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
