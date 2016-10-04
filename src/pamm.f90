@@ -475,7 +475,7 @@
         WRITE(*,*) Qlocal
 
         ! estimate local bandwidth using Scotts rule of thumb
-        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0)
+        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
         
         ! estimate the normalization constants
         IF(periodic) THEN
