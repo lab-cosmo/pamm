@@ -70,6 +70,8 @@
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
       ! cluster connectivity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
+      LOGICAL isthere
       
       ! BOOTSTRAP
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
@@ -85,7 +87,7 @@
       
       
       ! IN/OUT probs
-      LOGICAL saveprobs, savevor, skipvoronois, pilotboot
+      LOGICAL saveprobs, savevor, skipvoronois, pilotboot, saveadj
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -100,7 +102,7 @@
       ! DOUBLE PRECISION maxrgrid, minrgrid
       DOUBLE PRECISION mixbeta
 
-      INTEGER i,j,k,m,n,ikde,counter,dummyi1,endf ! Counters and dummy variable
+      INTEGER i,j,k,m,n,ikde,counter,dummyi1,dummyi2,endf ! Counters and dummy variable
 
       DOUBLE PRECISION  bigperr, tmpbigp, gnorm
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -127,6 +129,7 @@
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       skipvoronois = .false. ! don't read the Voronoi associations 
+      saveadj = .false.      ! save adjacency
             
       
       mixbeta = 0.1
@@ -177,6 +180,8 @@
             saveprobs= .true.
          ELSEIF (cmdbuffer == "-savevoronois") THEN  ! save the Voronoi associations
             savevor= .true.
+         ELSEIF (cmdbuffer == "-adj") THEN  ! save the Voronoi associations
+            saveadj= .true.
          ELSEIF (cmdbuffer == "-w") THEN       ! use weights
             weighted = .true.
          ELSEIF (cmdbuffer == "-v") THEN       ! verbosity flag
@@ -600,7 +605,7 @@
         ENDDO 
       ELSE
         DO i=1,ngrid  
-          proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0)          
+          proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0) 
         ENDDO
       ENDIF
 
@@ -672,21 +677,83 @@
       ! builds the cluster adjacency matrix
       IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
       ALLOCATE(clsadj(Nk, Nk))
+      ALLOCATE(macrocl(Nk))
       clsadj = 0.0d0
       DO i=1, Nk
-          DO j=1,i-1
-              clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j)
-              clsadj(j,i) = clsadj(i,j)
-          ENDDO
+         ! initialize each cluster to itself in the macrocluster assignation 
+         macrocl(i)=i
+         DO j=1,i-1
+             clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j)
+             clsadj(j,i) = clsadj(i,j)
+         ENDDO
       ENDDO
-      OPEN(UNIT=11,FILE=trim(outputfile)//".adj",STATUS='REPLACE',ACTION='WRITE')
+      IF(saveadj)THEN
+         OPEN(UNIT=11,FILE=trim(outputfile)//".adj",STATUS='REPLACE',ACTION='WRITE')
+         DO i=1, Nk
+             DO j=1, Nk
+                 WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadj(i,j)
+             ENDDO
+             WRITE(11,*) ""
+         ENDDO
+         CLOSE(11)
+      ENDIF
+      
+      ! Let's print out the macroclusters
       DO i=1, Nk
-          DO j=1, Nk
-              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadj(i,j)
-          ENDDO
-          WRITE(11,*) ""
+         DO j=1, Nk
+            ! Put a threshold under which there is no link between the clusters
+            ! now it is just a default
+            IF(i.EQ.j) CYCLE ! discard yourself
+            IF(clsadj(i,j) .GT. 0.4d0) THEN 
+               IF(macrocl(j).EQ.j) THEN
+                  ! the point is still initialized to himself 
+                  macrocl(j)=macrocl(i)
+               ELSE
+                  ! it was already assigned
+                  ! lets change also all the values that I may have changed before
+                  DO k=1,j-1
+                    IF(k.EQ.i) CYCLE ! I'll fix it later 
+                    IF(macrocl(k).EQ.macrocl(i)) macrocl(k)=macrocl(j)
+                  ENDDO
+                  macrocl(i)=macrocl(j)
+               ENDIF
+            ENDIF
+         ENDDO
       ENDDO
-      CLOSE(11)
+      
+      ! Count unique macroclusters and order them
+      ALLOCATE(sortmacrocl(Nk))
+      sortmacrocl=0
+      dummyi1=0
+      DO i=1, Nk
+        isthere=.false.
+        DO j=1, Nk
+           IF( (.NOT.(sortmacrocl(j).EQ.0)) .AND. (macrocl(i).EQ.j)) THEN
+              ! position j has already been set to something 
+              ! and the value at the jth position corrispond to my cluster idx
+              isthere=.true.
+              macrocl(i)=sortmacrocl(macrocl(i))
+              EXIT
+           ENDIF 
+        ENDDO
+        IF(.NOT. isthere) THEN
+           dummyi1=dummyi1+1
+           ! increase the number of macroclusters found
+           sortmacrocl(macrocl(i))=dummyi1
+           ! rewrite the macrocluster assignation with a proper index
+           macrocl(i)=sortmacrocl(macrocl(i))
+        ENDIF
+      ENDDO
+      
+      IF (verbose) WRITE(6,"((A6,I7,A15))") "Found ",dummyi1," macroclusters."
+      OPEN(UNIT=11,FILE=trim(outputfile)//".macrogrid",STATUS='REPLACE',ACTION='WRITE')
+      DO i=1,ngrid
+         DO j=1,D
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
+         ENDDO
+         WRITE(11,"(A1,I4,A1,I4)") " ", idcls(i) , " ", macrocl(idcls(i))
+      ENDDO
+      CLOSE(UNIT=11)
       
       ! now we can procede and complete the definition of probability model
       ! now qspath contains the indexes of Nk gaussians
@@ -814,6 +881,7 @@
       DEALLOCATE(Qlocal,Hi,Hiinv,normgmulti)
       DEALLOCATE(xtmp,xtmpw,xij)
       DEALLOCATE(wQ,Sw,Sinv)
+      DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
       CALL EXIT(0)
@@ -867,7 +935,8 @@
          WRITE(*,*) "   -saveprobs        : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
-         WRITE(*,*) "   -l sigma        : Localization width for local bayesian run [default: off] "
+         WRITE(*,*) "   -l sigma          : Localization width for local bayesian run [default: off] "
+         WRITE(*,*) "   -adj              : Write out the adjacency matrix between the clusters [default: off] "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
