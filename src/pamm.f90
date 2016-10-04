@@ -80,7 +80,7 @@
       INTEGER nbootstrap, rndidx, rngidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, lfac, lfac2, prefac, xm
+      DOUBLE PRECISION nlocal, lfac, lfac2, prefac, R2
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normgmulti, wQ
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qlocal, Sw, Sinv, xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
@@ -142,16 +142,16 @@
       !!!!!!! Command line parser !!!!!!!!!!!!!
       DO i = 1, IARGC()
          CALL GETARG(i, cmdbuffer)
-         IF (cmdbuffer == "-o") THEN           ! output file
-            ccmd = 2
-         ELSEIF (cmdbuffer == "-a") THEN       ! cluster smearing
+         IF (cmdbuffer == "-a") THEN       ! cluster smearing
             ccmd = 1
+         ELSEIF (cmdbuffer == "-o") THEN           ! output file
+            ccmd = 2
          ELSEIF (cmdbuffer == "-gf") THEN      ! file containing Vn parmeters
             ccmd = 3
          ELSEIF (cmdbuffer == "-seed") THEN    ! seed for the random number genarator
             ccmd = 4
          ELSEIF (cmdbuffer == "-l") THEN       ! threshold to differentiate different clusters
-            ccmd = 5
+                ccmd = 5
          ELSEIF (cmdbuffer == "-nms") THEN     ! N of mean-shift steps
             ccmd = 6
          ELSEIF (cmdbuffer == "-ngrid") THEN   ! N of grid points
@@ -160,16 +160,18 @@
             ccmd = 8
          ELSEIF (cmdbuffer == "-d") THEN       ! dimensionality
             ccmd = 9
+         ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
+            ccmd = 11
+         ELSEIF (cmdbuffer == "-z") THEN       ! add a background to the probability mixture
+            ccmd = 12
          ELSEIF (cmdbuffer == "-neblike") THEN  ! use neb paths between the qs points
             ccmd = 13
          ELSEIF (cmdbuffer == "-loc") THEN  ! refine adptively sigma
-            ccmd = 14
-         ELSEIF (cmdbuffer == "-qserr") THEN  ! threshold for the qs assignation
-            ccmd = 15
+             ccmd = 14
          ELSEIF (cmdbuffer == "-readprobs") THEN  ! read a file containing the grid points + info
-            ccmd = 16
+            ccmd = 15
          ELSEIF (cmdbuffer == "-readvoronis") THEN  ! read a file containing the Voronoi associations
-            ccmd = 17
+            ccmd = 16
          ELSEIF (cmdbuffer == "-skipvoronois") THEN  ! save the KDE estimates in a file
             skipvoronois= .true.
          ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
@@ -178,11 +180,7 @@
             savevor= .true.
          ELSEIF (cmdbuffer == "-adj") THEN  ! save the Voronoi associations
             saveadj= .true.
-            ccmd = 10
-         ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
-            ccmd = 11
-         ELSEIF (cmdbuffer == "-z") THEN       ! add a background to the probability mixture
-            ccmd = 12
+            ccmd = 18
          ELSEIF (cmdbuffer == "-w") THEN       ! use weights
             weighted = .true.
          ELSEIF (cmdbuffer == "-v") THEN       ! verbosity flag
@@ -196,6 +194,8 @@
                WRITE(*,*) " No parameters specified!"
                CALL helpmessage
                CALL EXIT(-1)
+            ELSEIF (ccmd == 1) THEN            ! read the cluster smearing
+               READ(cmdbuffer,*) alpha
             ELSEIF (ccmd == 2) THEN            ! output file
                outputfile=trim(cmdbuffer)
             ELSEIF (ccmd == 3) THEN            ! model file
@@ -203,9 +203,19 @@
                clusterfile=trim(cmdbuffer)
             ELSEIF (ccmd == 1) THEN            ! read the cluster smearing
                READ(cmdbuffer,*) alpha
-            ELSEIF (ccmd == 10) THEN           ! read the cluster smearing
+            ELSEIF (ccmd == 18) THEN           ! read the cluster smearing
                READ(cmdbuffer,*) thrmerg
                IF (thrmerg<0) STOP "Put a positive number!"
+            ELSEIF (ccmd ==5) THEN ! read the seed
+               READ(cmdbuffer,*) lambda
+            ELSEIF (ccmd == 4) THEN ! localization parameter
+               READ(cmdbuffer,*) seed
+            ELSEIF (ccmd == 14) THEN ! localization parameter
+               READ(cmdbuffer,*) lfac
+            ELSEIF (ccmd == 6) THEN ! read the number of mean-shift steps
+               READ(cmdbuffer,*) nmsopt
+            ELSEIF (ccmd == 7) THEN ! number of grid points
+               READ(cmdbuffer,*) ngrid
             ELSEIF (ccmd == 8) THEN            ! read the num of bootstrap iterations
                READ(cmdbuffer,*) nbootstrap
                IF (nbootstrap<0) STOP "The number of iterations should be positive!"
@@ -213,24 +223,6 @@
                READ(cmdbuffer,*) D
                ALLOCATE(period(D))
                period=-1.0d0
-            ELSEIF (ccmd == 4) THEN ! read the seed
-               READ(cmdbuffer,*) seed
-            ELSEIF (ccmd == 6) THEN ! read the number of mean-shift steps
-               READ(cmdbuffer,*) nmsopt
-            ELSEIF (ccmd == 5) THEN ! cut-off for quick-shift
-               READ(cmdbuffer,*) lambda
-               IF (lambda.LE.0.0d0) STOP "The lambda should be real positive number!"
-               lambda2=lambda*lambda
-            ELSEIF (ccmd == 7) THEN ! number of grid points
-               READ(cmdbuffer,*) ngrid
-            ELSEIF (ccmd == 12) THEN ! read zeta 
-               READ(cmdbuffer,*) zeta
-            ELSEIF (ccmd == 13) THEN ! activate neb like behaviour 
-               READ(cmdbuffer,*) neblike
-            ELSEIF (ccmd == 14) THEN ! read localization parameter for adaptive 
-               READ(cmdbuffer,*) lfac
-            ELSEIF (ccmd == 15) THEN ! read threshold for the qs assignation 
-               READ(cmdbuffer,*) qserr
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
                IF (D<0) STOP "Dimensionality (-d) must precede the periodic lenghts (-p). "
                par_count = 1
@@ -250,8 +242,13 @@
                IF (period(par_count) == 6.28d0) period(par_count) = twopi
                IF (period(par_count) == 3.14d0) period(par_count) = twopi/2.0d0
                periodic=.true.   
-               
                IF (par_count/=D) STOP "Check the number of periodic dimensions (-p)!"
+            ELSEIF (ccmd == 12) THEN ! read zeta 
+               READ(cmdbuffer,*) zeta
+            ELSEIF (ccmd == 13) THEN ! activate neb like behaviour 
+               READ(cmdbuffer,*) neblike
+            ELSEIF (ccmd == 14) THEN ! read threshold for the qs assignation 
+               READ(cmdbuffer,*) qserr
             ENDIF
          ENDIF
       ENDDO
@@ -414,40 +411,7 @@
 
 
       IF(verbose) WRITE(*,*) &
-        "Local estimate of kernel widths"
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!                                                                    !! 
-!!!      Covariance/Variance estimation using Welford's algorithm      !!
-!!!                                                                    !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-!      !$omp parallel &
-!      !$omp default (none) &
-!      !$omp shared (ngrid,nsamples,D,period,y,x,verbose,lfac,Hi,periodic) &
-!      !$omp private (i,Qlocal,nlocal)
-!      !$omp DO
-!      DO i=1,ngrid
-!#ifdef _OPENMP
-!         IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!               WRITE(*,*) i,"/",ngrid," thread n. : ",omp_get_thread_num() 
-!#else
-!         IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!               WRITE(*,*) i,"/",ngrid
-!#endif   
-!        IF(periodic) THEN
-!          ! estimate local variance
-!          CALL pwcov(nsamples,D,period,x,y(:,i),lfac,Qlocal,nlocal)
-!        ELSE
-!          ! estimate local covariance
-!          CALL wcov(nsamples,D,x,y(:,i),lfac,Qlocal,nlocal)
-!        ENDIF
-
-!        ! estimate local bandwidth using Scotts rule of thumb
-!        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))  
-!      ENDDO
-!      !$omp ENDDO
-!      !$omp END PARALLEL      
+        "Local estimate of kernel widths"   
       
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !! 
@@ -457,11 +421,11 @@
   
       ! If not specified, all localization weights are set to one
       IF (lfac.GT.0.0d0) prefac = -0.5d0/(lfac*lfac) 
-      
+
       !$omp parallel &
       !$omp default (none) &
-      !$omp shared (ngrid,nsamples,D,period,y,x,verbose,Hi,periodic,prefac) &
-      !$omp private (i,ii,Qlocal,nlocal,wQ,dummd1,dummd2,xtmp,xtmpw)
+      !$omp shared (ngrid,nsamples,D,period,y,x,verbose,Hi,Hiinv,periodic,prefac,twopi) &
+      !$omp private (i,ii,Qlocal,nlocal,wQ,dummd1,dummd2,xtmp,xtmpw,normgmulti)
       !$omp DO
       DO i=1,ngrid
 #ifdef _OPENMP
@@ -499,42 +463,60 @@
           ENDIF
           xtmpw(ii,:) = xtmp(ii,:)*wQ
         ENDDO
-        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D) 
+        
+        ! estimate covariance/variances
+        IF (periodic) THEN
+          Qlocal = 0.0d0
+          DO ii=1,D
+            CALL DGEMM("N", "T", 1, 1, nsamples, 1.0d0, xtmp(ii,:), 1, xtmpw(ii,:), 1, 0.0d0, Qlocal(ii,ii), 1) 
+          ENDDO
+        ELSE 
+          CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
+        ENDIF
         Qlocal = Qlocal / (nlocal-1.0d0)
 
+        WRITE(*,*) Qlocal
+
         ! estimate local bandwidth using Scotts rule of thumb
-        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))  
-      ENDDO    
-      !$omp ENDDO
-      !$omp END PARALLEL 
-
-
-      DO i=1,ngrid
-        ! invert H and get the determinant
-        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
+        
+        ! estimate the normalization constants
         IF(periodic) THEN
-          dummd1=1.0d0
-          DO jj=1,D
-             concentrationK=Hiinv(jj,jj,i)
-             ! this is to avoid numerical errors
-             !IF(DLOG(Hi(jj,jj,i)).lt.(-2)) concentrationK=100.0d0
-             dummd1=dummd1*BESSI0(concentrationK)*twopi
+          dummd1 = 1.0d0
+          DO ii=1,D
+             dummd1=dummd1*BESSI0(Hiinv(ii,ii,i))*twopi
           ENDDO
           normgmulti(i) = 1.0d0/dummd1
         ELSE
           normgmulti(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
         ENDIF
-
-        ! get an estimation of the spherical sigma2 around the point
-        sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
-      ENDDO
+        ENDDO    
+      !$omp ENDDO
+      !$omp END PARALLEL 
       
-      ! set the lambda to be used in QS
-      IF(lambda.LT.0)THEN       
-         ! compute the median of the NN distances  
-         lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
-         lambda2=lambda*lambda
-      ENDIF
+        ! set the lambda to be used in QS
+        IF(lambda.LT.0)THEN       
+           ! compute the median of the NN distances  
+           lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
+           lambda2=lambda*lambda
+        ENDIF
+!<<<<<<< HEAD
+!
+!        ! get an estimation of the spherical sigma2 around the point
+!        sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
+!      ENDDO
+!      
+!      ! set the lambda to be used in QS
+!      IF(lambda.LT.0)THEN       
+!         ! compute the median of the NN distances  
+!         lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
+!         lambda2=lambda*lambda
+!      ENDIF
+!=======
+!      ENDDO    
+!      !$omp ENDDO
+!      !$omp END PARALLEL 
+!>>>>>>> 87a4771e157e1b84311035e5fc796b78761eca3a
       
       IF(verbose) WRITE(*,*) &
         "Computing kernel density on reference points"
@@ -545,7 +527,7 @@
       DO i=1,ngrid
         DO j=1,ngrid
           ! do not compute KDEs for points that belong to far away Voronoi
-          IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
+          ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
         
           dummd1 = 0.0d0
           IF(periodic .and. (nbootstrap.eq.0)) tmpcheck=0.0d0
@@ -604,7 +586,7 @@
           DO i=1,ngrid
             ! localization: do not compute KDEs for points that belong to far away Voronoi
             ! one could make this a bit more sophisticated, but this should be enough
-            IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE 
+            !IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE 
             
             tmpkernel=0.0d0
             DO k=1,nbssample
@@ -654,9 +636,15 @@
         ENDDO
       ENDIF
 
-      ! if desired write out the stuff
-      IF(saveprobs) CALL savegrid(outputfile,D,ngrid,y,prob,proberr,Hi)
-
+      ! set the lambda to be used in the old version of QS 
+      DO i=1,ngrid
+        sigma2(i) = trmatrix(D,Hi(:,:,i))/D
+      ENDDO
+      IF(lambda.LT.0)THEN
+         lambda=5.0d0 * SUM( DSQRT(sigma2) )/ngrid
+         lambda2=lambda*lambda
+      ENDIF
+      
       idxroot=0
       ! Start quick shift
 
@@ -708,7 +696,7 @@
          !print out the squared absolute error
          WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , &
                                                         " " , prob(i), " " , &
-                                                   proberr(i), " ",  DSQRT(sigma2(i)) 
+                                                   proberr(i), " ",  trmatrix(D,Hi(:,:,i))/DBLE(D) 
          ! accumulate the normalization factor for the pks
          normpks=normpks+prob(i)
       ENDDO
