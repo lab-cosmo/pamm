@@ -82,7 +82,7 @@
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, lfac2, prefac, R2
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normgmulti, wQ
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qlocal, Sw, Sinv, xtmp, xtmpw
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, Sw, Sinv, xtmp, xtmpw, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       
       
@@ -360,8 +360,8 @@
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
-      ALLOCATE(Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
-      ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),xij(D))
+      ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
+      ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
       ALLOCATE(wQ(nsamples),Sw(D,D),Sinv(D,D))
 
       ! Extract ngrid points on which the kernel density estimation is to be
@@ -412,7 +412,42 @@
 
       IF(verbose) WRITE(*,*) &
         "Local estimate of kernel widths"   
-      
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!                                                                    !!
+!!!               Calculate covariance matrix on grid                  !!
+!!!                                                                    !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      ! If not specified, all localization weights are set to one
+      IF (lfac.GT.0.0d0) prefac = -0.5d0/(lfac*lfac)
+
+      WRITE(*,*) "mean using sample points:"
+      DO ii=1,D
+        WRITE(*,*) SUM(x(ii,:))/nsamples
+      ENDDO
+
+      WRITE(*,*) "Q using sample points:"
+      DO ii=1,D
+        xtmp(ii,:) = x(ii,:) - SUM(x(ii,:))/nsamples
+      ENDDO
+      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmp, D, 0.0d0, Qlocal, D)
+      Qlocal = Qlocal / nsamples
+      WRITE(*,*) Qlocal
+
+      WRITE(*,*) "mean using grid points (and weights):"
+      DO ii=1,D
+        WRITE(*,*) SUM(y(ii,:)*npvoronoi/nsamples)
+      ENDDO
+
+      WRITE(*,*) "Q using grid points (and weights)"
+      DO ii=1,D
+        ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*npvoronoi)/nsamples
+        ytmpw(ii,:) = ytmp(ii,:)*npvoronoi/nsamples
+      ENDDO
+      CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
+      Qlocal = Qlocal / (1.0d0-SUM((npvoronoi/nsamples)**2.0d0))
+      WRITE(*,*) Qlocal
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !! 
 !!!          Full covariance matrix estimation using DGEMM             !!
@@ -475,8 +510,6 @@
         ENDIF
         Qlocal = Qlocal / (nlocal-1.0d0)
 
-        WRITE(*,*) Qlocal
-
         ! estimate local bandwidth using Scotts rule of thumb
         Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
         
@@ -490,33 +523,16 @@
         ELSE
           normgmulti(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
         ENDIF
-        ENDDO    
+      ENDDO
       !$omp ENDDO
       !$omp END PARALLEL 
       
-        ! set the lambda to be used in QS
-        IF(lambda.LT.0)THEN       
-           ! compute the median of the NN distances  
-           lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
-           lambda2=lambda*lambda
-        ENDIF
-!<<<<<<< HEAD
-!
-!        ! get an estimation of the spherical sigma2 around the point
-!        sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
-!      ENDDO
-!      
-!      ! set the lambda to be used in QS
-!      IF(lambda.LT.0)THEN       
-!         ! compute the median of the NN distances  
-!         lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
-!         lambda2=lambda*lambda
-!      ENDIF
-!=======
-!      ENDDO    
-!      !$omp ENDDO
-!      !$omp END PARALLEL 
-!>>>>>>> 87a4771e157e1b84311035e5fc796b78761eca3a
+      ! set the lambda to be used in QS
+      IF(lambda.LT.0)THEN
+        ! compute the median of the NN distances
+        lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
+        lambda2=lambda*lambda
+      ENDIF
       
       IF(verbose) WRITE(*,*) &
         "Computing kernel density on reference points"
@@ -908,8 +924,8 @@
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
       DEALLOCATE(diff,msmu,tmpmsmu)
-      DEALLOCATE(Qlocal,Hi,Hiinv,normgmulti)
-      DEALLOCATE(xtmp,xtmpw,xij)
+      DEALLOCATE(Q,Qlocal,Hi,Hiinv,normgmulti)
+      DEALLOCATE(xtmp,xtmpw,xij,ytmp,ytmpw)
       DEALLOCATE(wQ,Sw,Sinv)
       DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
