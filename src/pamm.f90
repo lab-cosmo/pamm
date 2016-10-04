@@ -97,7 +97,7 @@
       LOGICAL weighted                            ! flag for using weigheted data
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       INTEGER neblike                             ! iterations for neblike path search
-      DOUBLE PRECISION lambda, msw, alpha, zeta, kderr, dummd1, dummd2, convchk, lambda2
+      DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, dummd1, dummd2, convchk, lambda2
 
       ! DOUBLE PRECISION maxrgrid, minrgrid
       DOUBLE PRECISION mixbeta
@@ -117,7 +117,7 @@
       nmsopt=0               ! number of mean-shift refinements
       ngrid=-1               ! number of samples extracted with minmax
       seed=12345             ! seed for the random number generator
-      kderr=0.1              ! target fractional error for KDE smoothing
+      thrmerg=0.3d0          ! merge different clusters
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
@@ -160,8 +160,6 @@
             ccmd = 8
          ELSEIF (cmdbuffer == "-d") THEN       ! dimensionality
             ccmd = 9
-         ELSEIF (cmdbuffer == "-targeterror") THEN       ! Degrees of smoothening
-            ccmd = 10
          ELSEIF (cmdbuffer == "-neblike") THEN  ! use neb paths between the qs points
             ccmd = 13
          ELSEIF (cmdbuffer == "-loc") THEN  ! refine adptively sigma
@@ -180,6 +178,7 @@
             savevor= .true.
          ELSEIF (cmdbuffer == "-adj") THEN  ! save the Voronoi associations
             saveadj= .true.
+            ccmd = 10
          ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
             ccmd = 11
          ELSEIF (cmdbuffer == "-z") THEN       ! add a background to the probability mixture
@@ -205,8 +204,8 @@
             ELSEIF (ccmd == 1) THEN            ! read the cluster smearing
                READ(cmdbuffer,*) alpha
             ELSEIF (ccmd == 10) THEN           ! read the cluster smearing
-               READ(cmdbuffer,*) kderr
-               IF (kderr<0) STOP "Put a positive number as a relative error!"
+               READ(cmdbuffer,*) thrmerg
+               IF (thrmerg<0) STOP "Put a positive number!"
             ELSEIF (ccmd == 8) THEN            ! read the num of bootstrap iterations
                READ(cmdbuffer,*) nbootstrap
                IF (nbootstrap<0) STOP "The number of iterations should be positive!"
@@ -530,9 +529,10 @@
         sigma2(i) = trmatrix(D,Hi(:,:,i))/DBLE(D)
       ENDDO
       
-      ! set the lambda to be used in the old version of QS 
-      IF(lambda.LT.0)THEN
-         lambda=5.0d0 * SUM( DSQRT(sigma2(:)) )/ngrid
+      ! set the lambda to be used in QS
+      IF(lambda.LT.0)THEN       
+         ! compute the median of the NN distances  
+         lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
          lambda2=lambda*lambda
       ENDIF
       
@@ -667,8 +667,9 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-            qs_next(ngrid,qspath(counter),prob,distmm,rgrid,kderr,qserr,lambda2, & 
-                    verbose,neblike,nbootstrap,proberr)
+           ! qs_next(ngrid,qspath(counter),prob,distmm,rgrid,kderr,qserr,lambda2, & 
+           !         verbose,neblike,nbootstrap,proberr)
+            qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -722,7 +723,7 @@
          ! initialize each cluster to itself in the macrocluster assignation 
          macrocl(i)=i
          DO j=1,i-1
-             clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j)
+             clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j, proberr)
              clsadj(j,i) = clsadj(i,j)
          ENDDO
       ENDDO
@@ -743,7 +744,7 @@
             ! Put a threshold under which there is no link between the clusters
             ! now it is just a default
             IF(i.EQ.j) CYCLE ! discard yourself
-            IF(clsadj(i,j) .GT. 0.4d0) THEN 
+            IF(clsadj(i,j) .GT. thrmerg) THEN 
                IF(macrocl(j).EQ.j) THEN
                   ! the point is still initialized to himself 
                   macrocl(j)=macrocl(i)
@@ -784,15 +785,17 @@
         ENDIF
       ENDDO
       
-      IF (verbose) WRITE(6,"((A6,I7,A15))") "Found ",dummyi1," macroclusters."
-      OPEN(UNIT=11,FILE=trim(outputfile)//".macrogrid",STATUS='REPLACE',ACTION='WRITE')
-      DO i=1,ngrid
-         DO j=1,D
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
-         ENDDO
-         WRITE(11,"(A1,I4,A1,I4)") " ", idcls(i) , " ", macrocl(idcls(i))
-      ENDDO
-      CLOSE(UNIT=11)
+      IF (verbose) WRITE(6,"((A6,I7,A15))") " Found ",dummyi1," macroclusters."
+      IF (saveadj) THEN
+        OPEN(UNIT=11,FILE=trim(outputfile)//".macrogrid",STATUS='REPLACE',ACTION='WRITE')
+        DO i=1,ngrid
+           DO j=1,D
+             WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
+           ENDDO
+           WRITE(11,"(A1,I4,A1,I4)") " ", idcls(i) , " ", macrocl(idcls(i))
+        ENDDO
+        CLOSE(UNIT=11)
+      ENDIF
       
       ! now we can procede and complete the definition of probability model
       ! now qspath contains the indexes of Nk gaussians
@@ -825,10 +828,10 @@
             DO i=1,ngrid
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
                IF(periodic)THEN
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/25.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/16.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/25.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/16.0d0))
                   CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
                
@@ -975,7 +978,8 @@
          WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
          WRITE(*,*) "   -l sigma          : Localization width for local bayesian run [default: off] "
-         WRITE(*,*) "   -adj              : Write out the adjacency matrix between the clusters [default: off] "
+         WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
+         WRITE(*,*) "                       write out the adjacency matrix "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
@@ -987,6 +991,72 @@
          WRITE(*,*) "   -z zeta_factor : Probabilities below this threshold are counted as 'no cluster' [default:0]"
          WRITE(*,*) ""
       END SUBROUTINE helpmessage
+      
+      DOUBLE PRECISION FUNCTION median(ngrid,a)
+         INTEGER, INTENT(IN) :: ngrid
+         DOUBLE PRECISION, intent(in) :: a(ngrid)
+         
+         INTEGER :: l
+         DOUBLE PRECISION, dimension(size(a,1)) :: ac
+         
+         IF ( SIZE(a,1) < 1 ) THEN
+         ELSE
+           ac = a
+           ! this is not an intrinsic: peek a sort algo from
+           ! Category:Sorting, fixing it to work with real if
+           ! it uses integer instead.
+           CALL sort(ac,ngrid)
+           
+           l = SIZE(a,1)
+           IF ( mod(l, 2) == 0 ) THEN
+               median = (ac(l/2+1) + ac(l/2))/2.0
+           ELSE
+               median = ac(l/2+1)
+           END IF
+         END IF
+      END FUNCTION median
+      
+      INTEGER FUNCTION  findMinimum(x, startidx, endidx )
+         INTEGER, INTENT(IN) :: startidx, endidx
+         DOUBLE PRECISION, DIMENSION(1:), INTENT(IN) :: x
+         
+         DOUBLE PRECISION :: minimum
+         INTEGER :: location
+         INTEGER :: i
+   
+         minimum  = x(startidx)		! assume the first is the min
+         location = startidx			! record its position
+         DO i = startidx+1, endidx		! start with next elements
+            IF (x(i) < minimum) THEN	!   if x(i) less than the min?
+               minimum  = x(i)		!      Yes, a new minimum found
+               location = i                !      record its position
+            END IF
+         END DO
+         findMinimum = Location        	! return the position
+      END FUNCTION  findMinimum
+      
+      SUBROUTINE swap(aa, bb)
+      !  This subroutine swaps the values of its two formal arguments.
+         DOUBLE PRECISION, INTENT(INOUT) :: aa, bb
+         DOUBLE PRECISION                :: temp
+         temp = aa
+         aa = bb
+         bb = temp
+      END SUBROUTINE swap
+      
+      SUBROUTINE sort(x, nn)
+         ! This subroutine receives an array x() and sorts it into ascending order.
+         INTEGER, INTENT(IN) :: nn
+         DOUBLE PRECISION, INTENT(INOUT) :: x(nn)
+         
+         INTEGER  :: i
+         INTEGER  :: location
+      
+         DO i = 1, nn-1 ! except for the last
+            location = findMinimum(x, i, nn) ! find min from this to last
+            CALL  swap(x(i), x(location)) ! swap this and the minimum
+         END DO
+      END SUBROUTINE sort
 
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
@@ -1191,31 +1261,49 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      DOUBLE PRECISION FUNCTION cls_link(ngrid, idcls, distmm, prob, rgrid, ia, ib)
+      DOUBLE PRECISION FUNCTION cls_link(ngrid, idcls, distmm, prob, rgrid, ia, ib, errors)
          IMPLICIT NONE
          INTEGER, INTENT(IN) :: ngrid, idcls(ngrid), ia, ib
          DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid, ngrid), prob(ngrid), rgrid(ngrid)
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: errors
          
          INTEGER i, j
-         DOUBLE PRECISION mxa, mxb, mxab, pab
-         mxa = 0
-         mxb = 0
-         mxab = 0
+         DOUBLE PRECISION mxa, mxb, mxab, pab, emxa, emxb, emxab, tmpmin
+         mxa = 0.0d0
+         mxb = 0.0d0
+         mxab = 0.0d0
+         emxa = 0.0d0
+         emxb = 0.0d0
+         emxab = 0.0d0
          DO i=1, ngrid
             IF (idcls(i)/=ia) CYCLE
-            IF (prob(i).gt.mxa) mxa = prob(i) ! also gets the probability density at the mode of cluster a
+            IF (prob(i).gt.mxa) THEN
+               mxa = prob(i)
+               emxa = errors(i)*prob(i) ! also gets the probability density at the mode of cluster a
+            ENDIF
             DO j=1,ngrid
                IF (idcls(j)/=ib) CYCLE
-               IF (prob(j).gt.mxb) mxb = prob(j)
+               IF (prob(j).gt.mxb) THEN
+                  mxb = prob(j)
+                  emxb = errors(j)*prob(j)
+               ENDIF
                ! Ok, we've got a matching pair
                IF (dsqrt(distmm(i,j))<dsqrt(rgrid(i))+dsqrt(rgrid(j))) THEN
                   ! And they are close together!
                   pab = (prob(i)+prob(j))/2
-                  IF (pab .gt. mxab) mxab = pab
+                  IF (pab .gt. mxab) THEN
+                     mxab = pab
+                     emxab = DSQRT((errors(i)*prob(i))**2 &
+                               +(errors(j)*prob(j))**2)
+                  ENDIF
                ENDIF               
             ENDDO            
          ENDDO
-         cls_link = mxab/min(mxa,mxb) 
+         IF(mxa.EQ.0)THEN
+            cls_link=0.0d0
+         ELSE
+            cls_link = (mxab+emxab)/min(max(mxa-emxa,0.0d0),max(mxb-emxb,0.0d0))
+         ENDIF
       END FUNCTION
       
       SUBROUTINE build_path(ngrid, path, i0, i1, npath, distmm, rgrid) 
@@ -1343,156 +1431,145 @@
          ENDDO
       END SUBROUTINE
       
-      INTEGER FUNCTION qs_next(ngrid,idx,prob,distmm,rgrid,kderr,qserr,lambda2, &
-                               verbose,neblike,nbootstrap,errors)
+!      INTEGER FUNCTION qs_next(ngrid,idx,prob,distmm,rgrid,kderr,qserr,lambda2, &
+!                               verbose,neblike,nbootstrap,errors)
+!         ! Return the index of the closest point higher in P
+!         ! 
+!         ! Args:
+!         !    ngrid:   number of grid points
+!         !    idx:     current point
+!         !    prob:    density estimations
+!         !    distmm:  distances matrix
+!         !    rgrid:  
+!         !    kderr:
+!         !    qserr:
+!         !    lambda2: cut-off in the jump
+!         !    verbose:
+!         !    neblike
+!         !    nbootstrap
+!         !    errors
+!
+!
+!         IMPLICIT NONE
+!         INTEGER, INTENT(IN) :: ngrid
+!         DOUBLE PRECISION, INTENT(IN), DIMENSION(ngrid) :: rgrid
+!         INTEGER, INTENT(IN) :: idx,nbootstrap
+!         DOUBLE PRECISION, INTENT(IN) :: kderr,qserr,lambda2
+!         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: prob
+!         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
+!         LOGICAL, INTENT(IN) :: verbose
+!         INTEGER, INTENT(IN) :: neblike
+!         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: errors
+!
+!         INTEGER i, j, ndx
+!         
+!         INTEGER :: npath
+!         INTEGER :: path(ngrid)
+!         LOGICAL :: fsaddle, fjump
+!         DOUBLE PRECISION :: dmin
+!
+!
+!         dmin=1.0d100
+!         ! find the nearest point with higher probability         
+!         ndx=idx
+!         DO j=1,ngrid       
+!            IF( (prob(j) .GT. prob(idx)) .AND. & 
+!                ((prob(j)-errors(j)) .GT. (prob(idx)+errors(idx))) )THEN 
+!               IF(distmm(idx,j) .LT. dmin)THEN
+!                   ndx=j
+!                   dmin=distmm(idx,j)
+!               ENDIF
+!            ENDIF
+!         ENDDO
+!           
+!           
+!           
+!         qs_next=idx  
+!         IF( (distmm(idx,ndx).LT.(lambda2)) ) THEN 
+!            
+!           qs_next = ndx   
+!           IF (ndx/=idx) THEN         
+!              npath = 0
+!              ! builds a discrete near-linear path between the end points
+!    
+!    ! TO BE CHECKED. Somehow there could be a SIGSEV if the array is not initialized
+!    ! to an initial value. There is an error somewhere that has to be debugged
+!     path=idx
+!     
+!              CALL build_path(ngrid, path, idx, ndx, npath, distmm, rgrid) 
+!              ! refine the path aiming for a "maximum probability path" 
+!              IF (npath > 2) THEN  ! does a few iterations for path refinement
+!                 DO i=1,3!neblike
+!                    CALL neb_path(ngrid, path, npath, distmm, prob, 0.1d0)
+!                 ENDDO
+!              ENDIF            
+!              
+!              fsaddle = .false.
+!              fjump = .false.
+!              ! check if the path goes downhill to within accuracy
+!              DO i=2,npath-1   
+!                    IF ( ((prob(path(i))-prob(idx))/ &
+!                       (prob(path(i))+prob(idx))<-0.03d0) )THEN 
+!                    !    IF(errors(idx)/errors(path(i))<0.3d0) CYCLE 
+!                        qs_next = idx
+!                        fsaddle = .true.
+!                        EXIT
+!                    ENDIF
+!              ENDDO
+!              ! check if the path contains crazy jumps
+!              DO i=1,npath-1
+!                 IF (dsqrt( distmm(path(i),path(i+1)) ) >  &
+!                    6*(dsqrt(rgrid(path(i)))+dsqrt(rgrid(path(i+1)))) ) THEN
+!                    qs_next=idx ! abort jump!
+!                    fjump = .true.
+!                    EXIT
+!                 ENDIF
+!              ENDDO  
+!              IF (verbose .and. (fsaddle .or. fjump)) THEN
+!                 dmin = 0.0d0
+!                 IF (fsaddle) write(*,*) "# SADDLE POINT DETECTED"
+!                 IF (fjump) write(*,*) "# SADDLE POINT DETECTED"            
+!                 write(*,*) 1, dmin, prob(path(1)), path(1), y(:,path(1))
+!                 DO j=2,npath                        
+!                    dmin = dmin + distmm(path(j),path(j-1))
+!                    write(*,*) j, dmin, prob(path(j)), path(j), y(:,path(j))
+!                 ENDDO
+!              ENDIF   
+!           ENDIF   
+!         ENDIF
+!         
+!                     
+!      END FUNCTION qs_next
+
+      INTEGER FUNCTION qs_next(ngrid,idx,lambda2,probnmm,distmm)
          ! Return the index of the closest point higher in P
-         ! 
+         !
          ! Args:
-         !    ngrid:   number of grid points
-         !    idx:     current point
-         !    prob:    density estimations
-         !    distmm:  distances matrix
-         !    rgrid:  
-         !    kderr:
-         !    qserr:
-         !    lambda2: cut-off in the jump
-         !    verbose:
-         !    neblike
-         !    nbootstrap
-         !    errors
+         !    ngrid: number of grid points
+         !    idx: current point
+         !    lambda: cut-off in the jump
+         !    probnmm: density estimations
+         !    distmm: distances matrix
 
-
-         IMPLICIT NONE
          INTEGER, INTENT(IN) :: ngrid
-         DOUBLE PRECISION, INTENT(IN), DIMENSION(ngrid) :: rgrid
-         INTEGER, INTENT(IN) :: idx,nbootstrap
-         DOUBLE PRECISION, INTENT(IN) :: kderr,qserr,lambda2
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: prob
+         INTEGER, INTENT(IN) :: idx
+         DOUBLE PRECISION, INTENT(IN) :: lambda2
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-         LOGICAL, INTENT(IN) :: verbose
-         INTEGER, INTENT(IN) :: neblike
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: errors
 
-         INTEGER i, j, ndx
-         
-         INTEGER :: npath
-         INTEGER :: path(ngrid)
-         LOGICAL :: fsaddle, fjump
-         DOUBLE PRECISION :: dmin,relerr
-            
-         dmin=1.0d100
-         relerr=0.1d0
-! find the nearest point with higher probability         
-         IF(neblike>0)THEN
-            ndx=idx
-            DO j=1,ngrid       
-               IF(prob(j)>prob(idx))THEN 
-                 ! IF(nbootstrap>0)THEN     
-                 !   ! ok, chek the error associated
-                 !   relerr=DSQRT(errors(j)**2+errors(idx)**2)/(prob(j)-prob(idx))
-                 !   IF(relerr>qserr) CONTINUE
-                 ! ENDIF
-                  IF(distmm(idx,j).lt.dmin)THEN
-                      ndx=j
-                      dmin=distmm(idx,j)
-                  ENDIF
+         INTEGER j
+         DOUBLE PRECISION dmin
+
+         dmin=1.0d10
+         qs_next=idx
+         DO j=1,ngrid
+            IF(probnmm(j).GT.probnmm(idx))THEN
+               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda2))THEN
+                  dmin=distmm(idx,j)
+                  qs_next=j
                ENDIF
-            ENDDO
-                     
-            qs_next = ndx   
-            IF (ndx/=idx) THEN         
-               npath = 0
-               ! builds a discrete near-linear path between the end points
-     
-     ! TO BE CHECKED. Somehow there could be a SIGSEV if the array is not initialized
-     ! to an initial value. There is an error somewhere that has to be debugged
-      path=idx
-      
-               CALL build_path(ngrid, path, idx, ndx, npath, distmm, rgrid) 
-               ! refine the path aiming for a "maximum probability path" 
-               IF (npath > 2) THEN  ! does a few iterations for path refinement
-                  DO i=1,neblike
-                     CALL neb_path(ngrid, path, npath, distmm, prob, 0.1d0)
-                  ENDDO
-               ENDIF            
-               
-               fsaddle = .false.
-               fjump = .false.
-               ! check if the path goes downhill to within accuracy
-               DO i=2,npath-1   
-                  !IF(nbootstrap>0)THEN
-                  !   relerr= (prob(path(i))-prob(idx)) / &
-                  !           DSQRT(errors(path(i))**2+errors(idx)**2) 
-                  !   IF(ABS(relerr)>qserr) THEN
-                  !       qs_next = idx 
-                  !       EXIT
-                  !   ENDIF
-                  !ELSE
-                     !IF ( ((prob(path(i))-prob(idx))/ &
-                     !   (prob(path(i))+prob(idx))<-3*relerr) )THEN 
-                     IF(prob(path(i))<prob(path(idx)))THEN
-                     !   (prob(path(i))+prob(idx))<-3*relerr) )THEN
-                         IF(errors(idx)/errors(path(i))<0.3d0) CYCLE 
-                         qs_next = idx
-                         fsaddle = .true.
-                         EXIT
-                     ENDIF
-                  !ENDIF
-                  !IF ((prob(path(i))-prob(idx))/ &
-                  !    (prob(path(i))+prob(idx))<-3*kderr) THEN 
-                  !   ! yey! we found a point lower in probability so we should not jump!
-                  !   qs_next = idx       
-                  !   !IF (verbose) THEN
-                  !   !   dmin = 0.0d0
-                  !   !   write(*,*) "# SADDLE POINT DETECTED"
-                  !   !   write(*,*) 1, dmin, prob(path(1)), path(1)
-                  !   !   DO j=2,npath                        
-                  !   !      dmin = dmin + distmm(path(j),path(j-1))
-                  !   !      write(*,*) j, dmin, prob(path(j)), path(j)                        
-                  !   !   ENDDO
-                  !   !ENDIF
-                  !   EXIT
-                  !ENDIF
-               ENDDO
-               ! check if the path contains crazy jumps
-               DO i=1,npath-1
-                  IF (dsqrt( distmm(path(i),path(i+1)) ) >  &
-                     6*(dsqrt(rgrid(path(i)))+dsqrt(rgrid(path(i+1)))) ) THEN
-                     qs_next=idx ! abort jump!
-                     fjump = .true.
-                     EXIT
-                  ENDIF
-               ENDDO  
-               IF (verbose .and. (fsaddle .or. fjump)) THEN
-                  dmin = 0.0d0
-                  IF (fsaddle) write(*,*) "# SADDLE POINT DETECTED"
-                  IF (fjump) write(*,*) "# SADDLE POINT DETECTED"            
-                  write(*,*) 1, dmin, prob(path(1)), path(1), y(:,path(1))
-                  DO j=2,npath                        
-                     dmin = dmin + distmm(path(j),path(j-1))
-                     write(*,*) j, dmin, prob(path(j)), path(j), y(:,path(j))
-                  ENDDO
-               ENDIF   
-            ENDIF         
-         ELSE
-            qs_next=idx
-            DO j=1,ngrid
-               !IF((prob(j)-errors(j))>(prob(idx)+errors(idx)))THEN
-               IF(((prob(j))>(prob(idx))) .or. &
-                 ! try to use the error info to estimate if the case to jump
-                 ((prob(j)-errors(j))>(prob(idx)+errors(idx))))THEN
-                  ! ok, check the error associated
-                  
-                  !relerr=DSQRT(errors(j)**2+errors(idx)**2)
-                  !IF(((prob(j)-prob(idx))/relerr)>qserr) CYCLE
-                  IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.(lambda2))) THEN
-                     dmin=distmm(idx,j)
-                     qs_next=j
-                  ENDIF
-               ENDIF
-            ENDDO
-         ENDIF
-         
+            ENDIF
+         ENDDO
       END FUNCTION qs_next
       
       DOUBLE PRECISION FUNCTION fmultikernel(D,period,x,y,icov)
