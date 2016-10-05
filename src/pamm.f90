@@ -580,30 +580,49 @@
       
       DO i=1,ngrid
         DO j=1,ngrid
-          ! do not compute KDEs for points that belong to far away Voronoi
-          IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>36.0d0) CYCLE  
-            
+          
           dummd1 = 0.0d0
           IF(periodic .and. (nbootstrap.eq.0)) tmpcheck=0.0d0
-          ! cycle just inside the polyhedra using the neighbour list
-          DO k=pnlist(j)+1,pnlist(j+1)
+          
+          IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>36.0d0) THEN
+            ! assume distribution in far away grid point is narrow
             IF(periodic)THEN
               dummd2=1.0d0
-              CALL pammrij(D, period, y(:,i),x(:,nlist(k)), xij)
+              CALL pammrij(D, period, y(:,i), y(:,j), xij)
               DO jj=1,D
-                 dummd2=dummd2* &
-                   fkernelvm(Hiinv(jj,jj,j),xij(jj))
+                 dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
               ENDDO
-              tmpkernel = wj(nlist(k))*dummd2
+              ! TODO: change npvoronoi to the sum of weights
+              tmpkernel = npvoronoi(j) * dummd2
               IF(nbootstrap.eq.0) &
-                tmpcheck = tmpcheck + &
-                  wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
+                tmpcheck = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j)) &
+                         * npvoronoi(j) &
+                         + tmpcheck 
             ELSE
-              tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
+              tmpkernel = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j))*npvoronoi(j)
             ENDIF     
-            dummd1 = dummd1 + tmpkernel    
-          ENDDO
-          
+            dummd1 = tmpkernel
+          ELSE
+            ! cycle just inside the polyhedra using the neighbour list
+            DO k=pnlist(j)+1,pnlist(j+1)
+              IF(periodic)THEN
+                dummd2=1.0d0
+                CALL pammrij(D, period, y(:,i),x(:,nlist(k)), xij)
+                DO jj=1,D
+                   dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
+                ENDDO
+                tmpkernel = wj(nlist(k)) * dummd2
+                IF(nbootstrap.eq.0) &
+                  tmpcheck = fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) &
+                           * wj(nlist(k)) &
+                           + tmpcheck 
+              ELSE
+                tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
+              ENDIF     
+              dummd1 = dummd1 + tmpkernel    
+            ENDDO
+          ENDIF
+            
           ! get the non-normalized prob, used to compute the estimate of the error
           IF(periodic .and. (nbootstrap.eq.0)) THEN
             ! If we are using VM kernels and we are not estimating the error using BS
@@ -614,6 +633,7 @@
           ENDIF
           ! We now have to normalize the kernel
           prob(i) = prob(i) + dummd1*normkernel(j)
+          
         ENDDO          
       ENDDO
       prob=prob/normwj
