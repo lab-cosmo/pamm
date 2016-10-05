@@ -581,8 +581,8 @@
       DO i=1,ngrid
         DO j=1,ngrid
           ! do not compute KDEs for points that belong to far away Voronoi
-          ! IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE
-        
+          IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>36.0d0) CYCLE  
+            
           dummd1 = 0.0d0
           IF(periodic .and. (nbootstrap.eq.0)) tmpcheck=0.0d0
           ! cycle just inside the polyhedra using the neighbour list
@@ -640,7 +640,7 @@
           DO i=1,ngrid
             ! localization: do not compute KDEs for points that belong to far away Voronoi
             ! one could make this a bit more sophisticated, but this should be enough
-            !IF (distmm(i,j)/sigma2(j)>36.0d0) CYCLE 
+            IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>36.0d0) CYCLE  
             
             tmpkernel=0.0d0
             DO k=1,nbssample

@@ -822,7 +822,7 @@
 !         pammcov = n / (n - 1) * M12
 !      END FUNCTION pammcov
       
-      DOUBLE PRECISION FUNCTION mahalanobi(D,period,x,y,icov)
+      DOUBLE PRECISION FUNCTION mahalanobis(D,period,x,y,icov)
          ! Return the mahalanobi distance between two points
          ! Args:
          !    ...
@@ -838,8 +838,8 @@
          tmpv = MATMUL(dv,icov)
          xcx = DOT_PRODUCT(dv,tmpv)
 
-         mahalanobi = xcx
-      END FUNCTION mahalanobi
+         mahalanobis = xcx
+      END FUNCTION mahalanobis
       
       SUBROUTINE pammdx(D,n,period,x,xm,dx)
          INTEGER, INTENT(IN) :: D
