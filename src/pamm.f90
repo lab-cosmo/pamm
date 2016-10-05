@@ -467,7 +467,8 @@
         
         ! assign bandwidth using scotts rule
         Hi(:,:,i) = Q * nlocal**(-1.0d0/(D+4.0d0))
-        
+        ! inverse of the bandwidth matrix
+        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
         
         ! estimate the normalization constants
         IF(periodic) THEN
