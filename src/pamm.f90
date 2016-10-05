@@ -81,7 +81,7 @@
       DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, lfac2, prefac, R2
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normgmulti, wQ
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normgmulti, wQ, wQgrid
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, Sw, Sinv, xtmp, xtmpw, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       
@@ -362,7 +362,7 @@
       ! Allocate variables for local bandwidth estimate
       ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
-      ALLOCATE(wQ(nsamples),Sw(D,D),Sinv(D,D))
+      ALLOCATE(wQ(nsamples),Sw(D,D),Sinv(D,D),wQgrid(ngrid))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -416,37 +416,87 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!               Calculate covariance matrix on grid                  !!
+!!!                 utilizing a two pass algorithm                     !!
 !!!                                                                    !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
       ! If not specified, all localization weights are set to one
       IF (lfac.GT.0.0d0) prefac = -0.5d0/(lfac*lfac)
 
-      WRITE(*,*) "mean using sample points:"
-      DO ii=1,D
-        WRITE(*,*) SUM(x(ii,:))/nsamples
+      DO i=1,ngrid
+        ! localization
+        DO ii=1,D
+          ytmp(ii,:) = y(ii,:)-y(ii,i)
+          IF (period(ii)<=0.0d0) CYCLE    
+          ! minimum image convention  
+          ytmp(ii,:) = ytmp(ii,:) / period(ii)
+          ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
+          ytmp(ii,:) = ytmp(ii,:) * period(ii)
+        ENDDO
+        ! estimate weights for localization as product from 
+        ! spherical gaussian weights and points in voronoi
+        wQgrid = EXP(prefac*SUM(ytmp*ytmp,1))  
+        nlocal = SUM(npvoronoi*wQgrid)
+        wQgrid = wQgrid / SUM(wQgrid) * npvoronoi/nsamples
+        
+        ! estimate the mean
+        DO ii=1,D
+          IF (period(ii)>0.0d0) THEN
+            dummd1 = SUM(SIN(y(ii,:))*wQgrid)
+            dummd2 = SUM(COS(y(ii,:))*wQgrid)
+            ytmp(ii,:) = y(ii,:) - ATAN2(dummd1,dummd2)
+            ! minimum image convention
+            ytmp(ii,:) = ytmp(ii,:) / period(ii)
+            ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
+            ytmp(ii,:) = ytmp(ii,:) * period(ii)
+          ELSE
+            ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wQgrid)
+          ENDIF
+          ytmpw(ii,:) = ytmp(ii,:)*wQgrid
+        ENDDO
+        
+        ! estimate covariance/variances
+        CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Q, D)
+        Q = Q / (1.0d0-SUM(wQgrid**2.0d0))
+        WRITE(*,*) 'local cov from grid: ', Q(1,1)
+        
+        ! localization
+        DO ii=1,D
+          xtmp(ii,:) = x(ii,:)-y(ii,i)
+          IF (period(ii)<=0.0d0) CYCLE    
+          ! minimum image convention     
+          xtmp(ii,:) = xtmp(ii,:) / period(ii)
+          xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
+          xtmp(ii,:) = xtmp(ii,:) * period(ii)
+        ENDDO
+        wQ = EXP(prefac*SUM(xtmp*xtmp,1))
+        nlocal = SUM(wQ) 
+        wQ = wQ / nlocal
+        
+        ! estimate the mean
+        DO ii=1,D
+          IF (period(ii)>0.0d0) THEN
+            dummd1 = SUM(SIN(x(ii,:))*wQ)
+            dummd2 = SUM(COS(x(ii,:))*wQ)
+            xtmp(ii,:) = x(ii,:) - ATAN2(dummd1,dummd2)
+            ! minimum image convention
+            xtmp(ii,:) = xtmp(ii,:) / period(ii)
+            xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
+            xtmp(ii,:) = xtmp(ii,:) * period(ii)
+          ELSE
+            xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wQ)
+          ENDIF
+          xtmpw(ii,:) = xtmp(ii,:)*wQ
+        ENDDO
+        WRITE(*,*) 'local sample mean: ', SUM(x(ii,:)*wQ)
+        
+        ! estimate covariance/variances
+        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
+        Qlocal = Qlocal / (1.0d0-SUM(wQ**2.0d0))
+        WRITE(*,*) 'local cov from samples: ', Qlocal(1,1)
+        
       ENDDO
 
-      WRITE(*,*) "Q using sample points:"
-      DO ii=1,D
-        xtmp(ii,:) = x(ii,:) - SUM(x(ii,:))/nsamples
-      ENDDO
-      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmp, D, 0.0d0, Qlocal, D)
-      Qlocal = Qlocal / nsamples
-      WRITE(*,*) Qlocal
-
-      WRITE(*,*) "mean using grid points (and weights):"
-      DO ii=1,D
-        WRITE(*,*) SUM(y(ii,:)*npvoronoi/nsamples)
-      ENDDO
-
-      WRITE(*,*) "Q using grid points (and weights)"
-      DO ii=1,D
-        ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*npvoronoi)/nsamples
-        ytmpw(ii,:) = ytmp(ii,:)*npvoronoi/nsamples
-      ENDDO
-      CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
-      Qlocal = Qlocal / (1.0d0-SUM((npvoronoi/nsamples)**2.0d0))
-      WRITE(*,*) Qlocal
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !! 
@@ -498,6 +548,7 @@
           ENDIF
           xtmpw(ii,:) = xtmp(ii,:)*wQ
         ENDDO
+        !WRITE(*,*) 'local mean using sample points: ', SUM(x(ii,:)*wQ)/nlocal
         
         ! estimate covariance/variances
         IF (periodic) THEN
@@ -509,6 +560,7 @@
           CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
         ENDIF
         Qlocal = Qlocal / (nlocal-1.0d0)
+        !WRITE(*,*) 'local cov from samples: ', Q
 
         ! estimate local bandwidth using Scotts rule of thumb
         Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
@@ -926,7 +978,7 @@
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normgmulti)
       DEALLOCATE(xtmp,xtmpw,xij,ytmp,ytmpw)
-      DEALLOCATE(wQ,Sw,Sinv)
+      DEALLOCATE(wQ,Sw,Sinv,wQgrid)
       DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
