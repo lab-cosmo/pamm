@@ -117,7 +117,7 @@
       nmsopt=0               ! number of mean-shift refinements
       ngrid=-1               ! number of samples extracted with minmax
       seed=12345             ! seed for the random number generator
-      thrmerg=0.3d0          ! merge different clusters
+      thrmerg=0.8d0          ! merge different clusters
       lambda=-1              ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted= .false.      ! don't use the weights
@@ -1347,7 +1347,7 @@
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: errors
          
          INTEGER i, j
-         DOUBLE PRECISION mxa, mxb, mxab, pab, emxa, emxb, emxab, tmpmin
+         DOUBLE PRECISION mxa, mxb, mxab, pab, emxa, emxb, emxab, tmpmin, g1, g2
          mxa = 0.0d0
          mxb = 0.0d0
          mxab = 0.0d0
@@ -1378,10 +1378,14 @@
                ENDIF               
             ENDDO            
          ENDDO
-         IF(mxa.EQ.0)THEN
+         
+         
+         IF(mxab.EQ.0)THEN
             cls_link=0.0d0
          ELSE
-            cls_link = (mxab+emxab)/min(max(mxa-emxa,0.0d0),max(mxb-emxb,0.0d0))
+            g1=(mxab+emxab)/min(max(mxa-emxa,0.0d0),max(mxb-emxb,0.0d0))
+            g2=(mxab-emxab)/min(max(mxa+emxa,0.0d0),max(mxb+emxb,0.0d0))
+            cls_link = min(1.0d0,max(g1,g2))
          ENDIF
       END FUNCTION
       
