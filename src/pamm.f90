@@ -419,10 +419,25 @@
 !!!                 utilizing a two pass algorithm                     !!
 !!!                                                                    !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      ! set the lambda to be used in QS
+      IF(lambda.LT.0)THEN
+        ! compute the median of the NN distances
+        lambda=5.0d0*median(ngrid,DSQRT(rgrid(:)))
+        lambda2=lambda*lambda
+      ENDIF
+      ! if not specified localization is set to lambda
+      IF (lfac.LE.0.0d0) THEN
+        lfac = lambda
+      ENDIF
+      prefac = -0.5d0/(lfac*lfac)
 
-      ! If not specified, all localization weights are set to one
-      IF (lfac.GT.0.0d0) prefac = -0.5d0/(lfac*lfac)
+      WRITE(*,*) 'median: ', median(ngrid,DSQRT(rgrid(:)))
+      WRITE(*,*) 'mean  : ', SUM(DSQRT(rgrid(:)))/ngrid
 
+
+      IF(verbose) WRITE(*,*) &
+        " using a localization factor of ", lfac  
+      WRITE(*,*) median(ngrid,DSQRT(rgrid(:)))
       DO i=1,ngrid
         ! localization
         DO ii=1,D
@@ -467,6 +482,15 @@
         
         ! assign bandwidth using scotts rule
         Hi(:,:,i) = Q * nlocal**(-1.0d0/(D+4.0d0))
+        ! set off-diagonal terms to zero for periodic data
+        IF(periodic) THEN
+          DO ii=1,D
+           DO jj=1,ii-1
+              Hi(ii,jj,i) = 0.0d0
+              Hi(jj,ii,i) = 0.0d0
+           ENDDO
+          ENDDO
+        ENDIF
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
         
@@ -564,13 +588,7 @@
 !      ENDDO
 !      !$omp ENDDO
 !      !$omp END PARALLEL 
-!      
-      ! set the lambda to be used in QS
-      IF(lambda.LT.0)THEN
-        ! compute the median of the NN distances
-        lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
-        lambda2=lambda*lambda
-      ENDIF
+!     
       
       IF(verbose) WRITE(*,*) &
         "Computing kernel density on reference points"
@@ -584,7 +602,7 @@
           dummd1 = 0.0d0
           IF(periodic .and. (nbootstrap.eq.0)) tmpcheck=0.0d0
           
-          IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>36.0d0) THEN
+          IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>16.0d0) THEN
             ! assume distribution in far away grid point is narrow
             IF(periodic)THEN
               dummd2=1.0d0
@@ -599,9 +617,8 @@
                          * npvoronoi(j) &
                          + tmpcheck 
             ELSE
-              tmpkernel = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j))*npvoronoi(j)
+              dummd1 = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j))*npvoronoi(j)
             ENDIF     
-            dummd1 = tmpkernel
           ELSE
             ! cycle just inside the polyhedra using the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
