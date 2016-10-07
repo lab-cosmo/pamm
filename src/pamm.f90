@@ -46,18 +46,17 @@
       INTEGER nsamples                                        ! Total number points
       INTEGER ngrid                                           ! Number of samples extracted using minmax
 
-      INTEGER jmax,ii,jj
+      INTEGER jmax
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, bigp, &
                                                      msmu, tmpmsmu, pcluster, px, &
                                                      oldsigma2
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: normvoro ! accumulator for wj in voronoi
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
       INTEGER seed                                            ! seed for the random number generator
-      INTEGER mode                                            ! KDE mode selection
-
+      
       ! variable to set the covariance matrix
       DOUBLE PRECISION tmppks,normpks,tmpkernel
-      DOUBLE PRECISION tmpad, tmpadb
     
       ! Array of Von Mises distributions
       TYPE(vm_type), ALLOCATABLE, DIMENSION(:) :: vmclusters
@@ -77,10 +76,10 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: proberr
       INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
-      INTEGER nbootstrap, rndidx, rngidx, nn, nbssample, nbstot
-      DOUBLE PRECISION tmperr, tmpcheck, qserr, concentrationK
+      INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
+      DOUBLE PRECISION tmpcheck, qserr
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, lfac, lfac2, prefac, R2
+      DOUBLE PRECISION nlocal, lfac, prefac
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wQgrid
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, Sw, Sinv, xtmp, xtmpw, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
@@ -97,14 +96,14 @@
       LOGICAL weighted                            ! flag for using weigheted data
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       INTEGER neblike                             ! iterations for neblike path search
-      DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, dummd1, dummd2, convchk, lambda2
+      DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, lambda2
 
       ! DOUBLE PRECISION maxrgrid, minrgrid
       DOUBLE PRECISION mixbeta
+      ! Counters and dummy variable
+      INTEGER i,j,k,ii,jj,counter,dummyi1,endf
+      DOUBLE PRECISION dummd1,dummd2
 
-      INTEGER i,j,k,m,n,ikde,counter,dummyi1,dummyi2,endf ! Counters and dummy variable
-
-      DOUBLE PRECISION  bigperr, tmpbigp, gnorm
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile="out"
       clusterfile="NULL"
@@ -356,7 +355,7 @@
       ALLOCATE(y(D,ngrid), npvoronoi(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
       ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
       ALLOCATE(diff(D), msmu(D), tmpmsmu(D), oldsigma2(ngrid))
-      ALLOCATE(proberr(ngrid),normkernel(ngrid),bigp(ngrid))
+      ALLOCATE(proberr(ngrid),normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
@@ -372,8 +371,8 @@
          WRITE(*,*) "Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
-      CALL mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj)
-  
+      CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro)
+      
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
       CALL getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
@@ -419,6 +418,10 @@
 !!!                 utilizing a two pass algorithm                     !!
 !!!                                                                    !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      ! estimate rough estimate of bandwidth 
+      DO i=1,ngrid
+        sigma2(i) = trmatrix(D,Hi(:,:,i))/D
+      ENDDO
       ! set the lambda to be used in QS
       IF(lambda.LT.0)THEN
         ! compute the median of the NN distances
@@ -449,14 +452,15 @@
           ytmp(ii,:) = ytmp(ii,:) * period(ii)
         ENDDO
         ! estimate weights for localization as product from 
-        ! spherical gaussian weights and points in voronoi
+        ! spherical gaussian weights and weights in voronoi
         wQgrid = EXP(prefac*SUM(ytmp*ytmp,1))  
         ! estimate local number of sample points
-        nlocal = SUM(npvoronoi*wQgrid)
+        nlocal = SUM(normvoro*wQgrid)
+        
         ! normalize weights
         wQgrid = wQgrid / SUM(wQgrid)
         ! add the voronoi weights
-        wQgrid = wQgrid * npvoronoi/nsamples
+        wQgrid = wQgrid * normvoro/normwj
         ! renormalize again
         wQgrid = wQgrid / SUM(wQgrid)
         
@@ -610,14 +614,13 @@
               DO jj=1,D
                  dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
               ENDDO
-              ! TODO: change npvoronoi to the sum of weights
-              tmpkernel = npvoronoi(j) * dummd2
+              tmpkernel = normvoro(j) * dummd2
               IF(nbootstrap.eq.0) &
                 tmpcheck = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j)) &
-                         * npvoronoi(j) &
+                         * normvoro(j) &
                          + tmpcheck 
             ELSE
-              dummd1 = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j))*npvoronoi(j)
+              dummd1 = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j))*normvoro(j)
             ENDIF     
           ELSE
             ! cycle just inside the polyhedra using the neighbour list
@@ -727,15 +730,6 @@
         ENDDO
       ENDIF
 
-      ! set the lambda to be used in the old version of QS 
-      DO i=1,ngrid
-        sigma2(i) = trmatrix(D,Hi(:,:,i))/D
-      ENDDO
-      IF(lambda.LT.0)THEN
-         lambda=5.0d0 * SUM( DSQRT(sigma2) )/ngrid
-         lambda2=lambda*lambda
-      ENDIF
-      
       idxroot=0
       ! Start quick shift
 
@@ -997,7 +991,7 @@
       DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm)
       DEALLOCATE(pnlist,nlist,iminij,bigp)
-      DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2)
+      DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel)
       DEALLOCATE(xtmp,xtmpw,xij,ytmp,ytmpw)
@@ -1103,15 +1097,15 @@
          INTEGER :: location
          INTEGER :: i
    
-         minimum  = x(startidx)		! assume the first is the min
-         location = startidx			! record its position
-         DO i = startidx+1, endidx		! start with next elements
-            IF (x(i) < minimum) THEN	!   if x(i) less than the min?
-               minimum  = x(i)		!      Yes, a new minimum found
-               location = i                !      record its position
+         minimum  = x(startidx)   ! assume the first is the min
+         location = startidx      ! record its position
+         DO i = startidx+1, endidx    ! start with next elements
+            IF (x(i) < minimum) THEN  !   if x(i) less than the min?
+               minimum  = x(i)        !      Yes, a new minimum found
+               location = i           !      record its position
             END IF
          END DO
-         findMinimum = Location        	! return the position
+         findMinimum = Location       ! return the position
       END FUNCTION  findMinimum
       
       SUBROUTINE swap(aa, bb)
@@ -1217,10 +1211,10 @@
          ENDIF
       END SUBROUTINE readinput
 
-      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj)
+      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
-         !
+         ! 
          ! Args:
          !    nsamples: total points number
          !    ngrid: number of grid points
@@ -1234,10 +1228,12 @@
          INTEGER, INTENT(IN) :: nsamples
          INTEGER, INTENT(IN) :: ngrid
          DOUBLE PRECISION, DIMENSION(D,nsamples), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(nsamples), INTENT(IN) :: wj 
+         
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(IN) :: wj      
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: normvoro      
 
          INTEGER i,j
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax
@@ -1293,9 +1289,11 @@
 
          ! Assign neighbor list pointer of voronois
          ! Number of points in each voronoi polyhedra
-         npvoronoi=0
+         npvoronoi = 0
+         normvoro  = 0.0d0
          DO j=1,nsamples
             npvoronoi(iminij(j))=npvoronoi(iminij(j))+1
+            normvoro(iminij(j))=normvoro(iminij(j))+wj(iminij(j))
          ENDDO
       END SUBROUTINE mkgrid
 
@@ -1347,7 +1345,7 @@
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: errors
          
          INTEGER i, j
-         DOUBLE PRECISION mxa, mxb, mxab, pab, emxa, emxb, emxab, tmpmin, g1, g2
+         DOUBLE PRECISION mxa, mxb, mxab, pab, emxa, emxb, emxab, g1, g2
          mxa = 0.0d0
          mxb = 0.0d0
          mxab = 0.0d0
@@ -1778,12 +1776,11 @@
          ENDDO
       END SUBROUTINE getNpoint
 
-      SUBROUTINE savevoronois(D,period,nsamples,ngrid,x,y,npvoronoi,iminij,wj,rgrid,prvor)     
+      SUBROUTINE savevoronois(D,nsamples,ngrid,x,y,npvoronoi,iminij,wj,rgrid,prvor)     
          ! Store Voronoi data in a file
          ! 
          ! Args:
          !    D          : Dimensionality of a point
-         !    period     : periodicity in each dimension
          !    nsamples   : total points number
          !    ngrid      : number of grid points
          !    x          : array containing the data samples
@@ -1795,7 +1792,7 @@
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: nsamples
          INTEGER, INTENT(IN) :: ngrid
-         DOUBLE PRECISION, INTENT(IN) :: period(D),rgrid(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: rgrid(ngrid)
          DOUBLE PRECISION, DIMENSION(D,nsamples), INTENT(IN) :: x
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
          INTEGER, DIMENSION(ngrid), INTENT(IN) :: npvoronoi
@@ -1841,73 +1838,4 @@
          CLOSE(UNIT=12)
       END SUBROUTINE savevoronois
       
-      SUBROUTINE savegrid(outputfile,D,ngrid,y,prob,proberr,Hi)     
-         ! Store results from adaptive runs in a file
-         ! 
-         ! Args:
-         !    outputfile     : Dimensionality of a point
-         ! ...
-         
-         CHARACTER(LEN=1024), INTENT(IN) :: outputfile
-         INTEGER, INTENT(IN) :: D
-         INTEGER, INTENT(IN) :: ngrid
-         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: prob
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: proberr
-         DOUBLE PRECISION, DIMENSION(D,D,ngrid), INTENT(IN) :: Hi
-         
-         INTEGER i,j    
-
-         
-         OPEN(UNIT=12,FILE=trim(outputfile)//".probs" &
-           ,STATUS='REPLACE',ACTION='WRITE')
-
-         ! header
-         WRITE(12,*) "# Dimensionality, NGrids // point, probability, error, sigma"
-         WRITE(12,"((A2,I9,I9))") " #", D, ngrid
-         DO i=1,ngrid
-           ! write first the grid point
-           DO j=1,D
-             !WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", y(j,i)
-             WRITE(12,"((A1,F10.5))",ADVANCE="NO") " ", y(j,i)
-           ENDDO
-           ! write the KDE
-           WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", prob(i)
-           ! write the error
-           WRITE(12,"((A1,ES25.9E4))",ADVANCE="NO") " ", proberr(i)
-           WRITE(12,"((A1,ES25.9E4))") " ", DSQRT(trmatrix(D,Hi(:,:,i))/DBLE(D))   
-         ENDDO
-         CLOSE(UNIT=12)
-
-      END SUBROUTINE savegrid
-      
-      SUBROUTINE savemat(outputfile,dmn,mat)
-         ! Store results from adaptive runs in a file
-         ! 
-         ! Args:
-         !    outputfile     : prefix for the outputfile
-         !    matrixname     : name of the matrix to store
-         !    dmn            : dimensions of the matrix 
-         !                     (only squared matrices allowed)
-         !    mat            : the matrix itself
-         ! 
-         
-         CHARACTER(LEN=1024), INTENT(IN) :: outputfile          
-         INTEGER, INTENT(IN) :: dmn                
-         DOUBLE PRECISION, DIMENSION(dmn,dmn), INTENT(IN) :: mat
-         
-         INTEGER i,j    
-
-        
-         ! write out the grid
-         OPEN(UNIT=12,FILE=trim(outputfile), &
-              STATUS='REPLACE',ACTION='WRITE')
-
-         DO i=1,dmn
-           ! write first the grid point
-           WRITE(12,*) " ", mat(i,:)
-         ENDDO
-         CLOSE(UNIT=12)
-
-      END SUBROUTINE savemat
    END PROGRAM pamm
