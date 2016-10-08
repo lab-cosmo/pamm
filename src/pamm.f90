@@ -414,14 +414,35 @@
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
+!!!            Calculate full covariance matrix on grid                !!
+!!!                                                                    !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      
+     DO ii=1,D
+        IF (period(ii)>0.0d0) THEN
+          dummd1 = SUM(SIN(y(ii,:))*normvoro)/normwj
+          dummd2 = SUM(COS(y(ii,:))*normvoro)/normwj
+          ytmp(ii,:) = y(ii,:) - ATAN2(dummd1,dummd2)
+          ! minimum image convention
+          ytmp(ii,:) = ytmp(ii,:) / period(ii)
+          ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
+          ytmp(ii,:) = ytmp(ii,:) * period(ii)
+        ELSE
+          ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*normvoro)/normwj
+        ENDIF
+        ytmpw(ii,:) = ytmp(ii,:)*normvoro/normwj
+      ENDDO
+      
+      CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Q, D)
+      Q = Q / (1.0d0-SUM((normvoro/normwj)**2.0d0))
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
 !!!                 utilizing a two pass algorithm                     !!
 !!!                                                                    !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      ! estimate rough estimate of bandwidth 
-      DO i=1,ngrid
-        sigma2(i) = trmatrix(D,Hi(:,:,i))/D
-      ENDDO
+      
       ! set the lambda to be used in QS
       IF(lambda.LT.0)THEN
         ! compute the median of the NN distances
@@ -434,13 +455,9 @@
       ENDIF
       prefac = -0.5d0/(lfac*lfac)
 
-      WRITE(*,*) 'median: ', median(ngrid,DSQRT(rgrid(:)))
-      WRITE(*,*) 'mean  : ', SUM(DSQRT(rgrid(:)))/ngrid
-
-
       IF(verbose) WRITE(*,*) &
         " using a localization factor of ", lfac  
-      WRITE(*,*) median(ngrid,DSQRT(rgrid(:)))
+        
       DO i=1,ngrid
         ! localization
         DO ii=1,D
@@ -457,35 +474,44 @@
         ! estimate local number of sample points
         nlocal = SUM(normvoro*wQgrid)
         
-        ! normalize weights
-        wQgrid = wQgrid / SUM(wQgrid)
-        ! add the voronoi weights
-        wQgrid = wQgrid * normvoro/normwj
-        ! renormalize again
-        wQgrid = wQgrid / SUM(wQgrid)
-        
-        ! estimate the mean
-        DO ii=1,D
-          IF (period(ii)>0.0d0) THEN
-            dummd1 = SUM(SIN(y(ii,:))*wQgrid)
-            dummd2 = SUM(COS(y(ii,:))*wQgrid)
-            ytmp(ii,:) = y(ii,:) - ATAN2(dummd1,dummd2)
-            ! minimum image convention
-            ytmp(ii,:) = ytmp(ii,:) / period(ii)
-            ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
-            ytmp(ii,:) = ytmp(ii,:) * period(ii)
-          ELSE
-            ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wQgrid)
-          ENDIF
-          ytmpw(ii,:) = ytmp(ii,:)*wQgrid
-        ENDDO
-        
-        ! estimate covariance matrix
-        CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Q, D)
-        Q = Q / (1.0d0-SUM(wQgrid**2.0d0))
+        ! if date is very sparse and grid point is far away
+        ! from other points assign the bandwidth via the global
+        ! Scott's rule to 
+        ! this point 
+        IF(nlocal.LT.2.0d0) THEN
+          Qlocal = Q
+        ELSE
+        ! calculate local covariance matrix
+          ! normalize weights
+          wQgrid = wQgrid / SUM(wQgrid)
+          ! add the voronoi weights
+          wQgrid = wQgrid * normvoro/normwj
+          ! renormalize again
+          wQgrid = wQgrid / SUM(wQgrid)
+          
+          ! estimate the mean
+          DO ii=1,D
+            IF (period(ii)>0.0d0) THEN
+              dummd1 = SUM(SIN(y(ii,:))*wQgrid)
+              dummd2 = SUM(COS(y(ii,:))*wQgrid)
+              ytmp(ii,:) = y(ii,:) - ATAN2(dummd1,dummd2)
+              ! minimum image convention
+              ytmp(ii,:) = ytmp(ii,:) / period(ii)
+              ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
+              ytmp(ii,:) = ytmp(ii,:) * period(ii)
+            ELSE
+              ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wQgrid)
+            ENDIF
+            ytmpw(ii,:) = ytmp(ii,:)*wQgrid
+          ENDDO
+          
+          ! estimate covariance matrix
+          CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
+          Qlocal = Qlocal / (1.0d0-SUM(wQgrid**2.0d0))
+        ENDIF
         
         ! assign bandwidth using scotts rule
-        Hi(:,:,i) = Q * nlocal**(-1.0d0/(D+4.0d0))
+        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
         ! set off-diagonal terms to zero for periodic data
         IF(periodic) THEN
           DO ii=1,D
@@ -511,6 +537,10 @@
         
       ENDDO
 
+      ! estimate rough estimate of bandwidth 
+      DO i=1,ngrid
+        sigma2(i) = trmatrix(D,Hi(:,:,i))/D
+      ENDDO
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !! 
