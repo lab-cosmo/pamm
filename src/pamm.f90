@@ -611,7 +611,7 @@
               DO jj=1,D
                  dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
               ENDDO
-              tmpkernel = normvoro(j) * dummd2
+              tmpkernel = dummd2 * normvoro(j)
               IF(nbootstrap.eq.0) &
                 tmpcheck = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j)) &
                          * normvoro(j) &
@@ -628,7 +628,7 @@
                 DO jj=1,D
                    dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
                 ENDDO
-                tmpkernel = wj(nlist(k)) * dummd2
+                tmpkernel = dummd2 * wj(nlist(k))
                 IF(nbootstrap.eq.0) &
                   tmpcheck = fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) &
                            * wj(nlist(k)) &
@@ -677,28 +677,41 @@
           DO i=1,ngrid
             ! localization: do not compute KDEs for points that belong to far away Voronoi
             ! one could make this a bit more sophisticated, but this should be enough
-            IF (mahalanobis(D,period,y(:,j),y(:,i),Hiinv(:,:,i))>36.0d0) CYCLE  
-            
-            tmpkernel=0.0d0
-            DO k=1,nbssample
-              rndidx = int(npvoronoi(j)*random_uniform())+1
-              rndidx = nlist(pnlist(j)+rndidx)
-              ! the vector that contains the Voronoi assignations is iminij   
-              ! do not compute KDEs for points that belong to far away Voronoi
+            IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>16.0d0) THEN
+              ! assume distribution in far away grid point is narrow
               IF(periodic)THEN
                 dummd2=1.0d0
-                CALL pammrij(D, period, y(:,i),x(:,rndidx), xij)
+                CALL pammrij(D, period, y(:,i), y(:,j), xij)
                 DO jj=1,D
-                   dummd2 = dummd2 & 
-                          * fkernelvm(Hiinv(jj,jj,iminij(rndidx)),xij(jj))
+                   dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
                 ENDDO
-                tmpkernel = tmpkernel + dummd2 
+                tmpkernel = dummd2 * nbssample
               ELSE
-                tmpkernel = tmpkernel &
-                          + fmultikernel(D,period,y(:,i),x(:,rndidx), & 
-                                         Hiinv(:,:,iminij(rndidx)))
-              ENDIF
-            ENDDO
+                tmpkernel = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j)) &
+                          * nbssample                    
+              ENDIF     
+            ELSE
+              tmpkernel=0.0d0
+              DO k=1,nbssample
+                rndidx = int(npvoronoi(j)*random_uniform())+1
+                rndidx = nlist(pnlist(j)+rndidx)
+                ! the vector that contains the Voronoi assignations is iminij   
+                ! do not compute KDEs for points that belong to far away Voronoi
+                IF(periodic)THEN
+                  dummd2=1.0d0
+                  CALL pammrij(D, period, y(:,i),x(:,rndidx), xij)
+                  DO jj=1,D
+                     dummd2 = dummd2 & 
+                            * fkernelvm(Hiinv(jj,jj,j),xij(jj))
+                  ENDDO
+                  tmpkernel = tmpkernel + dummd2 
+                ELSE
+                  tmpkernel = tmpkernel &
+                            + fmultikernel(D,period,y(:,i),x(:,rndidx), & 
+                                           Hiinv(:,:,j))
+                ENDIF
+              ENDDO
+            ENDIF
             ! we have to normalize it
             probboot(i,nn) = probboot(i,nn) + tmpkernel*normkernel(j)
           ENDDO
