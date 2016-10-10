@@ -80,7 +80,7 @@
       DOUBLE PRECISION tmpcheck, qserr
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, prefac
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wQgrid
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal, xm
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, Sw, Sinv, xtmp, xtmpw, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       
@@ -359,9 +359,9 @@
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
-      ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
+      ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),xm(D))
       ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
-      ALLOCATE(wQ(nsamples),Sw(D,D),Sinv(D,D),wQgrid(ngrid))
+      ALLOCATE(wQ(nsamples),Sw(D,D),Sinv(D,D),wlocal(ngrid))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -408,41 +408,16 @@
       !$omp ENDDO
       !$omp END PARALLEL
 
-
-      IF(verbose) WRITE(*,*) &
-        "Local estimate of kernel widths"   
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!                                                                    !!
-!!!            Calculate full covariance matrix on grid                !!
-!!!                                                                    !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      
-     DO ii=1,D
-        IF (period(ii)>0.0d0) THEN
-          dummd1 = SUM(SIN(y(ii,:))*normvoro)/normwj
-          dummd2 = SUM(COS(y(ii,:))*normvoro)/normwj
-          ytmp(ii,:) = y(ii,:) - ATAN2(dummd1,dummd2)
-          ! minimum image convention
-          ytmp(ii,:) = ytmp(ii,:) / period(ii)
-          ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
-          ytmp(ii,:) = ytmp(ii,:) * period(ii)
-        ELSE
-          ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*normvoro)/normwj
-        ENDIF
-        ytmpw(ii,:) = ytmp(ii,:)*normvoro/normwj
-      ENDDO
-      
-      CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Q, D)
-      Q = Q / (1.0d0-SUM((normvoro/normwj)**2.0d0))
-
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
 !!!                 utilizing a two pass algorithm                     !!
 !!!                                                                    !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      
+
+      IF(verbose) WRITE(*,*) &
+        "Local estimate of kernel widths"   
+ 
       ! set the lambda to be used in QS
       IF(lambda.LT.0)THEN
         ! compute the median of the NN distances
@@ -470,46 +445,36 @@
         ENDDO
         ! estimate weights for localization as product from 
         ! spherical gaussian weights and weights in voronoi
-        wQgrid = EXP(prefac*SUM(ytmp*ytmp,1))  
+        wlocal = EXP(prefac*SUM(ytmp*ytmp,1))  
         ! estimate local number of sample points
-        nlocal = SUM(normvoro*wQgrid)
+        nlocal = SUM(normvoro*wlocal)
+        ! normalize weights
+        wlocal = wlocal / SUM(wlocal)
         
-        ! if date is very sparse and grid point is far away
-        ! from other points assign the bandwidth via the global
-        ! Scott's rule to 
-        ! this point 
-        IF(nlocal.LT.2.0d0) THEN
-          Qlocal = Q
-        ELSE
-        ! calculate local covariance matrix
-          ! normalize weights
-          wQgrid = wQgrid / SUM(wQgrid)
-          ! add the voronoi weights
-          wQgrid = wQgrid * normvoro/normwj
-          ! renormalize again
-          wQgrid = wQgrid / SUM(wQgrid)
-          
-          ! estimate the mean
-          DO ii=1,D
-            IF (period(ii)>0.0d0) THEN
-              dummd1 = SUM(SIN(y(ii,:))*wQgrid)
-              dummd2 = SUM(COS(y(ii,:))*wQgrid)
-              ytmp(ii,:) = y(ii,:) - ATAN2(dummd1,dummd2)
-              ! minimum image convention
-              ytmp(ii,:) = ytmp(ii,:) / period(ii)
-              ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
-              ytmp(ii,:) = ytmp(ii,:) * period(ii)
-            ELSE
-              ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wQgrid)
-            ENDIF
-            ytmpw(ii,:) = ytmp(ii,:)*wQgrid
-          ENDDO
-          
-          ! estimate covariance matrix
-          CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
-          Qlocal = Qlocal / (1.0d0-SUM(wQgrid**2.0d0))
-        ENDIF
-        WRITE(*,*) "Local Q at grid point:",y(:,i),nlocal,Qlocal
+        ! add the voronoi weights (already normalized)
+        wlocal = wlocal * normvoro/normwj
+        ! renormalize again
+        wlocal = wlocal / SUM(wlocal)
+        
+        ! estimate the mean
+        DO ii=1,D
+          IF (period(ii)>0.0d0) THEN
+            dummd1 = SUM(SIN(y(ii,:))*wlocal)
+            dummd2 = SUM(COS(y(ii,:))*wlocal)
+            ytmp(ii,:) = y(ii,:) - ATAN2(dummd1,dummd2)
+            ! minimum image convention
+            ytmp(ii,:) = ytmp(ii,:) / period(ii)
+            ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
+            ytmp(ii,:) = ytmp(ii,:) * period(ii)
+          ELSE
+            ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wlocal)
+          ENDIF
+          ytmpw(ii,:) = ytmp(ii,:)*wlocal
+        ENDDO
+        
+        ! estimate covariance matrix
+        CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
+        Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
         
         ! assign bandwidth using scotts rule
         Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
@@ -535,13 +500,14 @@
         ELSE
           normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
         ENDIF
-        
+           
       ENDDO
 
       ! estimate rough estimate of bandwidth 
       DO i=1,ngrid
         sigma2(i) = trmatrix(D,Hi(:,:,i))/D
       ENDDO
+
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !! 
@@ -711,7 +677,7 @@
           DO i=1,ngrid
             ! localization: do not compute KDEs for points that belong to far away Voronoi
             ! one could make this a bit more sophisticated, but this should be enough
-            IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>36.0d0) CYCLE  
+            IF (mahalanobis(D,period,y(:,j),y(:,i),Hiinv(:,:,i))>36.0d0) CYCLE  
             
             tmpkernel=0.0d0
             DO k=1,nbssample
@@ -771,9 +737,10 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-           ! qs_next(ngrid,qspath(counter),prob,distmm,rgrid,kderr,qserr,lambda2, & 
+                            qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
+           !   qs_next(ngrid,qspath(counter),prob,distmm,rgrid,kderr,qserr,lambda2, & 
            !         verbose,neblike,nbootstrap,proberr)
-            qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
+
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -1024,9 +991,9 @@
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
-      DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel)
+      DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel,xm)
       DEALLOCATE(xtmp,xtmpw,xij,ytmp,ytmpw)
-      DEALLOCATE(wQ,Sw,Sinv,wQgrid)
+      DEALLOCATE(wQ,Sw,Sinv,wlocal)
       DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
 
