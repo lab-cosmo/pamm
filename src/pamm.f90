@@ -509,6 +509,7 @@
           CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
           Qlocal = Qlocal / (1.0d0-SUM(wQgrid**2.0d0))
         ENDIF
+        WRITE(*,*) "Local Q at grid point:",y(:,i),nlocal,Qlocal
         
         ! assign bandwidth using scotts rule
         Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
