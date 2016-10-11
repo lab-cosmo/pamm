@@ -84,7 +84,7 @@
       
       
       ! additional IN/OUT logical flags
-      LOGICAL saveprobs, savevor, saveadj
+      LOGICAL saveprobs, savevor, saveadj, saveidxs
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -119,6 +119,7 @@
       nbootstrap=0           ! do not use bootstrap
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
+      saveidxs = .false.
       saveadj = .false.      ! save adjacency
       
       D=-1
@@ -159,6 +160,8 @@
             saveprobs= .true.
          ELSEIF (cmdbuffer == "-savevoronois") THEN ! save the Voronoi associations
             savevor= .true.
+         ELSEIF (cmdbuffer == "-saveidxs") THEN ! save the Voronoi associations
+            saveidxs= .true.
          ELSEIF (cmdbuffer == "-adj") THEN          ! save the Voronoi associations
             saveadj= .true.
             ccmd = 18
@@ -350,7 +353,8 @@
          WRITE(*,*) "Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
-      CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro)
+      CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro, &
+                  saveidxs,outputfile)
       
       ! Generate the neighbour list
       IF(verbose) write(*,*) "Generating neighbour list"
@@ -1116,7 +1120,8 @@
          ENDIF
       END SUBROUTINE readinput
 
-      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro)
+      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij, &
+                        normvoro,saveidx,ofile)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          ! 
@@ -1138,16 +1143,23 @@
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: normvoro      
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: normvoro 
+         CHARACTER(LEN=1024), INTENT(IN) :: ofile   
+         LOGICAL, INTENT(IN) :: saveidx   
 
-         INTEGER i,j
+         INTEGER i,j,irandom
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax
 
          iminij=0
          y=0.0d0
          npvoronoi=0
          ! choose randomly the first point
-         y(:,1)=x(:,int(RAND()*nsamples))
+         irandom=int(RAND()*nsamples)
+         IF(saveidx) THEN
+            OPEN(UNIT=12,FILE=trim(ofile)//".idxs",STATUS='REPLACE',ACTION='WRITE')
+            WRITE(12,"((I9))") irandom
+         ENDIF
+         y(:,1)=x(:,irandom)
          dminij = 1.0d99
          iminij = 1         
          DO i=2,ngrid
@@ -1165,6 +1177,9 @@
                ENDIF
             ENDDO           
             y(:,i) = x(:, jmax)
+            IF(saveidx) THEN
+               WRITE(12,"((I9))") jmax
+            ENDIF
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
          ENDDO
@@ -1277,131 +1292,6 @@
          ENDIF
       END FUNCTION
       
-      SUBROUTINE build_path(ngrid, path, i0, i1, npath, distmm, rgrid) 
-         ! builds a "straight" path across the grid, between points ia and ib
-         ! by iteratively refining down to the resolution of the grid
-         IMPLICIT NONE
-         INTEGER, INTENT(IN) :: ngrid, i0, i1
-         INTEGER, INTENT(OUT) :: path(ngrid), npath
-         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid), rgrid(ngrid)
-         
-         
-         INTEGER l0, ia, ib, ic, i
-         DOUBLE PRECISION :: dab, dthresh, dac, dbc, dmin, dcomb
-         LOGICAL, DIMENSION(ngrid) :: pactive      
-         
-         pactive = .TRUE. ! these points can be added to the path         
-         path(1) = i0
-         path(2) = i1
-         pactive(i0) = .FALSE.
-         pactive(i1) = .FALSE.
-         npath = 2
-         
-         ! path segments are marked as "inactive" by making the index negative
-         DO WHILE (path(npath-1)>0) 
-            l0 = 1            
-            DO WHILE(path(l0)<0) ! select the first "active" segment
-               l0 = l0+1
-            ENDDO
-            
-            ! refines the segment. we look for a point that minimizes (d(a,c)+d(b,c))/d(a,b)-1 + abs(d(a,c)-d(b,c))/d(a,b)
-            ! abs(d(a,c)-d(b,c))/d(a,b) is a measure of "centrality" of the point
-            ! d(a,c)+d(b,c))/d(a,b)-1 is a measure of how aligned is each point with its neighbors
-                           
-            dmin=1d100
-            ia = path(l0)
-            ib = path(l0+1)
-            dab = dsqrt(distmm(ia,ib))
-            dthresh = dsqrt(rgrid(ia))+dsqrt(rgrid(ib)) ! do not refine below grid granularity
-            ic=ia
-                          
-            DO i=1,ngrid               
-               IF (pactive(i).eqv..FALSE.) CYCLE
-               dac=dsqrt(distmm(ia,i))
-               IF (dac<dthresh .or. dac>dab) CYCLE               ! discard points below the target granularity or too far away
-               dbc=dsqrt(distmm(ib,i))
-               IF (dbc<dthresh .or. dbc>dab) CYCLE              
-               dcomb = (dac+dbc-dab)+dabs(dac-dbc)  ! find a point that is close to the midpoint of ia-ib
-               IF (dcomb < dmin ) THEN
-                  dmin=dcomb
-                  ic = i
-               ENDIF
-            ENDDO
-            
-            ! found a new point to refine the path?
-            IF (ic /= ia .and. ic /= ib) THEN
-            !   IF ((prob(ic)-prob(idx)/prob(idx))<0) &
-            !      write(*,*) "going down", prob(ic), prob(idx)                  
-               ! add the new point to the path
-               pactive(ic) = .FALSE.
-               DO i=npath,l0+1,-1  ! shifts the path to make space for the new point
-                  path(i+1)=path(i)
-               ENDDO
-               path(l0+1)=ic
-               npath=npath+1            
-            ELSE  ! mark the start point as inactive
-               path(l0) = -path(l0)
-            ENDIF
-         ENDDO
-         path = abs(path)
-      END SUBROUTINE 
-      
-      SUBROUTINE neb_path(ngrid, path, npath, distmm, prob, w) 
-         ! "refines" path to look a bit like a maximum probability path going through saddle points
-         IMPLICIT NONE
-         INTEGER, INTENT(IN) :: ngrid, npath
-         INTEGER, INTENT(INOUT) :: path(ngrid)
-         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid), prob(ngrid), w
-         
-         
-         INTEGER i, j, npi
-         DOUBLE PRECISION :: dab, dac, dbc, dmin, dcomb, wi
-         LOGICAL, DIMENSION(ngrid) :: pactive
-         
-         pactive = .TRUE.  ! new points can't be one of those already assigned to the path
-         DO i=1,npath
-            pactive(path(i)) = .FALSE.
-         ENDDO
-         DO i=2, npath-1           
-           ! "climbing image" mode to try and reach the lowest probability point along the path
-           wi = -w
-           dmin = prob(1)
-           npi = 1
-           DO j=2, npath
-               IF (prob(j)<dmin) THEN
-                  dmin=prob(j)
-                  npi = j
-               ENDIF
-           ENDDO
-           IF (npi==i) wi = w  
-            
-           dmin = 1d100
-           npi = path(i)
-           dab = distmm(path(i-1), path(i+1))                      
-           DO j=1,ngrid
-              IF (.not. pactive(j)) CYCLE
-              dac = distmm(j, path(i-1))
-              IF (dac>dab) CYCLE
-              dbc = distmm(j, path(i+1))
-              IF (dbc>dab) CYCLE
-              IF (wi<0) THEN
-                 dcomb = (dac+dbc)/dab-1 + abs(dac-dbc)/dab + & 
-                       wi * prob(j)/prob(path(i))
-              ELSE
-                  dcomb = (dac+dbc)/dab-1 + & 
-                       wi * prob(j)/prob(path(i))
-              ENDIF
-              IF (dcomb<dmin) THEN ! found a better point, update the path
-                 pactive(npi) = .TRUE.
-                 pactive(j) = .FALSE.
-                 dmin = dcomb
-                 npi =j
-              ENDIF
-           ENDDO
-           path(i) = npi
-         ENDDO
-      END SUBROUTINE
-
       INTEGER FUNCTION qs_next(ngrid,idx,lambda2,probnmm,distmm)
          ! Return the index of the closest point higher in P
          !
@@ -1493,68 +1383,6 @@
                       !(BESSI0(vv)*twopi)
                     
       END FUNCTION fkernelvm
-
-      DOUBLE PRECISION FUNCTION genkernel(ngrid,D,period,sig2,prob,vp,vgrid)
-            ! Calculate the (normalized) gaussian kernel
-            ! in an arbitrary point
-            !
-            ! Args:
-            !    ngrid: number of grid point
-            !    D: dimensionality
-            !    period: periodicity
-            !    sig2: sig**2
-            !    prob: probability of the grid points
-            !    vp: point's vector
-            !    vgrid: grid points
-
-            INTEGER, INTENT(IN) :: D
-            INTEGER, INTENT(IN) :: ngrid
-            DOUBLE PRECISION, INTENT(IN) :: period(D)
-            DOUBLE PRECISION, INTENT(IN) :: sig2
-            DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: prob
-            DOUBLE PRECISION, INTENT(IN) :: vp(D)
-            DOUBLE PRECISION, INTENT(IN) :: vgrid(D,ngrid)
-            
-            INTEGER j
-            DOUBLE PRECISION res!,norm
-            
-            res=0.0d0
-            !norm=0.0d0    
-            DO j=1,ngrid
-               res=res+(prob(j)/( (twopi*sig2)**(dble(D)/2) ))* &
-                   dexp(-0.5d0*pammr2(D,period,vgrid(:,j),vp)/sig2)
-               !norm=norm+prob(j)
-            ENDDO
-            genkernel=res/ngrid 
-      END FUNCTION genkernel
-      
-      SUBROUTINE getNpoint(D,period,np,r1,r2,listpoints)
-         ! Get np points in a segment given the extremes
-         !
-         ! Args:
-         !    D          : Dimensionality of a point
-         !    period     : periodicity in each dimension
-         !    np         : number of points to be generated
-         !    r1         : first extreme
-         !    r2         : second extreme
-         !    listpoints : array of np points
-         
-         INTEGER, INTENT(IN) :: D,np
-         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: r1,r2,period
-         DOUBLE PRECISION, DIMENSION(D,np), INTENT(OUT) :: listpoints
-
-         DOUBLE PRECISION v12(D)
-         INTEGER i
-
-         v12=0.0d0
-         CALL pammrij(D,period,r2,r1,v12)
-         v12=v12/(np+1)
-         
-         listpoints=0.0d0
-         DO i=1,np
-            listpoints(:,i)= r1 + float(i)*v12
-         ENDDO
-      END SUBROUTINE getNpoint
 
       SUBROUTINE savevoronois(D,nsamples,ngrid,x,y,npvoronoi,iminij,wj,rgrid,prvor)     
          ! Store Voronoi data in a file
