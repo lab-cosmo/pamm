@@ -149,7 +149,7 @@
             ccmd = 3
          ELSEIF (cmdbuffer == "-seed") THEN    ! seed for the random number genarator
             ccmd = 4
-         ELSEIF (cmdbuffer == "-l") THEN       ! threshold to differentiate different clusters
+         ELSEIF (cmdbuffer == "-qslambda") THEN       ! threshold to differentiate different clusters in QuickShift
                 ccmd = 5
          ELSEIF (cmdbuffer == "-nms") THEN     ! N of mean-shift steps
             ccmd = 6
@@ -207,6 +207,7 @@
                IF (thrmerg<0) STOP "Put a positive number!"
             ELSEIF (ccmd ==5) THEN ! read the seed
                READ(cmdbuffer,*) lambda
+               lambda2=lambda*lambda
             ELSEIF (ccmd == 4) THEN ! localization parameter
                READ(cmdbuffer,*) seed
             ELSEIF (ccmd == 14) THEN ! localization parameter
@@ -1042,7 +1043,7 @@
          WRITE(*,*) "   -o output         : Prefix for output files [out]. This will produce : "
          WRITE(*,*) "                         output.grid (clusterized grid points) "
          WRITE(*,*) "                         output.pamm (cluster parameters) "
-         WRITE(*,*) "   -l lambda         : Quick shift cutoff [automatic] "
+         WRITE(*,*) "   -qslambda lambda  : Quick shift cutoff [automatic] "
          WRITE(*,*) "                       (Not used with the -neblike flag active)"
          WRITE(*,*) "   -targeterror      : Relative target error use to adaptively refine the KDE [default: 0.1]"
          WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift [8]"
@@ -1061,9 +1062,9 @@
          WRITE(*,*) "   -saveprobs        : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
-         WRITE(*,*) "   -l sigma          : Localization width for local bayesian run [default: off] "
+         WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [default: off] "
          WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
-         WRITE(*,*) "                       write out the adjacency matrix "
+         WRITE(*,*) "                       write out the adjacency matrix [default: off] "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
