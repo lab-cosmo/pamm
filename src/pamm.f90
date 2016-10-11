@@ -764,20 +764,21 @@
       ALLOCATE(macrocl(Nk))
       clsadj   = 0.0d0
       clsadjel = 0.0d0
-      DO i=1, Nk
-         ! initialize each cluster to itself in the macrocluster assignation 
-         macrocl(i)=i
-         DO j=1,i-1
-             clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j, &
-                                    pabserr, linkel)
-             clsadj(j,i) = clsadj(i,j)
-             ! adjacency without considering the error
-             clsadjel(i,j) = linkel
-             clsadjel(j,i) = linkel
-         ENDDO
-      ENDDO
-      
       IF(saveadj)THEN
+         DO i=1, Nk
+            IF(verbose) WRITE(*,*) i,"/",Nk
+            ! initialize each cluster to itself in the macrocluster assignation 
+            macrocl(i)=i
+            DO j=1,i-1
+                clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j, &
+                                       pabserr, linkel)
+                clsadj(j,i) = clsadj(i,j)
+                ! adjacency without considering the error
+                clsadjel(i,j) = linkel
+                clsadjel(j,i) = linkel
+            ENDDO
+         ENDDO
+         
          OPEN(UNIT=11,FILE=trim(outputfile)//".adj",STATUS='REPLACE',ACTION='WRITE')
          OPEN(UNIT=12,FILE=trim(outputfile)//".adjel",STATUS='REPLACE',ACTION='WRITE')
          DO i=1, Nk
@@ -790,65 +791,64 @@
          ENDDO
          CLOSE(11)
          CLOSE(12)
-      ENDIF
+
       
-      ! Let's print out the macroclusters
-      DO i=1, Nk
-         DO j=1, Nk
-            ! Put a threshold under which there is no link between the clusters
-            ! now it is just a default
-            IF(i.EQ.j) CYCLE ! discard yourself
-            IF(clsadj(i,j) .GT. thrmerg) THEN 
-               IF(macrocl(j).EQ.j) THEN
-                  ! the point is still initialized to himself 
-                  macrocl(j)=macrocl(i)
-               ELSE
-                  ! it was already assigned
-                  ! lets change also all the values that I may have changed before
-                  DO k=1,j-1
-                    IF(k.EQ.i) CYCLE ! I'll fix it later 
-                    IF(macrocl(k).EQ.macrocl(i)) macrocl(k)=macrocl(j)
-                  ENDDO
-                  macrocl(i)=macrocl(j)
+         ! Let's print out the macroclusters
+         DO i=1, Nk
+            DO j=1, Nk
+               ! Put a threshold under which there is no link between the clusters
+               ! now it is just a default
+               IF(i.EQ.j) CYCLE ! discard yourself
+               IF(clsadj(i,j) .GT. thrmerg) THEN 
+                  IF(macrocl(j).EQ.j) THEN
+                     ! the point is still initialized to himself 
+                     macrocl(j)=macrocl(i)
+                  ELSE
+                     ! it was already assigned
+                     ! lets change also all the values that I may have changed before
+                     DO k=1,j-1
+                       IF(k.EQ.i) CYCLE ! I'll fix it later 
+                       IF(macrocl(k).EQ.macrocl(i)) macrocl(k)=macrocl(j)
+                     ENDDO
+                     macrocl(i)=macrocl(j)
+                  ENDIF
                ENDIF
-            ENDIF
+            ENDDO
          ENDDO
-      ENDDO
-      
-      ! Count unique macroclusters and order them
-      ALLOCATE(sortmacrocl(Nk))
-      sortmacrocl=0
-      dummyi1=0
-      DO i=1, Nk
-        isthere=.false.
-        DO j=1, Nk
-           IF( (.NOT.(sortmacrocl(j).EQ.0)) .AND. (macrocl(i).EQ.j)) THEN
-              ! position j has already been set to something 
-              ! and the value at the jth position corrispond to my cluster idx
-              isthere=.true.
-              macrocl(i)=sortmacrocl(macrocl(i))
-              EXIT
-           ENDIF 
-        ENDDO
-        IF(.NOT. isthere) THEN
-           dummyi1=dummyi1+1
-           ! increase the number of macroclusters found
-           sortmacrocl(macrocl(i))=dummyi1
-           ! rewrite the macrocluster assignation with a proper index
-           macrocl(i)=sortmacrocl(macrocl(i))
-        ENDIF
-      ENDDO
-      
-      IF (verbose) WRITE(6,"((A6,I7,A15))") " Found ",dummyi1," macroclusters."
-      IF (saveadj) THEN
-        OPEN(UNIT=11,FILE=trim(outputfile)//".macrogrid",STATUS='REPLACE',ACTION='WRITE')
-        DO i=1,ngrid
-           DO j=1,D
-             WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
+         
+         ! Count unique macroclusters and order them
+         ALLOCATE(sortmacrocl(Nk))
+         sortmacrocl=0
+         dummyi1=0
+         DO i=1, Nk
+           isthere=.false.
+           DO j=1, Nk
+              IF( (.NOT.(sortmacrocl(j).EQ.0)) .AND. (macrocl(i).EQ.j)) THEN
+                 ! position j has already been set to something 
+                 ! and the value at the jth position corrispond to my cluster idx
+                 isthere=.true.
+                 macrocl(i)=sortmacrocl(macrocl(i))
+                 EXIT
+              ENDIF 
            ENDDO
-           WRITE(11,"(A1,I4,A1,I4)") " ", idcls(i) , " ", macrocl(idcls(i))
-        ENDDO
-        CLOSE(UNIT=11)
+           IF(.NOT. isthere) THEN
+              dummyi1=dummyi1+1
+              ! increase the number of macroclusters found
+              sortmacrocl(macrocl(i))=dummyi1
+              ! rewrite the macrocluster assignation with a proper index
+              macrocl(i)=sortmacrocl(macrocl(i))
+           ENDIF
+         ENDDO
+      
+         IF (verbose) WRITE(6,"((A6,I7,A15))") " Found ",dummyi1," macroclusters."
+         OPEN(UNIT=11,FILE=trim(outputfile)//".macrogrid",STATUS='REPLACE',ACTION='WRITE')
+         DO i=1,ngrid
+            DO j=1,D
+              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
+            ENDDO
+            WRITE(11,"(A1,I4,A1,I4)") " ", idcls(i) , " ", macrocl(idcls(i))
+         ENDDO
+         CLOSE(UNIT=11)
       ENDIF
       
       ! now we can procede and complete the definition of probability model
@@ -1025,7 +1025,7 @@
          WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
          WRITE(*,*) "   -saveprobs        : Save the KDE estimation on a file"
          WRITE(*,*) "   -readprobs        : Read the grid and the probabilities from the sdtin"
-         WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [default: off] "
+         WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [automatic] "
          WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
          WRITE(*,*) "                       write out the adjacency matrix [default: off] "
          WRITE(*,*) "   -v                : Verbose output "
