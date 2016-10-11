@@ -77,7 +77,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: proberr
       INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
       INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
-      DOUBLE PRECISION tmpcheck, qserr
+      DOUBLE PRECISION tmpcheck
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, prefac
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal, xm
@@ -85,8 +85,8 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       
       
-      ! IN/OUT probs
-      LOGICAL saveprobs, savevor, skipvoronois, pilotboot, saveadj
+      ! additional IN/OUT logical flags
+      LOGICAL saveprobs, savevor, saveadj
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -95,7 +95,6 @@
       LOGICAL verbose, fpost                      ! flag for verbosity
       LOGICAL weighted                            ! flag for using weigheted data
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
-      INTEGER neblike                             ! iterations for neblike path search
       DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, lambda2
 
       ! DOUBLE PRECISION maxrgrid, minrgrid
@@ -110,7 +109,6 @@
       fpost=.false.
       alpha=1.0d0
       zeta=0.0d0
-      pilotboot= .false.
       ccmd=0                 ! no parameters specified
       Nk=0                   ! number of gaussians
       nmsopt=0               ! number of mean-shift refinements
@@ -122,12 +120,9 @@
       weighted= .false.      ! don't use the weights
       lfac = -1.0d0          ! localization factor
       prefac = 0.0d0         ! prefector of gaussian for localization
-      neblike=0              ! don't use neb paths
       nbootstrap=0           ! do not use bootstrap
-      qserr=8                ! threshold to accept a move in qs
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
-      skipvoronois = .false. ! don't read the Voronoi associations 
       saveadj = .false.      ! save adjacency
             
       
@@ -163,16 +158,10 @@
             ccmd = 11
          ELSEIF (cmdbuffer == "-z") THEN       ! add a background to the probability mixture
             ccmd = 12
-         ELSEIF (cmdbuffer == "-neblike") THEN  ! use neb paths between the qs points
-            ccmd = 13
          ELSEIF (cmdbuffer == "-loc") THEN  ! refine adptively sigma
              ccmd = 14
          ELSEIF (cmdbuffer == "-readprobs") THEN  ! read a file containing the grid points + info
             ccmd = 15
-         ELSEIF (cmdbuffer == "-readvoronis") THEN  ! read a file containing the Voronoi associations
-            ccmd = 16
-         ELSEIF (cmdbuffer == "-skipvoronois") THEN  ! save the KDE estimates in a file
-            skipvoronois= .true.
          ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
             saveprobs= .true.
          ELSEIF (cmdbuffer == "-savevoronois") THEN  ! save the Voronoi associations
@@ -245,10 +234,6 @@
                IF (par_count/=D) STOP "Check the number of periodic dimensions (-p)!"
             ELSEIF (ccmd == 12) THEN ! read zeta 
                READ(cmdbuffer,*) zeta
-            ELSEIF (ccmd == 13) THEN ! activate neb like behaviour 
-               READ(cmdbuffer,*) neblike
-            ELSEIF (ccmd == 14) THEN ! read threshold for the qs assignation 
-               READ(cmdbuffer,*) qserr
             ENDIF
          ENDIF
       ENDDO
@@ -752,8 +737,6 @@
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
                             qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
-           !   qs_next(ngrid,qspath(counter),prob,distmm,rgrid,kderr,qserr,lambda2, & 
-           !         verbose,neblike,nbootstrap,proberr)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1044,14 +1027,9 @@
          WRITE(*,*) "                         output.grid (clusterized grid points) "
          WRITE(*,*) "                         output.pamm (cluster parameters) "
          WRITE(*,*) "   -qslambda lambda  : Quick shift cutoff [automatic] "
-         WRITE(*,*) "                       (Not used with the -neblike flag active)"
-         WRITE(*,*) "   -targeterror      : Relative target error use to adaptively refine the KDE [default: 0.1]"
-         WRITE(*,*) "   -qserr err        : Relative threshold used during quickshift [8]"
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -bootstrap N      : Number of iteretions to do when using bootstrapping "
          WRITE(*,*) "                       to refine the KDE on the grid points"
-         WRITE(*,*) "   -neblike N        : Try to improve the clustering using neblike path search algorithm [0] "
-         WRITE(*,*) "                       N is the number of iterations "
          WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to "
          WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
@@ -1523,116 +1501,6 @@
            path(i) = npi
          ENDDO
       END SUBROUTINE
-      
-!      INTEGER FUNCTION qs_next(ngrid,idx,prob,distmm,rgrid,kderr,qserr,lambda2, &
-!                               verbose,neblike,nbootstrap,errors)
-!         ! Return the index of the closest point higher in P
-!         ! 
-!         ! Args:
-!         !    ngrid:   number of grid points
-!         !    idx:     current point
-!         !    prob:    density estimations
-!         !    distmm:  distances matrix
-!         !    rgrid:  
-!         !    kderr:
-!         !    qserr:
-!         !    lambda2: cut-off in the jump
-!         !    verbose:
-!         !    neblike
-!         !    nbootstrap
-!         !    errors
-!
-!
-!         IMPLICIT NONE
-!         INTEGER, INTENT(IN) :: ngrid
-!         DOUBLE PRECISION, INTENT(IN), DIMENSION(ngrid) :: rgrid
-!         INTEGER, INTENT(IN) :: idx,nbootstrap
-!         DOUBLE PRECISION, INTENT(IN) :: kderr,qserr,lambda2
-!         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: prob
-!         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-!         LOGICAL, INTENT(IN) :: verbose
-!         INTEGER, INTENT(IN) :: neblike
-!         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: errors
-!
-!         INTEGER i, j, ndx
-!         
-!         INTEGER :: npath
-!         INTEGER :: path(ngrid)
-!         LOGICAL :: fsaddle, fjump
-!         DOUBLE PRECISION :: dmin
-!
-!
-!         dmin=1.0d100
-!         ! find the nearest point with higher probability         
-!         ndx=idx
-!         DO j=1,ngrid       
-!            IF( (prob(j) .GT. prob(idx)) .AND. & 
-!                ((prob(j)-errors(j)) .GT. (prob(idx)+errors(idx))) )THEN 
-!               IF(distmm(idx,j) .LT. dmin)THEN
-!                   ndx=j
-!                   dmin=distmm(idx,j)
-!               ENDIF
-!            ENDIF
-!         ENDDO
-!           
-!           
-!           
-!         qs_next=idx  
-!         IF( (distmm(idx,ndx).LT.(lambda2)) ) THEN 
-!            
-!           qs_next = ndx   
-!           IF (ndx/=idx) THEN         
-!              npath = 0
-!              ! builds a discrete near-linear path between the end points
-!    
-!    ! TO BE CHECKED. Somehow there could be a SIGSEV if the array is not initialized
-!    ! to an initial value. There is an error somewhere that has to be debugged
-!     path=idx
-!     
-!              CALL build_path(ngrid, path, idx, ndx, npath, distmm, rgrid) 
-!              ! refine the path aiming for a "maximum probability path" 
-!              IF (npath > 2) THEN  ! does a few iterations for path refinement
-!                 DO i=1,3!neblike
-!                    CALL neb_path(ngrid, path, npath, distmm, prob, 0.1d0)
-!                 ENDDO
-!              ENDIF            
-!              
-!              fsaddle = .false.
-!              fjump = .false.
-!              ! check if the path goes downhill to within accuracy
-!              DO i=2,npath-1   
-!                    IF ( ((prob(path(i))-prob(idx))/ &
-!                       (prob(path(i))+prob(idx))<-0.03d0) )THEN 
-!                    !    IF(errors(idx)/errors(path(i))<0.3d0) CYCLE 
-!                        qs_next = idx
-!                        fsaddle = .true.
-!                        EXIT
-!                    ENDIF
-!              ENDDO
-!              ! check if the path contains crazy jumps
-!              DO i=1,npath-1
-!                 IF (dsqrt( distmm(path(i),path(i+1)) ) >  &
-!                    6*(dsqrt(rgrid(path(i)))+dsqrt(rgrid(path(i+1)))) ) THEN
-!                    qs_next=idx ! abort jump!
-!                    fjump = .true.
-!                    EXIT
-!                 ENDIF
-!              ENDDO  
-!              IF (verbose .and. (fsaddle .or. fjump)) THEN
-!                 dmin = 0.0d0
-!                 IF (fsaddle) write(*,*) "# SADDLE POINT DETECTED"
-!                 IF (fjump) write(*,*) "# SADDLE POINT DETECTED"            
-!                 write(*,*) 1, dmin, prob(path(1)), path(1), y(:,path(1))
-!                 DO j=2,npath                        
-!                    dmin = dmin + distmm(path(j),path(j-1))
-!                    write(*,*) j, dmin, prob(path(j)), path(j), y(:,path(j))
-!                 ENDDO
-!              ENDIF   
-!           ENDIF   
-!         ENDIF
-!         
-!                     
-!      END FUNCTION qs_next
 
       INTEGER FUNCTION qs_next(ngrid,idx,lambda2,probnmm,distmm)
          ! Return the index of the closest point higher in P
