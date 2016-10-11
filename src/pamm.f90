@@ -352,7 +352,7 @@
                distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
                distmm(j,i) = distmm(i,j)
             ENDDO
-         ENDDO
+         ENDDO  
          ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
          ALLOCATE(normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
          normkernel=1
@@ -1224,7 +1224,11 @@
 
             ! grow the arrays and dump the buffers
             IF(counter.EQ.nbuff) THEN
-               DEALLOCATE(vtmp,prtmp,aetmp,retmp,rgrtmp)
+               IF (ALLOCATED(vtmp)) DEALLOCATE(vtmp)
+               IF (ALLOCATED(prtmp)) DEALLOCATE(prtmp)
+               IF (ALLOCATED(aetmp)) DEALLOCATE(aetmp)
+               IF (ALLOCATED(retmp)) DEALLOCATE(retmp)
+               IF (ALLOCATED(rgrtmp)) DEALLOCATE(rgrtmp)
                ALLOCATE(vtmp(D,ngrid+counter),prtmp(ngrid+counter))
                ALLOCATE(aetmp(ngrid+counter),retmp(ngrid+counter))
                ALLOCATE(rgrtmp(ngrid+counter))
