@@ -85,7 +85,7 @@
       
       
       ! additional IN/OUT logical flags
-      LOGICAL saveprobs, savevor, saveadj, saveidxs
+      LOGICAL saveprobs, savevor, saveadj, saveidxs, readprobs
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -101,27 +101,28 @@
       DOUBLE PRECISION dummd1,dummd2
 
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      outputfile="out"
-      clusterfile="NULL"
-      fpost=.false.
-      alpha=1.0d0
-      zeta=0.0d0
-      ccmd=0                 ! no parameters specified
-      Nk=0                   ! number of gaussians
-      nmsopt=0               ! number of mean-shift refinements
-      ngrid=-1               ! number of samples extracted with minmax
-      seed=12345             ! seed for the random number generator
-      thrmerg=0.8d0          ! merge different clusters
-      lambda=-1              ! quick shift cut-off
+      outputfile = "out"
+      clusterfile = "NULL"
+      fpost = .false.
+      alpha = 1.0d0
+      zeta = 0.0d0
+      ccmd = 0               ! no parameters specified
+      Nk = 0                 ! number of gaussians
+      nmsopt = 0             ! number of mean-shift refinements
+      ngrid = -1             ! number of samples extracted with minmax
+      seed = 12345           ! seed for the random number generator
+      thrmerg = 0.8d0        ! merge different clusters
+      lambda = -1            ! quick shift cut-off
       verbose = .false.      ! no verbosity
-      weighted= .false.      ! don't use the weights
+      weighted = .false.     ! don't use the weights
       lfac = -1.0d0          ! localization factor
       prefac = 0.0d0         ! prefector of gaussian for localization
-      nbootstrap=0           ! do not use bootstrap
-      saveprobs= .false.     ! don't print out the probs
+      nbootstrap = 0         ! do not use bootstrap
+      saveprobs = .false.    ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
-      saveidxs = .false.
+      saveidxs = .false.     ! don't save the indexes of the grid points
       saveadj = .false.      ! save adjacency
+      readprobs = .false.    ! don't read the probabilities from the standard input
       
       D=-1
       periodic=.false.
@@ -155,8 +156,8 @@
             ccmd = 12
          ELSEIF (cmdbuffer == "-loc") THEN          ! refine adptively sigma
              ccmd = 14
-         ELSEIF (cmdbuffer == "-readprobs") THEN    ! read a file containing the grid points + info
-            ccmd = 15
+         ELSEIF (cmdbuffer == "-readprobs") THEN    ! read the grid points from the standard input
+            readprobs= .true.
          ELSEIF (cmdbuffer == "-saveprobs") THEN    ! save the KDE estimates in a file
             saveprobs= .true.
          ELSEIF (cmdbuffer == "-savevoronois") THEN ! save the Voronoi associations
@@ -255,7 +256,7 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-       
+      
       ! POST-PROCESSING MODE
       ! This modality will run just specifying the -gf flag.
       ! The program will just compute the pamm probalities 
@@ -321,10 +322,53 @@
       
       ! CLUSTERING MODE
       ! get the data from standard input
-      CALL readinput(D, weighted, nsamples, x, normwj, wj)
-      ! "renormalizes" the weight so we can consider them sort of sample counts
-      IF (weighted) THEN  
-         wj = wj * nsamples/sum(wj)
+      IF (readprobs) THEN
+         CALL readinputprobs(D, ngrid, y, prob, pabserr, prelerr, rgrid)
+         ! set the lambda to be used in QS
+         IF(lambda.LT.0)THEN
+            ! compute the median of the NN distances
+            lambda=3.0d0*median(ngrid,DSQRT(rgrid(:)))
+            lambda2=lambda*lambda
+         ENDIF
+         IF(verbose)THEN
+           WRITE(*,*) "Ngrids: ", ngrid
+           WRITE(*,*) "QS lambda: ", lambda
+         ENDIF
+         
+         ! setup what is needed (mostly to random things)
+         nsamples=ngrid
+         normwj=ngrid
+         ALLOCATE(iminij(ngrid),wj(ngrid),x(D,ngrid))  
+         wj=1.0d0
+         ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
+         ALLOCATE(npvoronoi(ngrid), sigma2(ngrid))
+         sigma2=rgrid
+         ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
+         distmm=0.0d0
+         DO i=1,ngrid
+            DO j=1,i-1  
+               ! distance between two voronoi centers
+               ! also computes the nearest neighbor distance (squared) for each grid point
+               distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+               distmm(j,i) = distmm(i,j)
+            ENDDO
+         ENDDO
+         ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
+         ALLOCATE(normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
+         normkernel=1
+         normvoro=1
+         ! Allocate variables for local bandwidth estimate
+         ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
+         ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
+         ALLOCATE(wQ(nsamples),wlocal(ngrid))
+         
+         GoTo 1111
+      ELSE 
+         CALL readinput(D, weighted, nsamples, x, normwj, wj)
+         ! "renormalizes" the weight so we can consider them sort of sample counts
+         IF (weighted) THEN  
+             wj = wj * nsamples/sum(wj)
+         ENDIF
       ENDIF
 
       ! If not specified, the number voronoi polyhedra
@@ -374,6 +418,7 @@
             ! distance between two voronoi centers
             ! also computes the nearest neighbor distance (squared) for each grid point
             distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+    
             if (distmm(i,j) < rgrid(i)) rgrid(i) = distmm(i,j)
             ! the symmetrical one
             distmm(j,i) = distmm(i,j)
@@ -388,23 +433,25 @@
 !!!                                                                    !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      IF(verbose) WRITE(*,*) &
-        "Local estimate of kernel widths"   
+
  
       ! set the lambda to be used in QS
       IF(lambda.LT.0)THEN
         ! compute the median of the NN distances
-        lambda=5.0d0*median(ngrid,DSQRT(rgrid(:)))
+        lambda=3.0d0*median(ngrid,DSQRT(rgrid(:)))
         lambda2=lambda*lambda
       ENDIF
+      IF(verbose) WRITE(*,*) &
+        "Quick-Shift : ", lambda  
+        
       ! if not specified localization is set to lambda
       IF (lfac.LE.0.0d0) THEN
         lfac = lambda
       ENDIF
       prefac = -0.5d0/(lfac*lfac)
-
+      
       IF(verbose) WRITE(*,*) &
-        " using a localization factor of ", lfac  
+        "Localization factor : ", lfac  
         
       DO i=1,ngrid
         ! localization
@@ -643,8 +690,11 @@
           pabserr(i) = ( ( 1.0d0 - bigp(i) ) * (bigp(i)/normwj) )**(0.5d0) 
         ENDDO
       ENDIF
+      
+      IF(saveprobs) & 
+       CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,outputfile) 
 
-      idxroot=0
+1111  idxroot=0
       ! Start quick shift
 
       DO i=1,ngrid
@@ -721,6 +771,7 @@
              clsadjel(j,i) = linkel
          ENDDO
       ENDDO
+      
       IF(saveadj)THEN
          OPEN(UNIT=11,FILE=trim(outputfile)//".adj",STATUS='REPLACE',ACTION='WRITE')
          OPEN(UNIT=12,FILE=trim(outputfile)//".adjel",STATUS='REPLACE',ACTION='WRITE')
@@ -826,10 +877,10 @@
             DO i=1,ngrid
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
                IF(periodic)THEN
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/16.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/9.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/16.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/9.0d0))
                   CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
                
@@ -854,6 +905,7 @@
          tmppks=0.0d0
          DO i=1,ngrid
             IF(idxroot(i).NE.qspath(k)) CYCLE
+            !! TODO : compute the covariance from the initial samples
             tmppks=tmppks+prob(i)
             DO ii=1,D
                DO jj=1,D
@@ -966,9 +1018,8 @@
          WRITE(*,*) "   -savevoronois     : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
-         WRITE(*,*) "   -saveprobs        : Save Voronoi associations. This will produce:"
-         WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
-         WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
+         WRITE(*,*) "   -saveprobs        : Save the KDE estimation on a file"
+         WRITE(*,*) "   -readprobs        : Read the grid and the probabilities from the sdtin"
          WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [default: off] "
          WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
          WRITE(*,*) "                       write out the adjacency matrix [default: off] "
@@ -980,7 +1031,7 @@
          WRITE(*,*) ""
          WRITE(*,*) "   -gf               : File to read reference Gaussian clusters from"
          WRITE(*,*) "   -a                : Additional smearing of clusters "
-         WRITE(*,*) "   -z zeta_factor : Probabilities below this threshold are counted as 'no cluster' [default:0]"
+         WRITE(*,*) "   -z zeta_factor    : Probabilities below this threshold are counted as 'no cluster' [default:0]"
          WRITE(*,*) ""
       END SUBROUTINE helpmessage
       
@@ -1073,7 +1124,6 @@
          ! initial dummy allocation
          ALLOCATE(xj(D,1),wj(1),vtmp(D,1),wtmp(1))
          xj=0.0d0
-         totw=0.0d0
          DO
             IF(fweight) THEN
                READ(5,*, IOSTAT=io_status) vbuff(:,counter+1), wbuff(counter+1)
@@ -1129,6 +1179,113 @@
             counter=0
          ENDIF
       END SUBROUTINE readinput
+      
+      SUBROUTINE readinputprobs(D, ngrid, yy, prb, ae, re, rgr)
+         IMPLICIT NONE
+         INTEGER, INTENT(IN) :: D
+         INTEGER, INTENT(OUT) :: ngrid
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: yy
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prb
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ae
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: re
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: rgr
+         ! uses a buffer to read the input reallocating the arrays when needed
+         INTEGER, PARAMETER :: nbuff = 30000
+         DOUBLE PRECISION :: vbuff(D,nbuff), prbuff(nbuff), aebuff(nbuff)
+         DOUBLE PRECISION :: rebuff(nbuff), rgrbuff(nbuff)
+         DOUBLE PRECISION, ALLOCATABLE :: vtmp(:,:), prtmp(:)
+         DOUBLE PRECISION, ALLOCATABLE :: aetmp(:), retmp(:), rgrtmp(:)
+         DOUBLE PRECISION tmparray(4)
+         
+         INTEGER io_status, counter
+
+         ngrid = 0
+         counter = 0
+         tmparray = 0.0d0
+         ! initial dummy allocation
+         IF (ALLOCATED(yy)) DEALLOCATE(yy)
+         IF (ALLOCATED(prb)) DEALLOCATE(prb)
+         IF (ALLOCATED(ae)) DEALLOCATE(ae)
+         IF (ALLOCATED(re)) DEALLOCATE(re)
+         IF (ALLOCATED(rgr)) DEALLOCATE(rgr)
+         ALLOCATE(yy(D,1),prb(1),ae(1),re(1),rgr(1),vtmp(D,1))
+         yy=0.0d0
+         DO
+            READ(5,*, IOSTAT=io_status) vbuff(:,counter+1), tmparray(:)
+            prbuff(counter+1)  = tmparray(1)
+            aebuff(counter+1)  = tmparray(2)
+            rebuff(counter+1)  = tmparray(3)
+            rgrbuff(counter+1) = tmparray(4)*tmparray(4)
+            
+            IF(io_status<0 .or. io_status==5008) EXIT    ! also intercepts a weird error given by some compilers when reading past of EOF
+            IF(io_status>0) STOP "*** Error occurred while reading file. ***"
+            
+            counter=counter+1
+
+            ! grow the arrays and dump the buffers
+            IF(counter.EQ.nbuff) THEN
+               DEALLOCATE(vtmp,prtmp,aetmp,retmp,rgrtmp)
+               ALLOCATE(vtmp(D,ngrid+counter),prtmp(ngrid+counter))
+               ALLOCATE(aetmp(ngrid+counter),retmp(ngrid+counter))
+               ALLOCATE(rgrtmp(ngrid+counter))
+               vtmp(:,1:ngrid) = yy
+               prtmp(1:ngrid)  = prb
+               aetmp(1:ngrid)  = ae
+               retmp(1:ngrid)  = re
+               rgrtmp(1:ngrid) = rgr
+               vtmp(:,ngrid+1:ngrid+counter)   = vbuff
+               prtmp(ngrid+1:ngrid+counter)    = prbuff
+               aetmp(ngrid+1:ngrid+counter)    = aebuff
+               retmp(ngrid+1:ngrid+counter)    = rebuff
+               rgrtmp(ngrid+1:ngrid+counter)   = rgrbuff
+
+               DEALLOCATE(yy, prb, ae, re, rgr)
+               ALLOCATE(prb(ngrid+counter), yy(D,ngrid+counter))
+               yy  = vtmp
+               prb = prtmp
+               ae  = aetmp
+               re  = retmp
+               rgr = rgrtmp
+
+               ngrid=ngrid+counter
+               counter=0
+            ENDIF
+         END DO
+
+         IF(counter>0) THEN
+            IF (ALLOCATED(vtmp)) DEALLOCATE(vtmp)
+            IF (ALLOCATED(prtmp)) DEALLOCATE(prtmp)
+            IF (ALLOCATED(aetmp)) DEALLOCATE(aetmp)
+            IF (ALLOCATED(retmp)) DEALLOCATE(retmp)
+            IF (ALLOCATED(rgrtmp)) DEALLOCATE(rgrtmp)
+            ALLOCATE(vtmp(D,ngrid+counter),prtmp(ngrid+counter))
+            ALLOCATE(aetmp(ngrid+counter),retmp(ngrid+counter))
+            ALLOCATE(rgrtmp(ngrid+counter))
+            vtmp(:,1:ngrid) = yy
+            prtmp(1:ngrid)  = prb
+            aetmp(1:ngrid)  = ae
+            retmp(1:ngrid)  = re
+            rgrtmp(1:ngrid) = rgr
+            vtmp(:,ngrid+1:ngrid+counter)   = vbuff(:,1:counter)
+            prtmp(ngrid+1:ngrid+counter)    = prbuff(1:counter)
+            aetmp(ngrid+1:ngrid+counter)    = aebuff(1:counter)
+            retmp(ngrid+1:ngrid+counter)    = rebuff(1:counter)
+            rgrtmp(ngrid+1:ngrid+counter)   = rgrbuff(1:counter)
+
+            DEALLOCATE(yy, prb, ae, re, rgr)
+            ALLOCATE(prb(ngrid+counter), yy(D,ngrid+counter))
+            ALLOCATE(ae(ngrid+counter), re(ngrid+counter))
+            ALLOCATE(rgr(ngrid+counter))
+            yy  = vtmp
+            prb = prtmp
+            ae  = aetmp
+            re  = retmp
+            rgr = rgrtmp
+               
+            ngrid=ngrid+counter
+            counter=0
+         ENDIF
+      END SUBROUTINE readinputprobs
 
       SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij, &
                         normvoro,saveidx,ofile)
@@ -1447,7 +1604,7 @@
          ! write out the grid
          OPEN(UNIT=12,FILE=trim(prvor)//".voronois",STATUS='REPLACE',ACTION='WRITE')
          ! header
-         WRITE(12,*) "# Dimensionality, NGrids // point, n. of points in the Voronoi, radius**2"
+         WRITE(12,*) "# Dimensionality, NGrids // point, n. of points in the Voronoi, radius"
          WRITE(12,"((A2,I9,I9))") " #", D, ngrid
          DO i=1,ngrid
             ! write first the grid point
@@ -1456,9 +1613,50 @@
             ENDDO
             ! write the number of points falling into this Voronoi
             WRITE(12,"((A1,I9))",ADVANCE="NO") " ", npvoronoi(i)
-            WRITE(12,"((A1,ES15.4E4))") " ", rgrid(i)
+            WRITE(12,"((A1,ES15.4E4))") " ", DSQRT(rgrid(i))
          ENDDO
          CLOSE(UNIT=12)
       END SUBROUTINE savevoronois
+      
+      SUBROUTINE savegrid(D,ngrid,y,prb,aer,rer,rgr,ofile)     
+         ! Store Voronoi data in a file
+         ! 
+         ! Args:
+         !    D          : Dimensionality of a point
+         !    ngrid      : number of grid points
+         !    y          : grid points
+         !    prb        : KDE
+         !    aer        : absolute errors on the KDE
+         !    rer        : relative errors on the KDE
+         !    rgr        : rgrid distances (square distances)
+         !    ofile      : prefix for the outputfile
+         
+         INTEGER, INTENT(IN) :: D
+         INTEGER, INTENT(IN) :: ngrid
+         DOUBLE PRECISION, INTENT(IN) :: y(D,ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: prb(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: aer(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: rer(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: rgr(ngrid)
+         CHARACTER(LEN=1024), INTENT(IN) :: ofile
+         
+         INTEGER i,j      
+
+         ! write out the voronoi links
+         OPEN(UNIT=12,FILE=trim(ofile)//".probs",STATUS='REPLACE',ACTION='WRITE')
+
+         DO j=1,ngrid
+            ! write first the point
+            DO i=1,D
+               WRITE(12,"((A1,ES15.4E4))",ADVANCE="NO") " ", y(i,j)
+            ENDDO
+            WRITE(12,"((A1,ES20.8E4))",ADVANCE="NO") " ", prb(j)
+            WRITE(12,"((A1,ES20.8E4))",ADVANCE="NO") " ", aer(j)
+            WRITE(12,"((A1,ES20.8E4))",ADVANCE="NO") " ", rer(j)
+            WRITE(12,"((A1,ES20.8E4))") " ", DSQRT(rgr(j))
+         ENDDO         
+
+         CLOSE(UNIT=12)
+      END SUBROUTINE savegrid
       
    END PROGRAM pamm
