@@ -6,7 +6,7 @@
 ! Can also be run in post-processing mode, where it will read tuples and 
 ! classify them based the model file specified in input.
 !
-! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
+! Copyright (C) 2016, Piero Gasparotto, Robert Meissner and Michele Ceriotti
 !
 ! Permission is hereby granted, free of charge, to any person obtaining
 ! a copy of this software and associated documentation files (the
@@ -48,8 +48,7 @@
 
       INTEGER jmax
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, bigp, &
-                                                     msmu, tmpmsmu, pcluster, px, &
-                                                     oldsigma2
+                                                     msmu, tmpmsmu, pcluster, px
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: normvoro ! accumulator for wj in voronoi
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
@@ -75,12 +74,11 @@
       ! BOOTSTRAP
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: proberr
-      INTEGER, ALLOCATABLE, DIMENSION (:) :: nbsisel
       INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmpcheck
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, prefac
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal, xm
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, Sw, Sinv, xtmp, xtmpw, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       
@@ -136,44 +134,44 @@
       !!!!!!! Command line parser !!!!!!!!!!!!!
       DO i = 1, IARGC()
          CALL GETARG(i, cmdbuffer)
-         IF (cmdbuffer == "-a") THEN       ! cluster smearing
+         IF (cmdbuffer == "-a") THEN                ! cluster smearing
             ccmd = 1
-         ELSEIF (cmdbuffer == "-o") THEN           ! output file
+         ELSEIF (cmdbuffer == "-o") THEN            ! output file
             ccmd = 2
-         ELSEIF (cmdbuffer == "-gf") THEN      ! file containing Vn parmeters
+         ELSEIF (cmdbuffer == "-gf") THEN           ! file containing Vn parmeters
             ccmd = 3
-         ELSEIF (cmdbuffer == "-seed") THEN    ! seed for the random number genarator
+         ELSEIF (cmdbuffer == "-seed") THEN         ! seed for the random number genarator
             ccmd = 4
-         ELSEIF (cmdbuffer == "-qslambda") THEN       ! threshold to differentiate different clusters in QuickShift
+         ELSEIF (cmdbuffer == "-qslambda") THEN     ! cutoff to differentiate different clusters in QuickShift
                 ccmd = 5
-         ELSEIF (cmdbuffer == "-nms") THEN     ! N of mean-shift steps
+         ELSEIF (cmdbuffer == "-nms") THEN          ! mean-shift steps
             ccmd = 6
-         ELSEIF (cmdbuffer == "-ngrid") THEN   ! N of grid points
+         ELSEIF (cmdbuffer == "-ngrid") THEN        ! N of grid points
             ccmd = 7
-         ELSEIF (cmdbuffer == "-bootstrap") THEN   ! refine the kde using bootstrapping
+         ELSEIF (cmdbuffer == "-bootstrap") THEN    ! estimate the error in the kde using bootstrapping
             ccmd = 8
-         ELSEIF (cmdbuffer == "-d") THEN       ! dimensionality
+         ELSEIF (cmdbuffer == "-d") THEN            ! dimensionality
             ccmd = 9
-         ELSEIF (cmdbuffer == "-p") THEN       ! use periodicity
+         ELSEIF (cmdbuffer == "-p") THEN            ! use periodicity
             ccmd = 11
-         ELSEIF (cmdbuffer == "-z") THEN       ! add a background to the probability mixture
+         ELSEIF (cmdbuffer == "-z") THEN            ! add a background to the probability mixture
             ccmd = 12
-         ELSEIF (cmdbuffer == "-loc") THEN  ! refine adptively sigma
+         ELSEIF (cmdbuffer == "-loc") THEN          ! refine adptively sigma
              ccmd = 14
-         ELSEIF (cmdbuffer == "-readprobs") THEN  ! read a file containing the grid points + info
+         ELSEIF (cmdbuffer == "-readprobs") THEN    ! read a file containing the grid points + info
             ccmd = 15
-         ELSEIF (cmdbuffer == "-saveprobs") THEN  ! save the KDE estimates in a file
+         ELSEIF (cmdbuffer == "-saveprobs") THEN    ! save the KDE estimates in a file
             saveprobs= .true.
-         ELSEIF (cmdbuffer == "-savevoronois") THEN  ! save the Voronoi associations
+         ELSEIF (cmdbuffer == "-savevoronois") THEN ! save the Voronoi associations
             savevor= .true.
-         ELSEIF (cmdbuffer == "-adj") THEN  ! save the Voronoi associations
+         ELSEIF (cmdbuffer == "-adj") THEN          ! save the Voronoi associations
             saveadj= .true.
             ccmd = 18
-         ELSEIF (cmdbuffer == "-w") THEN       ! use weights
+         ELSEIF (cmdbuffer == "-w") THEN            ! use weights
             weighted = .true.
-         ELSEIF (cmdbuffer == "-v") THEN       ! verbosity flag
+         ELSEIF (cmdbuffer == "-v") THEN            ! verbosity flag
             verbose = .true.
-         ELSEIF (cmdbuffer == "-h") THEN       ! help flag
+         ELSEIF (cmdbuffer == "-h") THEN            ! help flag
             CALL helpmessage
             CALL EXIT(-1)
          ELSE
@@ -182,33 +180,33 @@
                WRITE(*,*) " No parameters specified!"
                CALL helpmessage
                CALL EXIT(-1)
-            ELSEIF (ccmd == 1) THEN            ! read the cluster smearing
-               READ(cmdbuffer,*) alpha
-            ELSEIF (ccmd == 2) THEN            ! output file
-               outputfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 3) THEN            ! model file
-               fpost=.true.
-               clusterfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 1) THEN            ! read the cluster smearing
-               READ(cmdbuffer,*) alpha
-            ELSEIF (ccmd == 18) THEN           ! read the cluster smearing
+            ELSEIF (ccmd == 1) THEN                 ! read the cluster smearing
+               READ(cmdbuffer,*) alpha             
+            ELSEIF (ccmd == 2) THEN                 ! output file
+               outputfile=trim(cmdbuffer)          
+            ELSEIF (ccmd == 3) THEN                 ! model file
+               fpost=.true.                        
+               clusterfile=trim(cmdbuffer)         
+            ELSEIF (ccmd == 1) THEN                 ! read the cluster smearing
+               READ(cmdbuffer,*) alpha             
+            ELSEIF (ccmd == 18) THEN                ! read the threaslod for the cluster adjancency
                READ(cmdbuffer,*) thrmerg
-               IF (thrmerg<0) STOP "Put a positive number!"
-            ELSEIF (ccmd ==5) THEN ! read the seed
+            ELSEIF (ccmd ==5) THEN                  ! read the lambda
                READ(cmdbuffer,*) lambda
+               IF (lambda<0) STOP "The QS cutoff should be positive!"
                lambda2=lambda*lambda
-            ELSEIF (ccmd == 4) THEN ! localization parameter
+            ELSEIF (ccmd == 4) THEN                 ! read the seed for the rng
                READ(cmdbuffer,*) seed
-            ELSEIF (ccmd == 14) THEN ! localization parameter
+            ELSEIF (ccmd == 14) THEN                ! read the localization parameter
                READ(cmdbuffer,*) lfac
-            ELSEIF (ccmd == 6) THEN ! read the number of mean-shift steps
+            ELSEIF (ccmd == 6) THEN                 ! read the number of mean-shift refinement steps
                READ(cmdbuffer,*) nmsopt
-            ELSEIF (ccmd == 7) THEN ! number of grid points
+            ELSEIF (ccmd == 7) THEN                 ! number of grid points
                READ(cmdbuffer,*) ngrid
-            ELSEIF (ccmd == 8) THEN            ! read the num of bootstrap iterations
+            ELSEIF (ccmd == 8) THEN                 ! read the N of bootstrap iterations
                READ(cmdbuffer,*) nbootstrap
                IF (nbootstrap<0) STOP "The number of iterations should be positive!"
-            ELSEIF (ccmd == 9) THEN            ! read the dimensionality
+            ELSEIF (ccmd == 9) THEN                 ! read the dimensionality
                READ(cmdbuffer,*) D
                ALLOCATE(period(D))
                period=-1.0d0
@@ -336,16 +334,16 @@
 
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
-      ALLOCATE(iminij(nsamples), nbsisel(nsamples))
+      ALLOCATE(iminij(nsamples))
       ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
       ALLOCATE(y(D,ngrid), npvoronoi(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
       ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
-      ALLOCATE(diff(D), msmu(D), tmpmsmu(D), oldsigma2(ngrid))
+      ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
       ALLOCATE(proberr(ngrid),normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
-      ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),xm(D))
+      ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
       ALLOCATE(wQ(nsamples),Sw(D,D),Sinv(D,D),wlocal(ngrid))
 
@@ -368,19 +366,10 @@
       
       IF(verbose) WRITE(*,*) & 
         "Computing similarity matrix"
-      !$omp parallel &
-      !$omp default (none) &
-      !$omp shared (ngrid,distmm,D,period,y,x,rgrid,verbose) &
-      !$omp private (i,j)
-      !$omp DO
+        
       DO i=1,ngrid
-#ifdef _OPENMP
-         IF(verbose .AND. (modulo(i,100).EQ.0)) &
-               WRITE(*,*) i,"/",ngrid," thread n. : ",omp_get_thread_num() 
-#else
          IF(verbose .AND. (modulo(i,100).EQ.0)) &
                WRITE(*,*) i,"/",ngrid
-#endif
          DO j=1,i-1
             ! distance between two voronoi centers
             ! also computes the nearest neighbor distance (squared) for each grid point
@@ -391,8 +380,6 @@
             if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)   
          ENDDO
       ENDDO
-      !$omp ENDDO
-      !$omp END PARALLEL
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
@@ -986,9 +973,9 @@
       DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm)
       DEALLOCATE(pnlist,nlist,iminij,bigp)
-      DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,oldsigma2,normvoro)
+      DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
-      DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel,xm)
+      DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel)
       DEALLOCATE(xtmp,xtmpw,xij,ytmp,ytmpw)
       DEALLOCATE(wQ,Sw,Sinv,wlocal)
       DEALLOCATE(macrocl,sortmacrocl)
@@ -1238,13 +1225,6 @@
          DO i=2,ngrid
             dmax = 0.0d0
             
-            !$omp parallel &
-            !$omp default (none) &
-            !$omp shared (jmax,dmax,i,D,period,y,x,nsamples,dminij,iminij) &
-            !$omp private (j,dij)
-            
-            !$omp DO
-            
             DO j=1,nsamples
                dij = pammr2(D,period,y(:,i-1),x(:,j))
                IF (dminij(j)>dij) THEN
@@ -1252,17 +1232,10 @@
                   iminij(j) = i-1 ! also keeps track of the Voronoi attribution
                ENDIF
                IF (dminij(j) > dmax) THEN
-                  !$omp CRITICAL
-                  
                   dmax = dminij(j)
                   jmax = j
-                  
-                  !$omp END CRITICAL
                ENDIF
-            ENDDO   
-            
-            !$omp ENDDO
-            !$omp END PARALLEL         
+            ENDDO           
             y(:,i) = x(:, jmax)
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
