@@ -73,13 +73,13 @@
       
       ! BOOTSTRAP
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: proberr
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: prelerr, pabserr
       INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmpcheck
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, prefac
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, Sw, Sinv, xtmp, xtmpw, ytmp,ytmpw
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       
       
@@ -95,8 +95,6 @@
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, lambda2
 
-      ! DOUBLE PRECISION maxrgrid, minrgrid
-      DOUBLE PRECISION mixbeta
       ! Counters and dummy variable
       INTEGER i,j,k,ii,jj,counter,dummyi1,endf
       DOUBLE PRECISION dummd1,dummd2
@@ -122,9 +120,6 @@
       saveprobs= .false.     ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       saveadj = .false.      ! save adjacency
-            
-      
-      mixbeta = 0.1
       
       D=-1
       periodic=.false.
@@ -339,13 +334,13 @@
       ALLOCATE(y(D,ngrid), npvoronoi(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
       ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
       ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
-      ALLOCATE(proberr(ngrid),normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
+      ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
       ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
-      ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
-      ALLOCATE(wQ(nsamples),Sw(D,D),Sinv(D,D),wlocal(ngrid))
+      ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
+      ALLOCATE(wQ(nsamples),wlocal(ngrid))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -480,89 +475,6 @@
       DO i=1,ngrid
         sigma2(i) = trmatrix(D,Hi(:,:,i))/D
       ENDDO
-
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!                                                                    !! 
-!!!          Full covariance matrix estimation using DGEMM             !!
-!!!                                                                    !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  
-!      ! If not specified, all localization weights are set to one
-!      IF (lfac.GT.0.0d0) prefac = -0.5d0/(lfac*lfac) 
-
-!      !$omp parallel &
-!      !$omp default (none) &
-!      !$omp shared (ngrid,nsamples,D,period,y,x,verbose,Hi,Hiinv,periodic,prefac,twopi) &
-!      !$omp private (i,ii,Qlocal,nlocal,wQ,dummd1,dummd2,xtmp,xtmpw,normkernel)
-!      !$omp DO
-!      DO i=1,ngrid
-!#ifdef _OPENMP
-!         IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!               WRITE(*,*) i,"/",ngrid," thread n. : ",omp_get_thread_num() 
-!#else
-!         IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!               WRITE(*,*) i,"/",ngrid
-!#endif  
-!          
-!        ! localization
-!        DO ii=1,D
-!          xtmp(ii,:) = x(ii,:)-y(ii,i)
-!          IF (period(ii)<=0.0d0) CYCLE    
-!          ! minimum image convention     
-!          xtmp(ii,:) = xtmp(ii,:) / period(ii)
-!          xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
-!          xtmp(ii,:) = xtmp(ii,:) * period(ii)
-!        ENDDO
-!        wQ = EXP(prefac*SUM(xtmp*xtmp,1))
-!        nlocal = SUM(wQ) 
-!        
-!        ! estimate the mean
-!        DO ii=1,D
-!          IF (period(ii)>0.0d0) THEN
-!            dummd1 = SUM(SIN(x(ii,:))*wQ)/nlocal
-!            dummd2 = SUM(COS(x(ii,:))*wQ)/nlocal
-!            xtmp(ii,:) = x(ii,:) - ATAN2(dummd1,dummd2)
-!            ! minimum image convention
-!            xtmp(ii,:) = xtmp(ii,:) / period(ii)
-!            xtmp(ii,:) = xtmp(ii,:) - DNINT(xtmp(ii,:))
-!            xtmp(ii,:) = xtmp(ii,:) * period(ii)
-!          ELSE
-!            xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wQ)/nlocal
-!          ENDIF
-!          xtmpw(ii,:) = xtmp(ii,:)*wQ
-!        ENDDO
-!        !WRITE(*,*) 'local mean using sample points: ', SUM(x(ii,:)*wQ)/nlocal
-!        
-!        ! estimate covariance/variances
-!        IF (periodic) THEN
-!          Qlocal = 0.0d0
-!          DO ii=1,D
-!            CALL DGEMM("N", "T", 1, 1, nsamples, 1.0d0, xtmp(ii,:), 1, xtmpw(ii,:), 1, 0.0d0, Qlocal(ii,ii), 1) 
-!          ENDDO
-!        ELSE 
-!          CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
-!        ENDIF
-!        Qlocal = Qlocal / (nlocal-1.0d0)
-!        !WRITE(*,*) 'local cov from samples: ', Q
-
-!        ! estimate local bandwidth using Scotts rule of thumb
-!        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
-!        
-!        ! estimate the normalization constants
-!        IF(periodic) THEN
-!          dummd1 = 1.0d0
-!          DO ii=1,D
-!             dummd1=dummd1*BESSI0(Hiinv(ii,ii,i))*twopi
-!          ENDDO
-!          normkernel(i) = 1.0d0/dummd1
-!        ELSE
-!          normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-!        ENDIF
-!      ENDDO
-!      !$omp ENDDO
-!      !$omp END PARALLEL 
-!     
       
       IF(verbose) WRITE(*,*) &
         "Computing kernel density on reference points"
@@ -576,6 +488,7 @@
           dummd1 = 0.0d0
           IF(periodic .and. (nbootstrap.eq.0)) tmpcheck=0.0d0
           
+          ! renormalize the distance taking into accout the anisotropy of the multidimensional data 
           IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>16.0d0) THEN
             ! assume distribution in far away grid point is narrow
             IF(periodic)THEN
@@ -603,12 +516,14 @@
                 ENDDO
                 tmpkernel = dummd2 * wj(nlist(k))
                 IF(nbootstrap.eq.0) &
+                  ! assume a gaussian kernel to estimate the error also with periodic data
                   tmpcheck = fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) &
                            * wj(nlist(k)) &
                            + tmpcheck 
               ELSE
                 tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
               ENDIF     
+              ! cumulate the non normalized value of the kernel
               dummd1 = dummd1 + tmpkernel    
             ENDDO
           ENDIF
@@ -702,14 +617,25 @@
       
       ! get the error from the bootstrap if bootstrap was set
       IF(nbootstrap > 0) THEN
-        proberr = 0.0d0
+        prelerr = 0.0d0
+        pabserr = 0.0d0
         DO i=1,ngrid
-          ! this is the SD of the probability density (relative error)
-          proberr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) ) / prob(i)
+          pabserr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) )
+          prelerr(i) = pabserr(i) / prob(i)
         ENDDO 
       ELSE
+      ! Integrating over a Gaussian kernel with variance sigma2
+      ! will cover a volume Vi=(pi/(2 sigma2))^(D/2), assuming that sigma2 is equal in all the dimensions
+      ! If the estimate probability density on grid point i is p(i)
+      ! then the probability to be within that (smooth) bin is bigp(i)=p(i) * Vi. 
+      ! The number of points is then normwj*bigp(i), and we can take this to 
+      ! correspond to the mean of a binomial distribution. 
+      ! The variance is: normwj*bigp(i)(1-bigp(i))
+      ! The squared error: bigp(i)(1-bigp(i))/normwj
+      ! The squared relative error (1-bigp(i))/(bigp(i) normwj) so
         DO i=1,ngrid  
-          proberr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0) 
+          prelerr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0) 
+          pabserr(i) = ( ( 1.0d0 - bigp(i) ) * (bigp(i)/normwj) )**(0.5d0) 
         ENDDO
       ENDIF
 
@@ -761,9 +687,12 @@
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
          !print out the squared absolute error
-         WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") " ", dummyi1 , &
-                                                        " " , prob(i), " " , &
-                                                   proberr(i), " ",  trmatrix(D,Hi(:,:,i))/DBLE(D) 
+         WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
+                                              " " , dummyi1 ,   &
+                                              " " , prob(i) ,   &
+                                              " " , pabserr(i), &
+                                              " " , prelerr(i), &
+                                              " ",  trmatrix(D,Hi(:,:,i))/DBLE(D) 
          ! accumulate the normalization factor for the pks
          normpks=normpks+prob(i)
       ENDDO
@@ -778,7 +707,7 @@
          ! initialize each cluster to itself in the macrocluster assignation 
          macrocl(i)=i
          DO j=1,i-1
-             clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j, proberr)
+             clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j, pabserr)
              clsadj(j,i) = clsadj(i,j)
          ENDDO
       ENDDO
@@ -976,10 +905,9 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel)
-      DEALLOCATE(xtmp,xtmpw,xij,ytmp,ytmpw)
-      DEALLOCATE(wQ,Sw,Sinv,wlocal)
+      DEALLOCATE(xij,ytmp,ytmpw,wQ,wlocal)
       DEALLOCATE(macrocl,sortmacrocl)
-      IF(nbootstrap>0) DEALLOCATE(probboot,proberr)
+      IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
 
       CALL EXIT(0)
       ! end of the main programs
@@ -1309,32 +1237,31 @@
          
          INTEGER i, j
          DOUBLE PRECISION mxa, mxb, mxab, pab, emxa, emxb, emxab, g1, g2
-         mxa = 0.0d0
-         mxb = 0.0d0
-         mxab = 0.0d0
-         emxa = 0.0d0
-         emxb = 0.0d0
+         mxa   = 0.0d0
+         mxb   = 0.0d0
+         mxab  = 0.0d0
+         emxa  = 0.0d0
+         emxb  = 0.0d0
          emxab = 0.0d0
          DO i=1, ngrid
             IF (idcls(i)/=ia) CYCLE
             IF (prob(i).gt.mxa) THEN
-               mxa = prob(i)
-               emxa = errors(i)*prob(i) ! also gets the probability density at the mode of cluster a
+               mxa  = prob(i)    ! also gets the probability density at the mode of cluster a
+               emxa = errors(i) ! and the absolute error associated
             ENDIF
             DO j=1,ngrid
                IF (idcls(j)/=ib) CYCLE
                IF (prob(j).gt.mxb) THEN
-                  mxb = prob(j)
-                  emxb = errors(j)*prob(j)
+                  mxb  = prob(j)
+                  emxb = errors(j)
                ENDIF
                ! Ok, we've got a matching pair
                IF (dsqrt(distmm(i,j))<dsqrt(rgrid(i))+dsqrt(rgrid(j))) THEN
                   ! And they are close together!
                   pab = (prob(i)+prob(j))/2
                   IF (pab .gt. mxab) THEN
-                     mxab = pab
-                     emxab = DSQRT((errors(i)*prob(i))**2 &
-                               +(errors(j)*prob(j))**2)
+                     mxab  = pab
+                     emxab = DSQRT((errors(i))**2+(errors(j))**2)
                   ENDIF
                ENDIF               
             ENDDO            
@@ -1342,10 +1269,10 @@
          
          
          IF(mxab.EQ.0)THEN
-            cls_link=0.0d0
+            cls_link = 0.0d0
          ELSE
-            g1=(mxab+emxab)/min(max(mxa-emxa,0.0d0),max(mxb-emxb,0.0d0))
-            g2=(mxab-emxab)/min(max(mxa+emxa,0.0d0),max(mxb+emxb,0.0d0))
+            g1 = (mxab+emxab)/min(max(mxa-emxa,0.0d0),max(mxb-emxb,0.0d0))
+            g2 = (mxab-emxab)/min(max(mxa+emxa,0.0d0),max(mxb+emxb,0.0d0))
             cls_link = min(1.0d0,max(g1,g2))
          ENDIF
       END FUNCTION
