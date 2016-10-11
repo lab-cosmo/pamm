@@ -67,8 +67,9 @@
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
       ! cluster connectivity matrix
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
       INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
+      DOUBLE PRECISION linkel
       LOGICAL isthere
       
       ! BOOTSTRAP
@@ -704,26 +705,35 @@
       
       ! builds the cluster adjacency matrix
       IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
-      ALLOCATE(clsadj(Nk, Nk))
+      ALLOCATE(clsadj(Nk, Nk),clsadjel(Nk, Nk))
       ALLOCATE(macrocl(Nk))
-      clsadj = 0.0d0
+      clsadj   = 0.0d0
+      clsadjel = 0.0d0
       DO i=1, Nk
          ! initialize each cluster to itself in the macrocluster assignation 
          macrocl(i)=i
          DO j=1,i-1
-             clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j, pabserr)
+             clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j, &
+                                    pabserr, linkel)
              clsadj(j,i) = clsadj(i,j)
+             ! adjacency without considering the error
+             clsadjel(i,j) = linkel
+             clsadjel(j,i) = linkel
          ENDDO
       ENDDO
       IF(saveadj)THEN
          OPEN(UNIT=11,FILE=trim(outputfile)//".adj",STATUS='REPLACE',ACTION='WRITE')
+         OPEN(UNIT=12,FILE=trim(outputfile)//".adjel",STATUS='REPLACE',ACTION='WRITE')
          DO i=1, Nk
              DO j=1, Nk
                  WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadj(i,j)
+                 WRITE(12,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadjel(i,j)
              ENDDO
              WRITE(11,*) ""
+             WRITE(12,*) ""
          ENDDO
          CLOSE(11)
+         CLOSE(12)
       ENDIF
       
       ! Let's print out the macroclusters
@@ -1244,11 +1254,13 @@
          ENDDO
       END SUBROUTINE getnlist
 
-      DOUBLE PRECISION FUNCTION cls_link(ngrid, idcls, distmm, prob, rgrid, ia, ib, errors)
+      DOUBLE PRECISION FUNCTION cls_link(ngrid, idcls, distmm, prob, rgrid, ia, ib, &
+                                         errors, linknoerr)
          IMPLICIT NONE
          INTEGER, INTENT(IN) :: ngrid, idcls(ngrid), ia, ib
          DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid, ngrid), prob(ngrid), rgrid(ngrid)
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: errors
+         DOUBLE PRECISION, INTENT(OUT) :: linknoerr
          
          INTEGER i, j
          DOUBLE PRECISION mxa, mxb, mxab, pab, emxa, emxb, emxab, g1, g2
@@ -1258,6 +1270,8 @@
          emxa  = 0.0d0
          emxb  = 0.0d0
          emxab = 0.0d0
+         
+         linknoerr = 0.0d0
          DO i=1, ngrid
             IF (idcls(i)/=ia) CYCLE
             IF (prob(i).gt.mxa) THEN
@@ -1289,6 +1303,7 @@
             g1 = (mxab+emxab)/min(max(mxa-emxa,0.0d0),max(mxb-emxb,0.0d0))
             g2 = (mxab-emxab)/min(max(mxa+emxa,0.0d0),max(mxb+emxb,0.0d0))
             cls_link = min(1.0d0,max(g1,g2))
+            linknoerr = mxab/min(mxa,mxb) 
          ENDIF
       END FUNCTION
       
