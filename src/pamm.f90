@@ -331,8 +331,8 @@
             lambda2=lambda*lambda
          ENDIF
          IF(verbose)THEN
-           WRITE(*,*) "Ngrids: ", ngrid
-           WRITE(*,*) "QS lambda: ", lambda
+           WRITE(*,*) " Ngrids: ", ngrid
+           WRITE(*,*) " QS lambda: ", lambda
          ENDIF
          
          ! setup what is needed (mostly to random things)
@@ -344,8 +344,11 @@
          ALLOCATE(npvoronoi(ngrid), sigma2(ngrid))
          sigma2=rgrid
          ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
-         distmm=0.0d0
+         IF(verbose) WRITE(*,*) " Computing similarity matrix"
          DO i=1,ngrid
+            distmm(i,i)=0.0d0
+            IF(verbose .AND. (modulo(i,1000).EQ.0)) &
+               WRITE(*,*) i,"/",ngrid
             DO j=1,i-1  
                ! distance between two voronoi centers
                ! also computes the nearest neighbor distance (squared) for each grid point
@@ -394,25 +397,25 @@
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
       ! of the sampling points.
       IF(verbose) THEN
-         WRITE(*,*) "NSamples: ", nsamples
-         WRITE(*,*) "Selecting ", ngrid, " points using MINMAX"
+         WRITE(*,*) " NSamples: ", nsamples
+         WRITE(*,*) " Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
       CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro, &
                   saveidxs,outputfile)
       
       ! Generate the neighbour list
-      IF(verbose) write(*,*) "Generating neighbour list"
+      IF(verbose) write(*,*) " Generating neighbour list"
       CALL getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
       ! Definition of the distance matrix between grid points
       distmm=0.0d0
       rgrid=1d100 ! "voronoi radius" of grid points (squared)
       
       IF(verbose) WRITE(*,*) & 
-        "Computing similarity matrix"
+        " Computing similarity matrix"
         
       DO i=1,ngrid
-         IF(verbose .AND. (modulo(i,100).EQ.0)) &
+         IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                WRITE(*,*) i,"/",ngrid
          DO j=1,i-1
             ! distance between two voronoi centers
@@ -442,7 +445,7 @@
         lambda2=lambda*lambda
       ENDIF
       IF(verbose) WRITE(*,*) &
-        "Quick-Shift : ", lambda  
+        " Quick-Shift : ", lambda  
         
       ! if not specified localization is set to lambda
       IF (lfac.LE.0.0d0) THEN
@@ -451,7 +454,7 @@
       prefac = -0.5d0/(lfac*lfac)
       
       IF(verbose) WRITE(*,*) &
-        "Localization factor : ", lfac  
+        " Localization factor : ", lfac  
         
       DO i=1,ngrid
         ! localization
@@ -529,7 +532,7 @@
       ENDDO
       
       IF(verbose) WRITE(*,*) &
-        "Computing kernel density on reference points"
+        " Computing kernel density on reference points"
       
       prob = 0.0d0
       bigp = 0.0d0
@@ -603,7 +606,7 @@
       ! START of bootstrapping run
       DO nn=1,nbootstrap
         IF(verbose) WRITE(*,*) &
-              "Bootstrapping, run ", nn
+              " Bootstrapping, run ", nn
 
         ! rather than selecting nsel random points, we select a random 
         ! number of points from each voronoi. this makes it possible 
@@ -696,9 +699,11 @@
 
 1111  idxroot=0
       ! Start quick shift
-
+      IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
+         IF(verbose .AND. (modulo(i,1000).EQ.0)) &
+               WRITE(*,*) i,"/",ngrid
          qspath=0
          qspath(1)=i
          counter=1         
@@ -717,7 +722,7 @@
          ENDDO
       ENDDO
       
-      IF(verbose) write(*,*) "Writing out"
+      IF(verbose) write(*,*) " Writing out"
       qspath=0
       qspath(1)=idxroot(1)
       Nk=1
