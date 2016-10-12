@@ -450,7 +450,9 @@
         Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
         
         ! assign bandwidth using scotts rule
-        Hi(:,:,i) = Qlocal * nlocal**(-1.0d0/(D+4.0d0))
+        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(D+4.0d0)))**2.0d0
+        ! assign bandwidth using silvermans rule
+!        Hi(:,:,i) = Qlocal * ((4.0d0/(D+2.0d0))**(1.0d0/(D+4.0d0)) * nlocal**(-1.0d0/(D+4.0d0)))**2.0d0
         ! set off-diagonal terms to zero for periodic data
         IF(periodic) THEN
           DO ii=1,D
