@@ -97,7 +97,7 @@
       DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, lambda2
 
       ! Counters and dummy variable
-      INTEGER i,j,k,ii,jj,counter,dummyi1,endf
+      INTEGER i,j,k,ii,jj,counter,dummyi1,endf,zlim
       DOUBLE PRECISION dummd1,dummd2
 
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -532,6 +532,13 @@
       DO i=1,ngrid
         sigma2(i) = trmatrix(D,Hi(:,:,i))/D
       ENDDO
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!                                                                    !!
+!!!              Computing the Kernel Density Estimate                 !!
+!!!               utilizing a fast on the grid method                  !!
+!!!                                                                    !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
@@ -699,7 +706,16 @@
       IF(saveprobs) & 
        CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,outputfile) 
 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!                                                                    !!
+!!!                       Clustering of data                           !!
+!!!                   using the X-shift approach                       !!
+!!!                                                                    !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 1111  idxroot=0
+      zlim = INT(ANINT(-log(0.01/ngrid)/log(2.0d0)))
+
       ! Start quick shift
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       DO i=1,ngrid
@@ -711,7 +727,7 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-                            qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
+                            qs_next(ngrid,qspath(counter),zlim,prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1107,6 +1123,32 @@
             CALL  swap(x(i), x(location)) ! swap this and the minimum
          END DO
       END SUBROUTINE sort
+      
+      FUNCTION argsort(a) RESULT(b)
+         ! Returns the indices that would sort an array.
+         DOUBLE PRECISION, INTENT(IN):: a(:)   ! array of numbers
+         INTEGER :: b(SIZE(a))                     ! indices into the array 'a' that sort it
+
+         INTEGER :: N                              ! number of numbers/vectors
+         INTEGER :: i,imin                         ! indices: i, i of smallest
+         INTEGER :: temp1                          ! temporary
+         DOUBLE PRECISION :: temp2
+         DOUBLE PRECISION :: a2(SIZE(a))
+         a2 = a
+         N=SIZE(a)
+         DO i = 1, N
+            b(i) = i
+         ENDDO
+         DO i = 1, N-1
+           ! find ith smallest in 'a'
+           imin = MINLOC(a2(i:),1) + i - 1
+           ! swap to position i in 'a' and 'b', if not already there
+           IF (imin /= i) THEN
+              temp2 = a2(i); a2(i) = a2(imin); a2(imin) = temp2
+              temp1 = b(i); b(i) = b(imin); b(imin) = temp1
+           ENDIF
+         ENDDO
+      END FUNCTION
 
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
@@ -1475,34 +1517,34 @@
          ENDIF
       END FUNCTION
       
-      INTEGER FUNCTION qs_next(ngrid,idx,lambda2,probnmm,distmm)
+      INTEGER FUNCTION qs_next(ngrid,idx,zlim,probnmm,distmm)
          ! Return the index of the closest point higher in P
          !
          ! Args:
          !    ngrid: number of grid points
          !    idx: current point
-         !    lambda: cut-off in the jump
+         !    zlim: consider this number of closest neighbors
          !    probnmm: density estimations
          !    distmm: distances matrix
 
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda2
+         INTEGER, INTENT(IN) :: zlim
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
 
-         INTEGER j
-         DOUBLE PRECISION dmin
+         INTEGER j, neighs(ngrid)
 
-         dmin=1.0d10
+         ! get sorted indexes of closest neighbors
+         neighs = argsort(distmm(idx,:))
+         
          qs_next=idx
-         DO j=1,ngrid
-            IF(probnmm(j).GT.probnmm(idx))THEN
-               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda2))THEN
-                  dmin=distmm(idx,j)
-                  qs_next=j
-               ENDIF
-            ENDIF
+         DO j=1,zlim
+           IF(probnmm(neighs(j)).GT.probnmm(idx))THEN
+             qs_next=neighs(j)
+             ! found closest neighbor with higher prob -> exit
+             EXIT
+           ENDIF
          ENDDO
       END FUNCTION qs_next
       
