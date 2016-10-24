@@ -79,8 +79,8 @@
       INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmpcheck
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, lfac, prefac
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal
+      DOUBLE PRECISION nlocal, lfac, prefac, Dlocal, pksum
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal, pk
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       
@@ -391,7 +391,7 @@
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
       ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
-      ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
+      ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid),pk(D))
       ALLOCATE(wQ(nsamples),wlocal(ngrid))
 
       ! Extract ngrid points on which the kernel density estimation is to be
@@ -502,10 +502,21 @@
         CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
         Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
         
+        ! estimate local dimensionality from covariance matrix
+        pk = 0.0d0
+        pksum = 0.0d0
+        DO ii=1,D
+          pk(ii) = Qlocal(ii,ii)
+          pksum = pksum + Qlocal(ii,ii)
+        ENDDO
+        pk = pk/pksum
+        Dlocal = EXP(-SUM(pk*log(pk)))
+        
+        WRITE(*,*) "Local Dimension and local samples: ", Dlocal, nlocal
+        
         ! assign bandwidth using scotts rule
-        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(D+4.0d0)))**2.0d0
-        ! assign bandwidth using silvermans rule
-!        Hi(:,:,i) = Qlocal * ((4.0d0/(D+2.0d0))**(1.0d0/(D+4.0d0)) * nlocal**(-1.0d0/(D+4.0d0)))**2.0d0
+        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+        
         ! set off-diagonal terms to zero for periodic data
         IF(periodic) THEN
           DO ii=1,D
@@ -714,8 +725,8 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-                            !qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
-                            xqs_next(ngrid,qspath(counter),zneigh,prob,distmm)
+                            qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
+                            !xqs_next(ngrid,qspath(counter),zneigh,prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -981,7 +992,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel)
-      DEALLOCATE(xij,ytmp,ytmpw,wQ,wlocal)
+      DEALLOCATE(xij,ytmp,ytmpw,wQ,wlocal,pk)
       DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
 
