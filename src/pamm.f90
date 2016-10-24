@@ -772,7 +772,7 @@
       clsadjel = 0.0d0
       IF(saveadj)THEN
          DO i=1, Nk
-            IF(verbose) WRITE(*,*) i,"/",Nk
+            IF(verbose .AND. (modulo(i,10).EQ.0)) WRITE(*,*) i,"/",Nk
             ! initialize each cluster to itself in the macrocluster assignation 
             macrocl(i)=i
             DO j=1,i-1
@@ -918,22 +918,21 @@
             IF(idxroot(i).NE.qspath(k)) CYCLE
             !! TODO : compute the covariance from the initial samples
             tmppks=tmppks+prob(i)
+            xij=0.0d0
+            IF(periodic)THEN
+               CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,xij)
+            ELSE
+               CALL pammrij(D,period,y(:,i),clusters(k)%mean,xij)
+            ENDIF
+            
             DO ii=1,D
                DO jj=1,D
                   IF(periodic)THEN
-!                     ! Minimum Image Convention
-                     dummd1=DSQRT(pammr2(1,period(ii),y(ii,i),vmclusters(k)%mean(ii)))
-                     dummd2=DSQRT(pammr2(1,period(jj),y(jj,i),vmclusters(k)%mean(jj)))
-                     
                      vmclusters(k)%cov(ii,jj)= vmclusters(k)%cov(ii,jj)+prob(i)* &
-                                               dummd1 * dummd2
-                                            
+                                               xij(ii)*xij(jj)               
                   ELSE
-                     dummd1=DSQRT(pammr2(1,period(ii),y(ii,i),clusters(k)%mean(ii)))
-                     dummd2=DSQRT(pammr2(1,period(jj),y(jj,i),clusters(k)%mean(jj)))
-                     
                      clusters(k)%cov(ii,jj)=clusters(k)%cov(ii,jj)+prob(i)* &
-                                               dummd1 * dummd2
+                                               xij(ii)*xij(jj)
                   ENDIF
                ENDDO
             ENDDO
