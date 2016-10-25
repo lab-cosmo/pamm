@@ -195,7 +195,9 @@
                outputfile=trim(cmdbuffer)          
             ELSEIF (ccmd == 3) THEN                 ! model file
                fpost=.true.                        
-               clusterfile=trim(cmdbuffer)         
+               clusterfile=trim(cmdbuffer)       
+            ELSEIF (ccmd == 15) THEN                ! read the file containing the grid indexes                      
+               gridfile=trim(cmdbuffer)
             ELSEIF (ccmd == 1) THEN                 ! read the cluster smearing
                READ(cmdbuffer,*) alpha             
             ELSEIF (ccmd == 18) THEN                ! read the threaslod for the cluster adjancency
