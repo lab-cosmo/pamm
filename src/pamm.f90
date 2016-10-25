@@ -35,7 +35,7 @@
       
       INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 
-      CHARACTER(LEN=1024) :: outputfile, clusterfile          ! The output file prefix
+      CHARACTER(LEN=1024) :: outputfile, clusterfile, gridfile  ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: period(:)              ! Periodic lenght in each dimension
       LOGICAL periodic                                        ! flag for using periodic data
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
@@ -66,10 +66,10 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: x , y
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
-      INTEGER zneigh
       ! cluster connectivity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
       INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxgrid
       DOUBLE PRECISION linkel
       LOGICAL isthere
       
@@ -86,7 +86,7 @@
       
       
       ! additional IN/OUT logical flags
-      LOGICAL saveprobs, savevor, saveadj, saveidxs, readprobs
+      LOGICAL saveprobs, savevor, saveadj, saveidxs, readprobs, readjgrid, savecovs
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -104,6 +104,7 @@
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile = "out"
       clusterfile = "NULL"
+      gridfile = "NULL"
       fpost = .false.
       alpha = 1.0d0
       zeta = 0.0d0
@@ -123,7 +124,9 @@
       savevor  = .false.     ! don't print out the Voronoi
       saveidxs = .false.     ! don't save the indexes of the grid points
       saveadj = .false.      ! save adjacency
-      readprobs = .false.    ! don't read the probabilities from the standard input
+      readprobs = .FALSE.    ! don't read the probabilities from the standard input
+      readjgrid = .FALSE.    ! don't read the grid from the standard input
+      savecovs   = .FALSE.
       
       D=-1
       periodic=.false.
@@ -159,12 +162,17 @@
              ccmd = 14
          ELSEIF (cmdbuffer == "-readprobs") THEN    ! read the grid points from the standard input
             readprobs= .true.
+         ELSEIF (cmdbuffer == "-readidxsgrid") THEN    ! read the grid points from the standard input
+            readjgrid= .true.
+            ccmd = 15
          ELSEIF (cmdbuffer == "-saveprobs") THEN    ! save the KDE estimates in a file
             saveprobs= .true.
          ELSEIF (cmdbuffer == "-savevoronois") THEN ! save the Voronoi associations
             savevor= .true.
          ELSEIF (cmdbuffer == "-saveidxs") THEN ! save the Voronoi associations
             saveidxs= .true.
+         ELSEIF (cmdbuffer == "-savecovs") THEN ! save the Voronoi associations
+            savecovs= .true.
          ELSEIF (cmdbuffer == "-adj") THEN          ! save the Voronoi associations
             saveadj= .true.
             ccmd = 18
@@ -364,7 +372,7 @@
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
          ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
-         ALLOCATE(wQ(nsamples),wlocal(ngrid))
+         ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid))
          
          GoTo 1111
       ELSE 
@@ -392,7 +400,7 @@
       ! Allocate variables for local bandwidth estimate
       ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid),pk(D))
-      ALLOCATE(wQ(nsamples),wlocal(ngrid))
+      ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid))
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -402,10 +410,30 @@
          WRITE(*,*) " Selecting ", ngrid, " points using MINMAX"
       ENDIF
       
-      zneigh = INT(DLOG(0.01d0/DBLE(ngrid))/DLOG(2.0d0))
-      
-      CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro, &
+      IF(readjgrid)THEN
+         ! Read the grid 
+         
+         IF (gridfile.EQ."NULL") THEN
+            WRITE(*,*) &
+          " Error: insert the file containing the grid! "
+            CALL helpmessage
+            CALL EXIT(-1)
+         ENDIF   
+               
+         OPEN(UNIT=12,FILE=gridfile,STATUS='OLD',ACTION='READ')
+         ! read the grid from a file
+         DO i=1,ngrid
+            READ(12,*) idxgrid(i)
+         ENDDO
+         
+         WRITE(*,*) " Famo i voro!"
+         
+         ! do the voronoi association
+         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro,idxgrid)
+      ELSE
+         CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro, &
                   saveidxs,outputfile)
+      ENDIF
       
       ! Generate the neighbour list
       IF(verbose) write(*,*) " Generating neighbour list"
@@ -458,7 +486,11 @@
       
       IF(verbose) WRITE(*,*) &
         " Localization factor : ", lfac  
-        
+      
+      IF(savecovs)THEN
+         OPEN(UNIT=11,FILE=trim(outputfile)//".covardiag",STATUS='REPLACE',ACTION='WRITE')
+         WRITE(11,"((A20))") "#COV//Dlocal//Nlocal"     
+      ENDIF
       DO i=1,ngrid
         ! localization
         DO ii=1,D
@@ -512,11 +544,17 @@
         pk = pk/pksum
         Dlocal = EXP(-SUM(pk*log(pk)))
         
-        WRITE(*,*) "Local Dimension and local samples: ", Dlocal, nlocal
-        
         ! assign bandwidth using scotts rule
         Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
-        
+        IF(savecovs)THEN
+           DO ii=1,D
+              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
+           ENDDO
+           
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
+           WRITE(11,*) " "
+        ENDIF
         ! set off-diagonal terms to zero for periodic data
         IF(periodic) THEN
           DO ii=1,D
@@ -541,7 +579,8 @@
         ENDIF
            
       ENDDO
-
+      IF(savecovs) CLOSE(UNIT=11) 
+      
       ! estimate rough estimate of bandwidth 
       DO i=1,ngrid
         sigma2(i) = trmatrix(D,Hi(:,:,i))/D
@@ -612,6 +651,7 @@
           
         ENDDO          
       ENDDO
+      
       prob=prob/normwj
       bigp=bigp/normwj
    
@@ -726,7 +766,6 @@
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
                             qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
-                            !xqs_next(ngrid,qspath(counter),zneigh,prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -987,7 +1026,7 @@
       
       DEALLOCATE(x,wj)
       DEALLOCATE(period)
-      DEALLOCATE(idxroot,qspath,distmm)
+      DEALLOCATE(idxroot,qspath,distmm,idxgrid)
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
@@ -1041,6 +1080,7 @@
          WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
          WRITE(*,*) "   -saveprobs        : Save the KDE estimation on a file"
          WRITE(*,*) "   -readprobs        : Read the grid and the probabilities from the sdtin"
+         WRITE(*,*) "   -readidxsgrid     : Read just the grid"
          WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [automatic] "
          WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
          WRITE(*,*) "                       write out the adjacency matrix [default: off] "
@@ -1421,6 +1461,69 @@
             normvoro(iminij(j))=normvoro(iminij(j))+wj(iminij(j))
          ENDDO
       END SUBROUTINE mkgrid
+      
+            SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij, &
+                        normvoro,idxgrid)
+         IMPLICIT NONE
+         ! Select ngrid grid points from nsamples using minmax and
+         ! the voronoi polyhedra around them.
+         ! 
+         ! Args:
+         !    nsamples: total points number
+         !    ngrid: number of grid points
+         !    x: array containing the data samples
+         !    y: array that will contain the grid points
+         !    npvoronoi: array cotaing the number of samples inside the Voronoj polyhedron of each grid point
+         !    iminij: array containg the neighbor list for data samples
+
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         INTEGER, INTENT(IN) :: nsamples
+         INTEGER, INTENT(IN) :: ngrid
+         DOUBLE PRECISION, DIMENSION(D,nsamples), INTENT(IN) :: x
+         DOUBLE PRECISION, DIMENSION(nsamples), INTENT(IN) :: wj 
+         
+         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
+         INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: normvoro   
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: idxgrid 
+
+         INTEGER i,j
+         DOUBLE PRECISION :: dminij(nsamples), dij, dmax
+
+         iminij=0
+         y=0.0d0
+         npvoronoi=0
+         ! choose randomly the first point
+         
+         dminij = 1.0d99
+         iminij = 1         
+         DO i=1,ngrid
+            IF(modulo(i,1000).EQ.0) WRITE(*,*) i,"/",ngrid
+            dmax = 0.0d0
+            y(:,i)=x(:,idxgrid(i))
+            DO j=1,nsamples
+               dij = pammr2(D,period,y(:,i),x(:,j))
+               IF (dminij(j)>dij) THEN
+                  dminij(j) = dij
+                  iminij(j) = i ! also keeps track of the Voronoi attribution
+               ENDIF
+               IF (dminij(j) > dmax) THEN
+                  dmax = dminij(j)
+               ENDIF
+            ENDDO           
+         ENDDO
+
+         ! Assign neighbor list pointer of voronois
+         ! Number of points in each voronoi polyhedra
+         npvoronoi = 0
+         normvoro  = 0.0d0
+         DO j=1,nsamples
+            npvoronoi(iminij(j))=npvoronoi(iminij(j))+1
+            normvoro(iminij(j))=normvoro(iminij(j))+wj(iminij(j))
+         ENDDO
+      END SUBROUTINE getvoro
 
       SUBROUTINE getnlist(nsamples,ngrid,npvoronoi,iminij, pnlist,nlist)
          ! Build a neighbours list: for every voronoi center keep track of his
@@ -1546,41 +1649,6 @@
             ENDIF
          ENDDO
       END FUNCTION qs_next
-      
-      INTEGER FUNCTION xqs_next(ngrid,idx,nn,probnmm,distmm)
-         ! Return the index of the closest point higher in P
-         !
-         ! Args:
-         !    ngrid: number of grid points
-         !    idx: current point
-         !    lambda: cut-off in the jump
-         !    probnmm: density estimations
-         !    distmm: distances matrix
-
-         INTEGER, INTENT(IN) :: ngrid
-         INTEGER, INTENT(IN) :: idx
-         INTEGER, INTENT(IN) :: nn
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
-         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-
-         INTEGER i,j,sortedidxs(ngrid)
-         DOUBLE PRECISION dmin
-		 
-		 ! get the sorted indexes of the NN
-         CALL argsort(distmm(idx,:),sortedidxs,ngrid)
-		 
-         dmin=1.0d10
-         xqs_next=idx
-         DO i=1, nn
-            j=sortedidxs(i)
-            IF(probnmm(j).GT.probnmm(idx))THEN
-               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda2))THEN
-                  dmin=distmm(idx,j)
-                  xqs_next=j
-               ENDIF
-            ENDIF
-         ENDDO
-      END FUNCTION xqs_next
       
       DOUBLE PRECISION FUNCTION fmultikernel(D,period,x,y,icov)
          ! Return the multivariate gaussian density
