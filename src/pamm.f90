@@ -372,7 +372,7 @@
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
          ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
-         ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid))
+         ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid),pk(D))
          
          GoTo 1111
       ELSE 
@@ -815,12 +815,13 @@
       CLOSE(UNIT=11)
       
       ! builds the cluster adjacency matrix
-      IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
-      ALLOCATE(clsadj(Nk, Nk),clsadjel(Nk, Nk))
-      ALLOCATE(macrocl(Nk))
-      clsadj   = 0.0d0
-      clsadjel = 0.0d0
       IF(saveadj)THEN
+         IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
+         ALLOCATE(clsadj(Nk, Nk),clsadjel(Nk, Nk))
+         ALLOCATE(macrocl(Nk))
+         clsadj   = 0.0d0
+         clsadjel = 0.0d0
+
          DO i=1, Nk
             IF(verbose .AND. (modulo(i,10).EQ.0)) WRITE(*,*) i,"/",Nk
             ! initialize each cluster to itself in the macrocluster assignation 
@@ -1032,7 +1033,7 @@
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel)
       DEALLOCATE(xij,ytmp,ytmpw,wQ,wlocal,pk)
-      DEALLOCATE(macrocl,sortmacrocl)
+      IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
 
       CALL EXIT(0)
