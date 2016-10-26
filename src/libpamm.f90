@@ -524,6 +524,19 @@
          ENDDO
       END FUNCTION detmatrix
       
+      DOUBLE PRECISION FUNCTION variance(nsamples,xdata,weights)
+         INTEGER, INTENT(IN) :: nsamples
+         DOUBLE PRECISION, INTENT(IN), DIMENSION(nsamples) :: xdata
+         DOUBLE PRECISION, INTENT(IN), DIMENSION(nsamples) :: weights
+         
+         DOUBLE PRECISION xm, wsum
+         
+         wsum = SUM(weights)
+         xm = SUM(weights*xdata)/wsum
+
+         variance = wsum/(SUM(weights)**2-SUM(weights**2)) * SUM(weights*(xdata-xm)**2)
+      END FUNCTION variance
+      
 !************************************************************************
 !*                                                                      *
 !*   Reference: From Numath Library By Tuan Dang Trong in Fortran 77.   *
@@ -587,24 +600,24 @@
 !      END
 ! ----------------------------------------------------------------------
 
-      SUBROUTINE eigen(D,Q,eig)
-         ! eigenvalues of a matrix
-         INTEGER, INTENT(IN) :: D
-         DOUBLE PRECISION, DIMENSION(D,D), INTENT(IN) :: Q
-         DOUBLE PRECISION, DIMENSION(D), INTENT(OUT) :: eig
-         
-         INTEGER l,inf
-         DOUBLE PRECISION work(D*(3+D/2))
-         DOUBLE PRECISION M(D,D)
+!      SUBROUTINE eigen(D,Q,eig)
+!         ! eigenvalues of a matrix
+!         INTEGER, INTENT(IN) :: D
+!         DOUBLE PRECISION, DIMENSION(D,D), INTENT(IN) :: Q
+!         DOUBLE PRECISION, DIMENSION(D), INTENT(OUT) :: eig
+!         
+!         INTEGER l,inf
+!         DOUBLE PRECISION work(D*(3+D/2))
+!         DOUBLE PRECISION M(D,D)
 
-         ! we need to backup the matrix
-         ! because DSYEV for some reason modify it
-         M = Q
+!         ! we need to backup the matrix
+!         ! because DSYEV for some reason modify it
+!         M = Q
 
-         l=D*(3+D/2)
-         CALL DSYEV('N','U',D,M,D,eig,work,l,inf)
+!         l=D*(3+D/2)
+!         CALL DSYEV('N','U',D,M,D,eig,work,l,inf)
 
-      END SUBROUTINE eigen
+!      END SUBROUTINE eigen
 
       SUBROUTINE eigval(AB,D,WR)
          ! inversion of a square matrix using lapack

@@ -511,11 +511,14 @@
         ! normalize weights
         wlocal = wlocal / SUM(wlocal)
         
-        ! add the voronoi weights (already normalized)
+        ! add the voronoi weights
         wlocal = wlocal * normvoro/normwj
         ! renormalize again
         wlocal = wlocal / SUM(wlocal)
         
+        ! estimate the variance of the weighted distances
+        sigma2(i) = variance(ngrid,NORM2(ytmp,1),wlocal)
+
         ! estimate the mean
         DO ii=1,D
           IF (period(ii)>0.0d0) THEN
@@ -535,9 +538,9 @@
         ! estimate covariance matrix
         CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
         Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
-        
+
         ! eigenvalues of the covariance matrix
-        CALL eigen(D,Qlocal,pk)
+        CALL eigval(Qlocal,D,pk)        
         pk = pk/SUM(pk)
         pk = pk*LOG(pk)
         ! we assume that 0*log(0) is zero
@@ -548,8 +551,16 @@
         ! estimate local dimensionality
         Dlocal = EXP(-SUM(pk))
         
-        ! assign bandwidth using scotts rule
-        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+!        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+        
+        ! set bandwidth matrix to be covariance
+        Hi(:,:,i) = 0.0d0
+        ! assign diagonal bandwidth terms using scotts rule
+        DO ii=1,D
+          Hi(ii,ii,i) = sigma2(i) * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+        ENDDO
+        
+        
         IF(savecovs)THEN
            DO ii=1,D
               WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
@@ -571,6 +582,11 @@
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
         
+!        WRITE(*,'(E9.3,1X,E9.3,1X,E9.3)') Hi(:,:,i)
+!        WRITE(*,*) "Determinant: ", detmatrix(D,Hi(:,:,i))
+!        WRITE(*,*) ""
+
+        
         ! estimate the normalization constants
         IF(periodic) THEN
           dummd1 = 1.0d0
@@ -579,16 +595,18 @@
           ENDDO
           normkernel(i) = 1.0d0/dummd1
         ELSE
+        ! TODO: should we use here local dimensionality?
           normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
         ENDIF
-           
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
       
-      ! estimate rough estimate of bandwidth 
-      DO i=1,ngrid
-        sigma2(i) = trmatrix(D,Hi(:,:,i))/D
-      ENDDO
+      
+      
+!      ! estimate rough estimate of bandwidth 
+!      DO i=1,ngrid
+!        sigma2(i) = trmatrix(D,Hi(:,:,i))/D
+!      ENDDO
       
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
