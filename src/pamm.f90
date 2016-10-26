@@ -536,15 +536,23 @@
         CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
         Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
         
-        ! estimate local dimensionality from covariance matrix
-        pk = 0.0d0
-        pksum = 0.0d0
-        DO ii=1,D
-          pk(ii) = Qlocal(ii,ii)
-          pksum = pksum + Qlocal(ii,ii)
-        ENDDO
-        pk = pk/pksum
+        ! eigenvalues of the covariance matrix
+        CALL eigen(D,Qlocal,pk)
+        pk = pk/SUM(pk)
+        ! estimate local dimensionality
         Dlocal = EXP(-SUM(pk*log(pk)))
+!        WRITE(*,*) "local dim (eigenvalues): ", Dlocal
+        
+        ! estimate local dimensionality from covariance matrix
+!        pk = 0.0d0
+!        pksum = 0.0d0
+!        DO ii=1,D
+!          pk(ii) = Qlocal(ii,ii)
+!          pksum = pksum + Qlocal(ii,ii)
+!        ENDDO
+!        pk = pk/pksum
+!        Dlocal = EXP(-SUM(pk*log(pk)))
+!        WRITE(*,*) "local dim (variance):    ", Dlocal
         
         ! assign bandwidth using scotts rule
         Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0

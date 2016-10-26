@@ -587,6 +587,25 @@
 !      END
 ! ----------------------------------------------------------------------
 
+      SUBROUTINE eigen(D,Q,eig)
+         ! eigenvalues of a matrix
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D,D), INTENT(IN) :: Q
+         DOUBLE PRECISION, DIMENSION(D), INTENT(OUT) :: eig
+         
+         INTEGER l,inf
+         DOUBLE PRECISION work(D*(3+D/2))
+         DOUBLE PRECISION M(D,D)
+
+         ! we need to backup the matrix
+         ! because DSYEV for some reason modify it
+         M = Q
+
+         l=D*(3+D/2)
+         CALL DSYEV('N','U',D,M,D,eig,work,l,inf)
+
+      END SUBROUTINE eigen
+
       SUBROUTINE eigval(AB,D,WR)
          ! inversion of a square matrix using lapack
          INTEGER, INTENT(IN) :: D
