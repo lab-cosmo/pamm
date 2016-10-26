@@ -79,7 +79,7 @@
       INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
       DOUBLE PRECISION tmpcheck
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, lfac, prefac, Dlocal, pksum
+      DOUBLE PRECISION nlocal, lfac, prefac, Dlocal
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal, pk
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
@@ -539,20 +539,14 @@
         ! eigenvalues of the covariance matrix
         CALL eigen(D,Qlocal,pk)
         pk = pk/SUM(pk)
+        pk = pk*LOG(pk)
+        ! we assume that 0*log(0) is zero
+        ! thus we need to check for nan values 
+        ! and set pk to zero for that value
+        ! since log(x) for x <= 0 is nan
+        WHERE( pk .ne. pk ) pk = 0.0d0
         ! estimate local dimensionality
-        Dlocal = EXP(-SUM(pk*log(pk)))
-!        WRITE(*,*) "local dim (eigenvalues): ", Dlocal
-        
-        ! estimate local dimensionality from covariance matrix
-!        pk = 0.0d0
-!        pksum = 0.0d0
-!        DO ii=1,D
-!          pk(ii) = Qlocal(ii,ii)
-!          pksum = pksum + Qlocal(ii,ii)
-!        ENDDO
-!        pk = pk/pksum
-!        Dlocal = EXP(-SUM(pk*log(pk)))
-!        WRITE(*,*) "local dim (variance):    ", Dlocal
+        Dlocal = EXP(-SUM(pk))
         
         ! assign bandwidth using scotts rule
         Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
