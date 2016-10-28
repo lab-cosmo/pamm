@@ -524,17 +524,29 @@
          ENDDO
       END FUNCTION detmatrix
       
-      DOUBLE PRECISION FUNCTION variance(nsamples,xdata,weights)
+      DOUBLE PRECISION FUNCTION variance(nsamples,D,x,weights)
          INTEGER, INTENT(IN) :: nsamples
-         DOUBLE PRECISION, INTENT(IN), DIMENSION(nsamples) :: xdata
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, INTENT(IN), DIMENSION(D,nsamples) :: x
          DOUBLE PRECISION, INTENT(IN), DIMENSION(nsamples) :: weights
          
-         DOUBLE PRECISION xm, wsum
-         
+         INTEGER ii
+         DOUBLE PRECISION wsum
+         DOUBLE PRECISION, DIMENSION(D) :: xm
+         DOUBLE PRECISION, DIMENSION(D,nsamples) :: xtmp
+         DO ii=1,D
+           xtmp(ii,:) = weights*x(ii,:)
+         ENDDO
          wsum = SUM(weights)
-         xm = SUM(weights*xdata)/wsum
-
-         variance = wsum/(SUM(weights)**2-SUM(weights**2)) * SUM(weights*(xdata-xm)**2)
+         xm = SUM(xtmp,2)/wsum
+                  
+         DO ii=1,D
+           xtmp(ii,:) = x(ii,:)-xm(ii)
+         ENDDO
+         
+         WRITE(*,*) "Mean", xm
+          
+         variance = wsum/(SUM(weights)**2-SUM(weights**2)) * SUM(weights*(NORM2(xtmp,1))**2)
       END FUNCTION variance
       
 !************************************************************************

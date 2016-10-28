@@ -83,6 +83,9 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal, pk
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp,xtmpw
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wloc
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
       
       
       ! additional IN/OUT logical flags
@@ -375,6 +378,8 @@
          ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
          ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
          ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid),pk(D))
+         ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
+         ALLOCATE(ineigh(ngrid))
          
          GoTo 1111
       ELSE 
@@ -403,7 +408,9 @@
       ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
       ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid),pk(D))
       ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid))
-
+      ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
+      ALLOCATE(ineigh(ngrid))
+      
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
       ! of the sampling points.
@@ -431,9 +438,9 @@
          WRITE(*,*) " Famo i voro!"
          
          ! do the voronoi association
-         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro,idxgrid)
+         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,ineigh,normvoro,idxgrid)
       ELSE
-         CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,normvoro, &
+         CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,ineigh,normvoro, &
                   saveidxs,outputfile)
       ENDIF
       
@@ -460,7 +467,7 @@
             distmm(j,i) = distmm(i,j)
             if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)   
          ENDDO
-      ENDDO
+      ENDDO 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
@@ -490,10 +497,16 @@
         " Localization factor : ", lfac  
       
       IF(savecovs)THEN
-         OPEN(UNIT=11,FILE=trim(outputfile)//".covardiag",STATUS='REPLACE',ACTION='WRITE')
+         OPEN(UNIT=11,FILE=trim(outputfile)//".gcov",STATUS='REPLACE',ACTION='WRITE')
          WRITE(11,"((A20))") "#COV//Dlocal//Nlocal"     
       ENDIF
+      IF(verbose) WRITE(*,*) " Calculating covariance matrix on grid"
       DO i=1,ngrid
+        IF(lfac**2 < rgrid(i)) THEN
+          prefac = -0.5d0/rgrid(i)
+        ELSE
+          prefac = -0.5d0/lfac**2
+        ENDIF
         ! localization
         DO ii=1,D
           ytmp(ii,:) = y(ii,:)-y(ii,i)
@@ -505,40 +518,27 @@
         ENDDO
         ! estimate weights for localization as product from 
         ! spherical gaussian weights and weights in voronoi
-        wlocal = EXP(prefac*SUM(ytmp*ytmp,1))  
+        wlocal = EXP(prefac*SUM(ytmp*ytmp,1)) 
         ! estimate local number of sample points
         nlocal = SUM(normvoro*wlocal)
         ! normalize weights
-        wlocal = wlocal / SUM(wlocal)
+        wlocal = wlocal / SUM(wlocal) 
         
         ! add the voronoi weights
         wlocal = wlocal * normvoro/normwj
         ! renormalize again
         wlocal = wlocal / SUM(wlocal)
-        
-        ! estimate the variance of the weighted distances
-        sigma2(i) = variance(ngrid,NORM2(ytmp,1),wlocal)
 
         ! estimate the mean
         DO ii=1,D
-          IF (period(ii)>0.0d0) THEN
-            dummd1 = SUM(SIN(y(ii,:))*wlocal)
-            dummd2 = SUM(COS(y(ii,:))*wlocal)
-            ytmp(ii,:) = y(ii,:) - ATAN2(dummd1,dummd2)
-            ! minimum image convention
-            ytmp(ii,:) = ytmp(ii,:) / period(ii)
-            ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
-            ytmp(ii,:) = ytmp(ii,:) * period(ii)
-          ELSE
-            ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wlocal)
-          ENDIF
+          ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wlocal)
           ytmpw(ii,:) = ytmp(ii,:)*wlocal
         ENDDO
         
         ! estimate covariance matrix
         CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
         Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
-
+        
         ! eigenvalues of the covariance matrix
         CALL eigval(Qlocal,D,pk)        
         pk = pk/SUM(pk)
@@ -551,55 +551,126 @@
         ! estimate local dimensionality
         Dlocal = EXP(-SUM(pk))
         
-!        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
-        
-        ! set bandwidth matrix to be covariance
-        Hi(:,:,i) = 0.0d0
-        ! assign diagonal bandwidth terms using scotts rule
+        ! only scale diagonal to avoid errors when determinant is calculated
+        Hi(:,:,i) = Qlocal
         DO ii=1,D
-          Hi(ii,ii,i) = sigma2(i) * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+          Hi(ii,ii,i) = Qlocal(ii,ii) * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
         ENDDO
         
-        
         IF(savecovs)THEN
-           DO ii=1,D
-              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-           ENDDO
+!           DO ii=1,D
+!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
+!           ENDDO
            
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
+           IF(lfac**2 < rgrid(i)) THEN
+             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 1, sqrt(rgrid(i))
+           ELSE
+             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 0, sqrt(rgrid(i))
+           ENDIF
            WRITE(11,*) " "
         ENDIF
-        ! set off-diagonal terms to zero for periodic data
-        IF(periodic) THEN
-          DO ii=1,D
-           DO jj=1,ii-1
-              Hi(ii,jj,i) = 0.0d0
-              Hi(jj,ii,i) = 0.0d0
-           ENDDO
-          ENDDO
-        ENDIF
+
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-        
-!        WRITE(*,'(E9.3,1X,E9.3,1X,E9.3)') Hi(:,:,i)
-!        WRITE(*,*) "Determinant: ", detmatrix(D,Hi(:,:,i))
-!        WRITE(*,*) ""
 
-        
         ! estimate the normalization constants
-        IF(periodic) THEN
-          dummd1 = 1.0d0
-          DO ii=1,D
-             dummd1=dummd1*BESSI0(Hiinv(ii,ii,i))*twopi
-          ENDDO
-          normkernel(i) = 1.0d0/dummd1
-        ELSE
+        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
         ! TODO: should we use here local dimensionality?
-          normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-        ENDIF
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      IF(savecovs)THEN
+         OPEN(UNIT=11,FILE=trim(outputfile)//".ncov",STATUS='REPLACE',ACTION='WRITE')
+         WRITE(11,"((A20))") "#COV//Dlocal//Nlocal"     
+      ENDIF
+      IF(verbose) WRITE(*,*) " Calculating covariance matrix on samples"
+      DO i=1,ngrid
+        IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
+          prefac = -0.5d0/pammr2(D,period,y(:,i),x(:,ineigh(i)))
+        ELSE
+          prefac = -0.5d0/lfac**2
+        ENDIF
+      
+        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+          WRITE(*,*) i,"/",ngrid
+        !!! estimate weights for localization
+        DO ii=1,D
+          xtmp(ii,:) = x(ii,:)-y(ii,i)
+        ENDDO
+        ! estimate weights for localization as product from 
+        ! spherical gaussian weights and weights in voronoi
+        wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * wj
+        ! estimate local number of sample points
+        nlocal = SUM(wloc)
+        ! normalize weights
+        wloc = wloc / nlocal
+        
+        !!! estimate covariance matrix
+        DO ii=1,D
+          xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wloc)
+          xtmpw(ii,:) = xtmp(ii,:)*wloc
+        ENDDO
+        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
+        Qlocal = Qlocal / (1.0d0-SUM(wloc**2.0d0))
+        
+        !!! estimate local dimensionality
+        CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
+        pk = pk/SUM(pk)
+        pk = pk*LOG(pk)
+        ! we assume that 0*log(0) is zero
+        ! thus we need to check for nan values 
+        ! and set pk to zero for that value
+        ! since log(x) for x <= 0 is nan
+        WHERE( pk .ne. pk ) pk = 0.0d0
+        Dlocal = EXP(-SUM(pk))
+        
+        !!! set bandwidth matrix according to scotts rule
+        ! only scale diagonal to avoid errors when determinant is calculated
+        Hi(:,:,i) = Qlocal
+        DO ii=1,D
+          Hi(ii,ii,i) = Qlocal(ii,ii) * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+        ENDDO
+        
+        IF(savecovs)THEN
+!           DO ii=1,D
+!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
+!           ENDDO
+           
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
+           IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
+             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 1, sqrt(pammr2(D,period,y(:,i),x(:,ineigh(i))))
+           ELSE
+             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 0, sqrt(pammr2(D,period,y(:,i),x(:,ineigh(i))))
+           ENDIF
+           WRITE(11,*) " "
+        ENDIF
+        
+        ! inverse of the bandwidth matrix
+        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+
+        ! estimate the normalization constants
+        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+        ! TODO: should we use here local dimensionality?
+      ENDDO
+      IF(savecovs) CLOSE(UNIT=11) 
+      
+      
+      
+      
+      
+      
       
       
       
@@ -1055,6 +1126,7 @@
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel)
       DEALLOCATE(xij,ytmp,ytmpw,wQ,wlocal,pk)
+      DEALLOCATE(xtmp,xtmpw,wloc,ineigh)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
 
@@ -1403,7 +1475,7 @@
       END SUBROUTINE readinputprobs
 
       SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij, &
-                        normvoro,saveidx,ofile)
+                        ineigh,normvoro,saveidx,ofile)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          ! 
@@ -1424,14 +1496,15 @@
          
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: normvoro 
          CHARACTER(LEN=1024), INTENT(IN) :: ofile   
          LOGICAL, INTENT(IN) :: saveidx   
 
          INTEGER i,j,irandom
-         DOUBLE PRECISION :: dminij(nsamples), dij, dmax
-
+         DOUBLE PRECISION :: dminij(nsamples), dij, dmax, dneigh
+         
          iminij=0
          y=0.0d0
          npvoronoi=0
@@ -1443,10 +1516,11 @@
          ENDIF
          y(:,1)=x(:,irandom)
          dminij = 1.0d99
-         iminij = 1         
+         iminij = 1     
+         ineigh = 0    
          DO i=2,ngrid
             dmax = 0.0d0
-            
+            dneigh = 1.0d99
             DO j=1,nsamples
                dij = pammr2(D,period,y(:,i-1),x(:,j))
                IF (dminij(j)>dij) THEN
@@ -1456,6 +1530,10 @@
                IF (dminij(j) > dmax) THEN
                   dmax = dminij(j)
                   jmax = j
+               ENDIF
+               IF ((dneigh > dij) .and. (dij .ne. 0.0d0)) THEN
+                  dneigh = dij
+                  ineigh(i-1) = j ! store index of closest sample neighbor to grid point
                ENDIF
             ENDDO           
             y(:,i) = x(:, jmax)
@@ -1467,11 +1545,16 @@
          ENDDO
 
          ! finishes Voronoi attribution
+         dneigh = 1.0d99
          DO j=1,nsamples
             dij = pammr2(D,period,y(:,ngrid),x(:,j))
             IF (dminij(j)>dij) THEN
                dminij(j) = dij
                iminij(j) = ngrid
+            ENDIF
+            IF ((dneigh > dij) .and. (dij .ne. 0.0d0)) THEN
+               dneigh = dij
+               ineigh(ngrid) = j ! store index of closest sample neighbor to grid point
             ENDIF
          ENDDO
 
@@ -1485,8 +1568,8 @@
          ENDDO
       END SUBROUTINE mkgrid
       
-            SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij, &
-                        normvoro,idxgrid)
+      SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij, &
+                         ineigh,normvoro,idxgrid)
          IMPLICIT NONE
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
@@ -1508,12 +1591,13 @@
          
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: normvoro   
          INTEGER, DIMENSION(ngrid), INTENT(IN) :: idxgrid 
 
          INTEGER i,j
-         DOUBLE PRECISION :: dminij(nsamples), dij, dmax
+         DOUBLE PRECISION :: dminij(nsamples), dij, dmax, dneigh
 
          iminij=0
          y=0.0d0
@@ -1525,6 +1609,7 @@
          DO i=1,ngrid
             IF(modulo(i,1000).EQ.0) WRITE(*,*) i,"/",ngrid
             dmax = 0.0d0
+            dneigh = 1.0d99
             y(:,i)=x(:,idxgrid(i))
             DO j=1,nsamples
                dij = pammr2(D,period,y(:,i),x(:,j))
@@ -1534,6 +1619,10 @@
                ENDIF
                IF (dminij(j) > dmax) THEN
                   dmax = dminij(j)
+               ENDIF
+               IF ((dneigh > dij) .and. (dij .ne. 0.0d0)) THEN
+                  dneigh = dij
+                  ineigh(i) = j ! store index of closest sample neighbor to grid point
                ENDIF
             ENDDO           
          ENDDO
