@@ -468,6 +468,15 @@
             if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)   
          ENDDO
       ENDDO 
+      
+      ! quickly estimate the covariance matrix on grid
+      DO ii=1,D
+        ytmp(ii,:) = y(ii,:) - SUM(ytmp(ii,:)*normvoro/normwj)
+      ENDDO
+      ! estimate covariance matrix
+      CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmp, D, 0.0d0, Q, D)
+      Q = Q / (1.0d0-SUM(wlocal**2.0d0))
+      
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
@@ -475,7 +484,6 @@
 !!!                 utilizing a two pass algorithm                     !!
 !!!                                                                    !!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
 
  
       ! set the lambda to be used in QS
@@ -551,33 +559,30 @@
         ! estimate local dimensionality
         Dlocal = EXP(-SUM(pk))
         
-        ! only scale diagonal to avoid errors when determinant is calculated
-        Hi(:,:,i) = Qlocal
-        DO ii=1,D
-          Hi(ii,ii,i) = Qlocal(ii,ii) * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
-        ENDDO
+        ! apply scotts rule
+        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
+        
+        ! inverse of the bandwidth matrix
+        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+
+        ! estimate the normalization constants
+        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+        ! TODO: should we use here local dimensionality?
         
         IF(savecovs)THEN
-!           DO ii=1,D
-!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-!           ENDDO
-           
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
+           DO ii=1,D
+              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
+           ENDDO
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
            IF(lfac**2 < rgrid(i)) THEN
-             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 1, sqrt(rgrid(i))
+             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 1, SQRT(rgrid(i))
            ELSE
-             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 0, sqrt(rgrid(i))
+             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 0, SQRT(rgrid(i))
            ENDIF
            WRITE(11,*) " "
         ENDIF
-
-        ! inverse of the bandwidth matrix
-        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-
-        ! estimate the normalization constants
-        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-        ! TODO: should we use here local dimensionality?
+        
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
       
@@ -590,81 +595,83 @@
       
       
       
-      IF(savecovs)THEN
-         OPEN(UNIT=11,FILE=trim(outputfile)//".ncov",STATUS='REPLACE',ACTION='WRITE')
-         WRITE(11,"((A20))") "#COV//Dlocal//Nlocal"     
-      ENDIF
-      IF(verbose) WRITE(*,*) " Calculating covariance matrix on samples"
-      DO i=1,ngrid
-        IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
-          prefac = -0.5d0/pammr2(D,period,y(:,i),x(:,ineigh(i)))
-        ELSE
-          prefac = -0.5d0/lfac**2
-        ENDIF
-      
-        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-          WRITE(*,*) i,"/",ngrid
-        !!! estimate weights for localization
-        DO ii=1,D
-          xtmp(ii,:) = x(ii,:)-y(ii,i)
-        ENDDO
-        ! estimate weights for localization as product from 
-        ! spherical gaussian weights and weights in voronoi
-        wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * wj
-        ! estimate local number of sample points
-        nlocal = SUM(wloc)
-        ! normalize weights
-        wloc = wloc / nlocal
-        
-        !!! estimate covariance matrix
-        DO ii=1,D
-          xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wloc)
-          xtmpw(ii,:) = xtmp(ii,:)*wloc
-        ENDDO
-        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
-        Qlocal = Qlocal / (1.0d0-SUM(wloc**2.0d0))
-        
-        !!! estimate local dimensionality
-        CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
-        pk = pk/SUM(pk)
-        pk = pk*LOG(pk)
-        ! we assume that 0*log(0) is zero
-        ! thus we need to check for nan values 
-        ! and set pk to zero for that value
-        ! since log(x) for x <= 0 is nan
-        WHERE( pk .ne. pk ) pk = 0.0d0
-        Dlocal = EXP(-SUM(pk))
-        
-        !!! set bandwidth matrix according to scotts rule
-        ! only scale diagonal to avoid errors when determinant is calculated
-        Hi(:,:,i) = Qlocal
-        DO ii=1,D
-          Hi(ii,ii,i) = Qlocal(ii,ii) * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
-        ENDDO
-        
-        IF(savecovs)THEN
-!           DO ii=1,D
-!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-!           ENDDO
-           
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
-           IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
-             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 1, sqrt(pammr2(D,period,y(:,i),x(:,ineigh(i))))
-           ELSE
-             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 0, sqrt(pammr2(D,period,y(:,i),x(:,ineigh(i))))
-           ENDIF
-           WRITE(11,*) " "
-        ENDIF
-        
-        ! inverse of the bandwidth matrix
-        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+!      IF(savecovs)THEN
+!         OPEN(UNIT=11,FILE=trim(outputfile)//".ncov",STATUS='REPLACE',ACTION='WRITE')
+!         WRITE(11,"((A20))") "#COV//Dlocal//Nlocal"     
+!      ENDIF
+!      IF(verbose) WRITE(*,*) " Calculating covariance matrix on samples"
+!      DO i=1,ngrid
+!        IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
+!          prefac = -0.5d0/pammr2(D,period,y(:,i),x(:,ineigh(i)))
+!        ELSE
+!          prefac = -0.5d0/lfac**2
+!        ENDIF
+!      
+!        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+!          WRITE(*,*) i,"/",ngrid
+!        !!! estimate weights for localization
+!        DO ii=1,D
+!          xtmp(ii,:) = x(ii,:)-y(ii,i)
+!        ENDDO
+!        ! estimate weights for localization as product from 
+!        ! spherical gaussian weights and weights in voronoi
+!        wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * wj
+!        ! estimate local number of sample points
+!        nlocal = SUM(wloc)
+!        ! normalize weights
+!        wloc = wloc / nlocal
+!        
+!        !!! estimate covariance matrix
+!        DO ii=1,D
+!          xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wloc)
+!          xtmpw(ii,:) = xtmp(ii,:)*wloc
+!        ENDDO
+!        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
+!        Qlocal = Qlocal / (1.0d0-SUM(wloc**2.0d0))
+!        
+!        !!! estimate local dimensionality
+!        CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
+!        pk = pk/SUM(pk)
+!        pk = pk*LOG(pk)
+!        ! we assume that 0*log(0) is zero
+!        ! thus we need to check for nan values 
+!        ! and set pk to zero for that value
+!        ! since log(x) for x <= 0 is nan
+!        WHERE( pk .ne. pk ) pk = 0.0d0
+!        Dlocal = EXP(-SUM(pk))
+!        
+!        !!! set bandwidth matrix according to scotts rule
+!        ! only scale diagonal to avoid errors when determinant is calculated
+!!        Hi(:,:,i) = Qlocal
+!!        DO ii=1,D
+!!          Hi(ii,ii,i) = Qlocal(ii,ii) * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+!!        ENDDO
+!        
+!        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+!        
+!        IF(savecovs)THEN
+!!           DO ii=1,D
+!!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
+!!           ENDDO
+!           
+!           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
+!           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
+!           IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
+!             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 1, sqrt(pammr2(D,period,y(:,i),x(:,ineigh(i))))
+!           ELSE
+!             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 0, sqrt(pammr2(D,period,y(:,i),x(:,ineigh(i))))
+!           ENDIF
+!           WRITE(11,*) " "
+!        ENDIF
+!        
+!        ! inverse of the bandwidth matrix
+!        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
 
-        ! estimate the normalization constants
-        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-        ! TODO: should we use here local dimensionality?
-      ENDDO
-      IF(savecovs) CLOSE(UNIT=11) 
+!        ! estimate the normalization constants
+!        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+!        ! TODO: should we use here local dimensionality?
+!      ENDDO
+!      IF(savecovs) CLOSE(UNIT=11) 
       
       
       
