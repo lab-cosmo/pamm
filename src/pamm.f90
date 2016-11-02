@@ -341,7 +341,7 @@
          ! set the lambda to be used in QS
          IF(lambda.LT.0)THEN
             ! compute the median of the NN distances
-            lambda=3.0d0*median(ngrid,DSQRT(rgrid(:)))
+            lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
             lambda2=lambda*lambda
          ENDIF
          IF(verbose)THEN
@@ -375,7 +375,7 @@
          normkernel=1
          normvoro=1
          ! Allocate variables for local bandwidth estimate
-         ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
+         ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
          ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
          ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid),pk(D))
          ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
@@ -477,7 +477,10 @@
       CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmp, D, 0.0d0, Q, D)
       Q = Q / (1.0d0-SUM(wlocal**2.0d0))
       
-      IM = 1.0d0
+      IM = 0.0d0
+      DO ii=1,D
+        IM(ii,ii) = 1.0d0
+      ENDDO
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
@@ -497,7 +500,8 @@
         
       ! if not specified localization is set to lambda
       IF (lfac.LE.0.0d0) THEN
-        lfac = lambda
+        ! let's put some magic here
+        lfac = 0.7d0*lambda
       ENDIF
       prefac = -0.5d0/(lfac*lfac)
       
@@ -569,6 +573,7 @@
         ! apply scotts rule
         Hi(:,:,i) = ((1.0d0-dummd1)*Qlocal + & 
                      dummd1*(trmatrix(D,Qlocal)/DBLE(D))*IM )* & 
+                     
                     (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
         
         
@@ -854,10 +859,10 @@
         ENDDO
       ENDIF
       
-      IF(saveprobs) & 
+1111  IF(saveprobs) & 
        CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,outputfile) 
 
-1111  idxroot=0
+      idxroot=0
       ! Start quick shift
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       DO i=1,ngrid
@@ -960,7 +965,7 @@
                ! Put a threshold under which there is no link between the clusters
                ! now it is just a default
                IF(i.EQ.j) CYCLE ! discard yourself
-               IF(clsadj(i,j) .GT. thrmerg) THEN 
+               IF(clsadjel(i,j) .GT. thrmerg) THEN 
                   IF(macrocl(j).EQ.j) THEN
                      ! the point is still initialized to himself 
                      macrocl(j)=macrocl(i)
@@ -973,10 +978,11 @@
                      ENDDO
                      macrocl(i)=macrocl(j)
                   ENDIF
+                  
                ENDIF
             ENDDO
          ENDDO
-         
+
          ! Count unique macroclusters and order them
          ALLOCATE(sortmacrocl(Nk))
          sortmacrocl=0
