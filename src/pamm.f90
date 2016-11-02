@@ -1,4 +1,4 @@
-! This file contain the main program for the PAMM clustering in 
+    ! This file contain the main program for the PAMM clustering in 
 ! both PERIODIC and NON PERIODIC space.
 ! Starting from a set of data points in high dimension it will first perform
 ! a non-parametric partitioning of the probability density and return the
@@ -33,7 +33,7 @@
       USE random
       IMPLICIT NONE
       
-      INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
+!      INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 
       CHARACTER(LEN=1024) :: outputfile, clusterfile, gridfile  ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: period(:)              ! Periodic lenght in each dimension
@@ -81,7 +81,7 @@
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, prefac, Dlocal
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal, pk
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, ytmp,ytmpw
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, IM, ytmp,ytmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp,xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wloc
@@ -405,7 +405,7 @@
       ! bootstrap probability density array will be allocated if necessary
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
-      ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid))
+      ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
       ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid),pk(D))
       ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid))
       ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
@@ -477,7 +477,7 @@
       CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmp, D, 0.0d0, Q, D)
       Q = Q / (1.0d0-SUM(wlocal**2.0d0))
       
-
+      IM = 1.0d0
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
@@ -489,7 +489,7 @@
       ! set the lambda to be used in QS
       IF(lambda.LT.0)THEN
         ! compute the median of the NN distances
-        lambda=3.0d0*median(ngrid,DSQRT(rgrid(:)))
+        lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
         lambda2=lambda*lambda
       ENDIF
       IF(verbose) WRITE(*,*) &
@@ -559,8 +559,20 @@
         ! estimate local dimensionality
         Dlocal = EXP(-SUM(pk))
         
+        ! oracle approxitmating shrinkage alogorithm
+        dummd2 = ((1-2.0d0/DBLE(D))*trmatrix(D,Qlocal**2) & 
+                  +trmatrix(D,Qlocal)**2.0d0) / &
+                 ((nlocal+1.0d0-2.0d0/DBLE(D))*trmatrix(D,Qlocal**2) - &
+                  (trmatrix(D,Qlocal)**2.0d0)/DBLE(D) )
+        dummd1 = min(1.0d0,dummd2)
+        
         ! apply scotts rule
-        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
+        Hi(:,:,i) = ((1.0d0-dummd1)*Qlocal + & 
+                     dummd1*(trmatrix(D,Qlocal)/DBLE(D))*IM )* & 
+                    (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
+        
+        
+        ! Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
         
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
@@ -585,14 +597,6 @@
         
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
-      
-      
-      
-      
-      
-      
-      
-      
       
       
 !      IF(savecovs)THEN
@@ -1039,10 +1043,10 @@
             DO i=1,ngrid
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
                IF(periodic)THEN
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/9.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/16.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/9.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/16.0d0))
                   CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
                
@@ -1131,7 +1135,7 @@
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
-      DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel)
+      DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel,IM)
       DEALLOCATE(xij,ytmp,ytmpw,wQ,wlocal,pk)
       DEALLOCATE(xtmp,xtmpw,wloc,ineigh)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
