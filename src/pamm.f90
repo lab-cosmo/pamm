@@ -35,6 +35,7 @@
       
 !      INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 
+      CHARACTER(LEN=1024) :: fname
       CHARACTER(LEN=1024) :: outputfile, clusterfile, gridfile  ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: period(:)              ! Periodic lenght in each dimension
       LOGICAL periodic                                        ! flag for using periodic data
@@ -134,6 +135,7 @@
       D=-1
       periodic=.false.
       CALL random_init(seed) ! initialize random number generator
+      
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       !!!!!!! Command line parser !!!!!!!!!!!!!
@@ -456,31 +458,45 @@
         
       DO i=1,ngrid
          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
-               WRITE(*,*) i,"/",ngrid
+           WRITE(*,*) i,"/",ngrid
          DO j=1,i-1
-            ! distance between two voronoi centers
-            ! also computes the nearest neighbor distance (squared) for each grid point
-            distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+           ! distance between two voronoi centers
+           ! also computes the nearest neighbor distance (squared) for each grid point
+           distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
     
-            if (distmm(i,j) < rgrid(i)) rgrid(i) = distmm(i,j)
-            ! the symmetrical one
-            distmm(j,i) = distmm(i,j)
-            if (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)   
+           IF (distmm(i,j) < rgrid(i)) rgrid(i) = distmm(i,j)
+           ! the symmetrical one
+           distmm(j,i) = distmm(i,j)
+           IF (distmm(i,j) < rgrid(j)) rgrid(j) = distmm(i,j)   
          ENDDO
       ENDDO 
       
-      ! quickly estimate the covariance matrix on grid
+      !!! create identity matrix
+      IM = 0.0d0             
       DO ii=1,D
-        ytmp(ii,:) = y(ii,:) - SUM(ytmp(ii,:)*normvoro/normwj)
+        IM(ii,ii) = 1.0d0    
       ENDDO
-      ! estimate covariance matrix
-      CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmp, D, 0.0d0, Q, D)
-      Q = Q / (1.0d0-SUM(wlocal**2.0d0))
+
+      !!! estimate covariance matrix
+      DO ii=1,D
+        xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wj)/normwj
+        xtmpw(ii,:) = xtmp(ii,:) * wj/normwj
+      ENDDO
+      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Q, D)
+      Q = Q / (1.0d0-SUM((wj/normwj)**2.0d0))   
       
-      IM = 0.0d0
-      DO ii=1,D
-        IM(ii,ii) = 1.0d0
-      ENDDO
+      !!! oracle approximating shrinkage alogorithm
+      dummd2 = ( (1.0d0-2.0d0/DBLE(D)) * trmatrix(D,Q**2) & 
+                + trmatrix(D,Q)**2.0d0 ) &
+             / ( (normwj + 1.0d0 - 2.0d0/DBLE(D)) &
+                * trmatrix(D,Q**2) &
+                - (trmatrix(D,Q)**2.0d0) / DBLE(D) )
+      
+      dummd1 = min(1.0d0,dummd2)
+      
+      Q = (1.0d0-dummd1) * Q &
+        + dummd1 * trmatrix(D,Q)*IM / DBLE(D) 
+      
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
@@ -508,138 +524,51 @@
       IF(verbose) WRITE(*,*) &
         " Localization factor : ", lfac  
       
-      IF(savecovs)THEN
-         OPEN(UNIT=11,FILE=trim(outputfile)//".gcov",STATUS='REPLACE',ACTION='WRITE')
-         WRITE(11,"((A20))") "#COV//Dlocal//Nlocal"     
-      ENDIF
-      IF(verbose) WRITE(*,*) " Calculating covariance matrix on grid"
-      DO i=1,ngrid
-        IF(lfac**2 < rgrid(i)) THEN
-          prefac = -0.5d0/rgrid(i)
-        ELSE
-          prefac = -0.5d0/lfac**2
-        ENDIF
-        ! localization
-        DO ii=1,D
-          ytmp(ii,:) = y(ii,:)-y(ii,i)
-          IF (period(ii)<=0.0d0) CYCLE    
-          ! minimum image convention  
-          ytmp(ii,:) = ytmp(ii,:) / period(ii)
-          ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
-          ytmp(ii,:) = ytmp(ii,:) * period(ii)
-        ENDDO
-        ! estimate weights for localization as product from 
-        ! spherical gaussian weights and weights in voronoi
-        wlocal = EXP(prefac*SUM(ytmp*ytmp,1)) 
-        ! estimate local number of sample points
-        nlocal = SUM(normvoro*wlocal)
-        ! normalize weights
-        wlocal = wlocal / SUM(wlocal) 
-        
-        ! add the voronoi weights
-        wlocal = wlocal * normvoro/normwj
-        ! renormalize again
-        wlocal = wlocal / SUM(wlocal)
-
-        ! estimate the mean
-        DO ii=1,D
-          ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wlocal)
-          ytmpw(ii,:) = ytmp(ii,:)*wlocal
-        ENDDO
-        
-        ! estimate covariance matrix
-        CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
-        Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
-        
-        ! eigenvalues of the covariance matrix
-        CALL eigval(Qlocal,D,pk)        
-        pk = pk/SUM(pk)
-        pk = pk*LOG(pk)
-        ! we assume that 0*log(0) is zero
-        ! thus we need to check for nan values 
-        ! and set pk to zero for that value
-        ! since log(x) for x <= 0 is nan
-        WHERE( pk .ne. pk ) pk = 0.0d0
-        ! estimate local dimensionality
-        Dlocal = EXP(-SUM(pk))
-        
-        ! oracle approxitmating shrinkage alogorithm
-        dummd2 = ((1-2.0d0/DBLE(D))*trmatrix(D,Qlocal**2) & 
-                  +trmatrix(D,Qlocal)**2.0d0) / &
-                 ((nlocal+1.0d0-2.0d0/DBLE(D))*trmatrix(D,Qlocal**2) - &
-                  (trmatrix(D,Qlocal)**2.0d0)/DBLE(D) )
-        dummd1 = min(1.0d0,dummd2)
-        
-        ! apply scotts rule
-        Hi(:,:,i) = ((1.0d0-dummd1)*Qlocal + & 
-                     dummd1*(trmatrix(D,Qlocal)/DBLE(D))*IM )* & 
-                     
-                    (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
-        
-        
-        ! Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
-        
-        ! inverse of the bandwidth matrix
-        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-
-        ! estimate the normalization constants
-        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-        ! TODO: should we use here local dimensionality?
-        
-        IF(savecovs)THEN
-           DO ii=1,D
-              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-           ENDDO
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
-           IF(lfac**2 < rgrid(i)) THEN
-             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 1, SQRT(rgrid(i))
-           ELSE
-             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 0, SQRT(rgrid(i))
-           ENDIF
-           WRITE(11,*) " "
-        ENDIF
-        
-      ENDDO
-      IF(savecovs) CLOSE(UNIT=11) 
-      
-      
 !      IF(savecovs)THEN
-!         OPEN(UNIT=11,FILE=trim(outputfile)//".ncov",STATUS='REPLACE',ACTION='WRITE')
+!         OPEN(UNIT=11,FILE=trim(outputfile)//".gcov",STATUS='REPLACE',ACTION='WRITE')
 !         WRITE(11,"((A20))") "#COV//Dlocal//Nlocal"     
 !      ENDIF
-!      IF(verbose) WRITE(*,*) " Calculating covariance matrix on samples"
+!      IF(verbose) WRITE(*,*) " Calculating covariance matrix on grid"
 !      DO i=1,ngrid
-!        IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
-!          prefac = -0.5d0/pammr2(D,period,y(:,i),x(:,ineigh(i)))
+!        IF(lfac**2 < rgrid(i)) THEN
+!          prefac = -0.5d0/rgrid(i)
 !        ELSE
 !          prefac = -0.5d0/lfac**2
 !        ENDIF
-!      
-!        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!          WRITE(*,*) i,"/",ngrid
-!        !!! estimate weights for localization
+!        ! localization
 !        DO ii=1,D
-!          xtmp(ii,:) = x(ii,:)-y(ii,i)
+!          ytmp(ii,:) = y(ii,:)-y(ii,i)
+!          IF (period(ii)<=0.0d0) CYCLE    
+!          ! minimum image convention  
+!          ytmp(ii,:) = ytmp(ii,:) / period(ii)
+!          ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
+!          ytmp(ii,:) = ytmp(ii,:) * period(ii)
 !        ENDDO
 !        ! estimate weights for localization as product from 
 !        ! spherical gaussian weights and weights in voronoi
-!        wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * wj
+!        wlocal = EXP(prefac*SUM(ytmp*ytmp,1)) 
 !        ! estimate local number of sample points
-!        nlocal = SUM(wloc)
+!        nlocal = SUM(normvoro*wlocal)
 !        ! normalize weights
-!        wloc = wloc / nlocal
+!        wlocal = wlocal / SUM(wlocal) 
 !        
-!        !!! estimate covariance matrix
+!        ! add the voronoi weights
+!        wlocal = wlocal * normvoro/normwj
+!        ! renormalize again
+!        wlocal = wlocal / SUM(wlocal)
+
+!        ! estimate the mean
 !        DO ii=1,D
-!          xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wloc)
-!          xtmpw(ii,:) = xtmp(ii,:)*wloc
+!          ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wlocal)
+!          ytmpw(ii,:) = ytmp(ii,:)*wlocal
 !        ENDDO
-!        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
-!        Qlocal = Qlocal / (1.0d0-SUM(wloc**2.0d0))
 !        
-!        !!! estimate local dimensionality
-!        CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
+!        ! estimate covariance matrix
+!        CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
+!        Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
+!        
+!        ! eigenvalues of the covariance matrix
+!        CALL eigval(Qlocal,D,pk)        
 !        pk = pk/SUM(pk)
 !        pk = pk*LOG(pk)
 !        ! we assume that 0*log(0) is zero
@@ -647,31 +576,23 @@
 !        ! and set pk to zero for that value
 !        ! since log(x) for x <= 0 is nan
 !        WHERE( pk .ne. pk ) pk = 0.0d0
+!        ! estimate local dimensionality
 !        Dlocal = EXP(-SUM(pk))
 !        
-!        !!! set bandwidth matrix according to scotts rule
-!        ! only scale diagonal to avoid errors when determinant is calculated
-!!        Hi(:,:,i) = Qlocal
-!!        DO ii=1,D
-!!          Hi(ii,ii,i) = Qlocal(ii,ii) * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
-!!        ENDDO
+!        ! oracle approximating shrinkage alogorithm
+!        dummd2 = ((1-2.0d0/DBLE(D))*trmatrix(D,Qlocal**2) & 
+!                  +trmatrix(D,Qlocal)**2.0d0) / &
+!                 ((nlocal+1.0d0-2.0d0/DBLE(D))*trmatrix(D,Qlocal**2) - &
+!                  (trmatrix(D,Qlocal)**2.0d0)/DBLE(D) )
+!        dummd1 = min(1.0d0,dummd2)
 !        
-!        Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+!        ! apply scotts rule
+!        Hi(:,:,i) = ( (1.0d0-dummd1) * Qlocal & 
+!                  + dummd1 * ( trmatrix(D,Qlocal)/DBLE(D) ) * IM ) & 
+!                  * ( nlocal**(-1.0d0/(Dlocal+4.0d0)) )**2.0d0 
 !        
-!        IF(savecovs)THEN
-!!           DO ii=1,D
-!!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-!!           ENDDO
-!           
-!           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
-!           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
-!           IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
-!             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 1, sqrt(pammr2(D,period,y(:,i),x(:,ineigh(i))))
-!           ELSE
-!             WRITE(11,"((A1,I1,ES15.4E4))",ADVANCE = "NO") " ", 0, sqrt(pammr2(D,period,y(:,i),x(:,ineigh(i))))
-!           ENDIF
-!           WRITE(11,*) " "
-!        ENDIF
+!        
+!        ! Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
 !        
 !        ! inverse of the bandwidth matrix
 !        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
@@ -679,21 +600,118 @@
 !        ! estimate the normalization constants
 !        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
 !        ! TODO: should we use here local dimensionality?
+!        
+!        IF(savecovs)THEN
+!           DO ii=1,D
+!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
+!           ENDDO
+!           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
+!           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
+!           WRITE(11,*) " "
+!        ENDIF
+!        
 !      ENDDO
 !      IF(savecovs) CLOSE(UNIT=11) 
       
       
+      IF(savecovs)THEN
+         OPEN(UNIT=11,FILE=trim(outputfile)//".cov",STATUS='REPLACE',ACTION='WRITE')
+      ENDIF
+      IF(verbose) WRITE(*,*) " Calculating covariance matrix on samples"
+      DO i=1,ngrid
+!        IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
+!          prefac = -0.5d0/pammr2(D,period,y(:,i),x(:,ineigh(i)))
+!        ELSE
+!          prefac = -0.5d0/lfac**2
+!        ENDIF
       
+        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+          WRITE(*,*) i,"/",ngrid
+          
+        !!! estimate weights for localization
+        DO ii=1,D
+          xtmp(ii,:) = x(ii,:)-y(ii,i)
+        ENDDO
+        ! estimate weights for localization as product from 
+        ! spherical gaussian weights and weights in voronoi
+        wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * wj
+        ! estimate local number of sample points
+        nlocal = SUM(wloc)
+        ! normalize weights
+        wloc = wloc / nlocal
+        
+        !!! estimate covariance matrix
+        DO ii=1,D
+          xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wloc)
+          xtmpw(ii,:) = xtmp(ii,:)*wloc
+        ENDDO
+        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
+        Qlocal = Qlocal / (1.0d0-SUM(wloc**2.0d0))
+   
+        !!! estimate local dimensionality
+        CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
+        pk = pk/SUM(pk)
+        pk = pk*LOG(pk)
+        ! we assume that 0*log(0) is zero
+        ! thus we need to check for nan values 
+        ! and set pk to zero for that value
+        ! since log(x) for x <= 0 is nan
+        WHERE( pk .ne. pk ) pk = 0.0d0
+        Dlocal = EXP(-SUM(pk))
+        
+        ! oracle approximating shrinkage alogorithm
+        dummd2 = ( (1.0d0-2.0d0/DBLE(D)) * trmatrix(D,Qlocal**2) & 
+                  + trmatrix(D,Qlocal)**2.0d0 ) &
+               / ( (nlocal + 1.0d0 - 2.0d0/DBLE(D)) &
+                  * trmatrix(D,Qlocal**2) &
+                  - (trmatrix(D,Qlocal)**2.0d0) / DBLE(D) )
       
+        dummd1 = min(1.0d0,dummd2)
+        
+        ! apply scotts rule to oracle covariance matrix
+        Hi(:,:,i) = ( (1.0d0-dummd1) * Qlocal & 
+                  + dummd1 * ( trmatrix(D,Qlocal)/DBLE(D) ) * IM ) & 
+                  * ( nlocal**(-1.0d0/(Dlocal+4.0d0)) )**2.0d0 
+        
+        ! store for each grid point the regularized covariance matrix
+        Qlocal = (1.0d0-dummd1) * Qlocal + dummd1 * trmatrix(D,Qlocal)*IM / DBLE(D)
+!        WRITE(fname,"(A,I4.4,A)") TRIM(outputfile)//"_", i, ".cov"
+!        OPEN(UNIT=12,FILE=TRIM(fname),STATUS='REPLACE',ACTION='WRITE')
+!        DO ii=1,D
+!          DO jj=1,D
+!            WRITE(12,"(A,F12.8)",ADVANCE = "NO") " ", Qlocal(ii,jj)
+!          ENDDO
+!          WRITE(12,*) " "
+!        ENDDO
+!        CLOSE(UNIT=12) 
+        
+        IF(savecovs)THEN
+!           DO ii=1,D
+!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
+!           ENDDO
+           WRITE(11,"(A,I5)") "ID/N/SCOTTS//COV: ", i
+           WRITE(11,"((A1,F12.8))",ADVANCE = "NO") " ",Dlocal
+           WRITE(11,"((A1,F12.3))",ADVANCE = "NO") " ",nlocal
+           WRITE(11,"((A1,F12.8))",ADVANCE = "NO") " ",nlocal**(-1.0d0/(Dlocal+4.0d0))
+           WRITE(11,*) " "
+           DO ii=1,D
+             DO jj=1,D
+               WRITE(11,"(A,F12.8)",ADVANCE = "NO") " ", Qlocal(ii,jj)
+             ENDDO
+             WRITE(11,*) " "
+           ENDDO
+        ENDIF
+        
+        ! inverse of the bandwidth matrix
+        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+
+        ! estimate the normalization constants
+        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+        ! TODO: should we use here local dimensionality?
+      ENDDO
+      IF(savecovs) CLOSE(UNIT=11) 
       
-      
-      
-      
-      
-!      ! estimate rough estimate of bandwidth 
-!      DO i=1,ngrid
-!        sigma2(i) = trmatrix(D,Hi(:,:,i))/D
-!      ENDDO
+
       
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
