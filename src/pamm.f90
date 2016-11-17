@@ -570,7 +570,7 @@
           !!! estimate weights for localization
           !!! using a baloon estimator centered on each grid
           DO ii=1,D
-            xtmp(ii,:) = x(ii,:)-y(ii,i)
+            xtmp(ii,:) = y(ii,:)-y(ii,i)
           ENDDO
           ! estimate weights for localization as product from 
           ! spherical gaussian weights and weights in voronoi
