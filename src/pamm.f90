@@ -495,6 +495,21 @@
         CALL getweightedcov(D,ngrid,normwj,normvoro,y,Q)
       ENDIF
       
+      IF (lfac.LE.0.0d0) THEN
+        ! estimate localization from the global covariance
+        ! using the Scott's Rule
+        ! first we look for the highest value in the diagonal
+        dummd1=0.0d0
+        DO ii=1,D
+          IF(Q(ii,ii).GT.dummd1) dummd1=Q(ii,ii)
+        ENDDO
+        
+        ! Let's apply the Scott's rule
+        lfac = ((4.0d0/(DBLE(D)+2.0d0))**(1.0d0/(DBLE(D)+4.0d0))) &
+               * DSQRT(dummd1) * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
+      ENDIF
+      IF(verbose) WRITE(*,*) &
+        " Localization factor : ", lfac 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
@@ -513,103 +528,12 @@
         " Quick-Shift : ", lambda  
         
       ! if not specified localization is set to lambda
-      IF (lfac.LE.0.0d0) THEN
-        ! let's put some magic here
-        lfac = 0.7d0*lambda
-      ENDIF
+     ! IF (lfac.LE.0.0d0) THEN
+     !   ! let's put some magic here
+     !   lfac = 0.7d0*lambda
+     ! ENDIF
       prefac = -0.5d0/(lfac*lfac)
-      
-      IF(verbose) WRITE(*,*) &
-        " Localization factor : ", lfac  
-      
-!      IF(savecovs)THEN
-!         OPEN(UNIT=11,FILE=trim(outputfile)//".gcov",STATUS='REPLACE',ACTION='WRITE')
-!         WRITE(11,"((A20))") "#COV//Dlocal//Nlocal"     
-!      ENDIF
-!      IF(verbose) WRITE(*,*) " Calculating covariance matrix on grid"
-!      DO i=1,ngrid
-!        IF(lfac**2 < rgrid(i)) THEN
-!          prefac = -0.5d0/rgrid(i)
-!        ELSE
-!          prefac = -0.5d0/lfac**2
-!        ENDIF
-!        ! localization
-!        DO ii=1,D
-!          ytmp(ii,:) = y(ii,:)-y(ii,i)
-!          IF (period(ii)<=0.0d0) CYCLE    
-!          ! minimum image convention  
-!          ytmp(ii,:) = ytmp(ii,:) / period(ii)
-!          ytmp(ii,:) = ytmp(ii,:) - DNINT(ytmp(ii,:))
-!          ytmp(ii,:) = ytmp(ii,:) * period(ii)
-!        ENDDO
-!        ! estimate weights for localization as product from 
-!        ! spherical gaussian weights and weights in voronoi
-!        wlocal = EXP(prefac*SUM(ytmp*ytmp,1)) 
-!        ! estimate local number of sample points
-!        nlocal = SUM(normvoro*wlocal)
-!        ! normalize weights
-!        wlocal = wlocal / SUM(wlocal) 
-!        
-!        ! add the voronoi weights
-!        wlocal = wlocal * normvoro/normwj
-!        ! renormalize again
-!        wlocal = wlocal / SUM(wlocal)
-
-!        ! estimate the mean
-!        DO ii=1,D
-!          ytmp(ii,:) = y(ii,:) - SUM(y(ii,:)*wlocal)
-!          ytmpw(ii,:) = ytmp(ii,:)*wlocal
-!        ENDDO
-!        
-!        ! estimate covariance matrix
-!        CALL DGEMM("N", "T", D, D, ngrid, 1.0d0, ytmp, D, ytmpw, D, 0.0d0, Qlocal, D)
-!        Qlocal = Qlocal / (1.0d0-SUM(wlocal**2.0d0))
-!        
-!        ! eigenvalues of the covariance matrix
-!        CALL eigval(Qlocal,D,pk)        
-!        pk = pk/SUM(pk)
-!        pk = pk*LOG(pk)
-!        ! we assume that 0*log(0) is zero
-!        ! thus we need to check for nan values 
-!        ! and set pk to zero for that value
-!        ! since log(x) for x <= 0 is nan
-!        WHERE( pk .ne. pk ) pk = 0.0d0
-!        ! estimate local dimensionality
-!        Dlocal = EXP(-SUM(pk))
-!        
-!        ! oracle approximating shrinkage alogorithm
-!        dummd2 = ((1-2.0d0/DBLE(D))*trmatrix(D,Qlocal**2) & 
-!                  +trmatrix(D,Qlocal)**2.0d0) / &
-!                 ((nlocal+1.0d0-2.0d0/DBLE(D))*trmatrix(D,Qlocal**2) - &
-!                  (trmatrix(D,Qlocal)**2.0d0)/DBLE(D) )
-!        dummd1 = min(1.0d0,dummd2)
-!        
-!        ! apply scotts rule
-!        Hi(:,:,i) = ( (1.0d0-dummd1) * Qlocal & 
-!                  + dummd1 * ( trmatrix(D,Qlocal)/DBLE(D) ) * IM ) & 
-!                  * ( nlocal**(-1.0d0/(Dlocal+4.0d0)) )**2.0d0 
-!        
-!        
-!        ! Hi(:,:,i) = Qlocal * (nlocal**(-1.0d0/(Dlocal+4.0d0)))**2.0d0 
-!        
-!        ! inverse of the bandwidth matrix
-!        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-
-!        ! estimate the normalization constants
-!        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-!        ! TODO: should we use here local dimensionality?
-!        
-!        IF(savecovs)THEN
-!           DO ii=1,D
-!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-!           ENDDO
-!           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
-!           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
-!           WRITE(11,*) " "
-!        ENDIF
-!        
-!      ENDDO
-!      IF(savecovs) CLOSE(UNIT=11) 
+        
       
       
       IF(savecovs)THEN
