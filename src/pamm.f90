@@ -500,8 +500,9 @@
         ! using the Scott's Rule
         ! first we look for the highest value in the diagonal
         dummd1=0.0d0
+        CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
         DO ii=1,D
-          IF(Q(ii,ii).GT.dummd1) dummd1=Q(ii,ii)
+          IF(pk(ii).GT.dummd1) dummd1=pk(ii)
         ENDDO
         
         ! Let's apply the Scott's rule
