@@ -1,4 +1,4 @@
-    ! This file contain the main program for the PAMM clustering in 
+! This file contain the main program for the PAMM clustering in 
 ! both PERIODIC and NON PERIODIC space.
 ! Starting from a set of data points in high dimension it will first perform
 ! a non-parametric partitioning of the probability density and return the
@@ -35,7 +35,6 @@
       
 !      INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 
-      CHARACTER(LEN=1024) :: fname
       CHARACTER(LEN=1024) :: outputfile, clusterfile, gridfile  ! The output file prefix
       DOUBLE PRECISION, ALLOCATABLE :: period(:)              ! Periodic lenght in each dimension
       LOGICAL periodic                                        ! flag for using periodic data
@@ -90,7 +89,7 @@
       
       
       ! additional IN/OUT logical flags
-      LOGICAL saveprobs, savevor, saveadj, saveidxs, readprobs, readjgrid, savecovs
+      LOGICAL saveprobs, savevor, saveadj, saveidxs, readprobs, readjgrid, savecovs, accurate
       
       ! PARSER
       CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
@@ -130,7 +129,8 @@
       saveadj = .false.      ! save adjacency
       readprobs = .FALSE.    ! don't read the probabilities from the standard input
       readjgrid = .FALSE.    ! don't read the grid from the standard input
-      savecovs   = .FALSE.
+      savecovs  = .FALSE.
+      accurate  = .FALSE.    ! compute the covariance from the grid
       
       D=-1
       periodic=.false.
@@ -167,6 +167,8 @@
              ccmd = 14
          ELSEIF (cmdbuffer == "-readprobs") THEN    ! read the grid points from the standard input
             readprobs= .true.
+         ELSEIF (cmdbuffer == "-accurate") THEN    ! read the grid points from the standard input
+            accurate= .true.
          ELSEIF (cmdbuffer == "-readidxsgrid") THEN    ! read the grid points from the standard input
             readjgrid= .true.
             ccmd = 15
@@ -378,9 +380,13 @@
          normvoro=1
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
-         ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid))
-         ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid),pk(D))
-         ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
+         ALLOCATE(xij(D))
+         ALLOCATE(wQ(nsamples),idxgrid(ngrid),pk(D))
+         IF(accurate)THEN 
+           ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
+         ELSE
+           ALLOCATE(xtmp(D,ngrid),xtmpw(D,ngrid),wloc(ngrid))
+         ENDIF
          ALLOCATE(ineigh(ngrid))
          
          GoTo 1111
@@ -476,26 +482,15 @@
       DO ii=1,D
         IM(ii,ii) = 1.0d0    
       ENDDO
-
-      !!! estimate covariance matrix
-      DO ii=1,D
-        xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wj)/normwj
-        xtmpw(ii,:) = xtmp(ii,:) * wj/normwj
-      ENDDO
-      CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Q, D)
-      Q = Q / (1.0d0-SUM((wj/normwj)**2.0d0))   
       
-      !!! oracle approximating shrinkage alogorithm
-      dummd2 = ( (1.0d0-2.0d0/DBLE(D)) * trmatrix(D,Q**2) & 
-                + trmatrix(D,Q)**2.0d0 ) &
-             / ( (normwj + 1.0d0 - 2.0d0/DBLE(D)) &
-                * trmatrix(D,Q**2) &
-                - (trmatrix(D,Q)**2.0d0) / DBLE(D) )
-      
-      dummd1 = min(1.0d0,dummd2)
-      
-      Q = (1.0d0-dummd1) * Q &
-        + dummd1 * trmatrix(D,Q)*IM / DBLE(D) 
+      !!! estimate covariance matrix globally
+      IF(accurate)THEN
+        ! estimate Q from the complete dataset
+        CALL getweightedcov(D,nsamples,normwj,wj,x,Q)
+      ELSE
+        ! estimate Q from the grid
+        CALL getweightedcov(D,ngrid,normwj,normvoro,y,Q)
+      ENDIF
       
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
@@ -617,36 +612,47 @@
       IF(savecovs)THEN
          OPEN(UNIT=11,FILE=trim(outputfile)//".cov",STATUS='REPLACE',ACTION='WRITE')
       ENDIF
-      IF(verbose) WRITE(*,*) " Calculating covariance matrix on samples"
+      IF(verbose) WRITE(*,*) " Calculating covariance matrix around each grid point"
       DO i=1,ngrid
 !        IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
 !          prefac = -0.5d0/pammr2(D,period,y(:,i),x(:,ineigh(i)))
 !        ELSE
 !          prefac = -0.5d0/lfac**2
 !        ENDIF
-      
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
+   
+        !!! estimate covariance matrix loaclly
+        IF(accurate)THEN          
+          !!! estimate weights for localization
+          !!! using a baloon estimator centered on each grid
+          DO ii=1,D
+            xtmp(ii,:) = x(ii,:)-y(ii,i)
+          ENDDO
+          ! estimate weights for localization as product from 
+          ! spherical gaussian weights and weights in voronoi
+          wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * wj
+          ! estimate local number of sample points
+          nlocal = SUM(wloc)
           
-        !!! estimate weights for localization
-        DO ii=1,D
-          xtmp(ii,:) = x(ii,:)-y(ii,i)
-        ENDDO
-        ! estimate weights for localization as product from 
-        ! spherical gaussian weights and weights in voronoi
-        wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * wj
-        ! estimate local number of sample points
-        nlocal = SUM(wloc)
-        ! normalize weights
-        wloc = wloc / nlocal
-        
-        !!! estimate covariance matrix
-        DO ii=1,D
-          xtmp(ii,:) = x(ii,:) - SUM(x(ii,:)*wloc)
-          xtmpw(ii,:) = xtmp(ii,:)*wloc
-        ENDDO
-        CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, xtmp, D, xtmpw, D, 0.0d0, Qlocal, D)
-        Qlocal = Qlocal / (1.0d0-SUM(wloc**2.0d0))
+          ! estimate Q from the complete dataset
+          CALL getweightedcov(D,nsamples,nlocal,wloc,x,Qlocal)
+        ELSE
+          !!! estimate weights for localization
+          !!! using a baloon estimator centered on each grid
+          DO ii=1,D
+            xtmp(ii,:) = x(ii,:)-y(ii,i)
+          ENDDO
+          ! estimate weights for localization as product from 
+          ! spherical gaussian weights and weights in voronoi
+          wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * normvoro
+          ! estimate local number of sample points
+          nlocal = SUM(wloc)
+          
+          ! estimate Q from the grid
+          CALL getweightedcov(D,ngrid,nlocal,wloc,y,Qlocal)
+!############
+        ENDIF
    
         !!! estimate local dimensionality
         CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
@@ -1160,7 +1166,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel,IM)
-      DEALLOCATE(xij,ytmp,ytmpw,wQ,wlocal,pk)
+      DEALLOCATE(xij,wQ,pk)
       DEALLOCATE(xtmp,xtmpw,wloc,ineigh)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
@@ -1214,6 +1220,7 @@
          WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [automatic] "
          WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
          WRITE(*,*) "                       write out the adjacency matrix [default: off] "
+         WRITE(*,*) "   -accurate         : Compute the covariances matrix from the entire dataset "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
@@ -1319,6 +1326,25 @@
          END DO
       END SUBROUTINE argsort
 
+      SUBROUTINE getweightedcov(D,nsamples,normweights,weights,samples,covm)
+         INTEGER, INTENT(IN) :: D
+         INTEGER, INTENT(IN) :: nsamples
+         DOUBLE PRECISION, INTENT(IN) :: normweights
+         DOUBLE PRECISION, INTENT(IN) :: weights(nsamples)
+         DOUBLE PRECISION, INTENT(IN) :: samples(D,nsamples)
+         DOUBLE PRECISION, INTENT(OUT) :: covm(D,D)
+         
+         DOUBLE PRECISION samplestmp(D,nsamples),wstmp(D,nsamples)
+         INTEGER ii
+         
+         DO ii=1,D
+           samplestmp(ii,:) = samples(ii,:) - SUM(samples(ii,:)*weights)/normweights
+           wstmp(ii,:) = samplestmp(ii,:) * weights/normweights
+         ENDDO
+         CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, samplestmp, D, wstmp, D, 0.0d0, covm, D)
+         covm = covm / (1.0d0-SUM((weights/normweights)**2.0d0))   
+      END SUBROUTINE getweightedcov
+      
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
          INTEGER, INTENT(IN) :: D
