@@ -443,9 +443,9 @@
             READ(12,*) idxgrid(i)
          ENDDO
          
-         WRITE(*,*) " Famo i voro!"
+         WRITE(*,*) " Building the Voronoi associations"
          
-         ! do the voronoi association
+         ! do the voronoi associations
          CALL getvoro(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,ineigh,normvoro,idxgrid)
       ELSE
          CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,ineigh,normvoro, &
@@ -614,6 +614,7 @@
       
       IF(savecovs)THEN
          OPEN(UNIT=11,FILE=trim(outputfile)//".cov",STATUS='REPLACE',ACTION='WRITE')
+         WRITE(11,*) "Local covariance (diagonal), Nlocal , Dlocal"
       ENDIF
       IF(verbose) WRITE(*,*) " Calculating covariance matrix around each grid point"
       DO i=1,ngrid
@@ -684,31 +685,14 @@
         
         ! store for each grid point the regularized covariance matrix
         Qlocal = (1.0d0-dummd1) * Qlocal + dummd1 * trmatrix(D,Qlocal)*IM / DBLE(D)
-!        WRITE(fname,"(A,I4.4,A)") TRIM(outputfile)//"_", i, ".cov"
-!        OPEN(UNIT=12,FILE=TRIM(fname),STATUS='REPLACE',ACTION='WRITE')
-!        DO ii=1,D
-!          DO jj=1,D
-!            WRITE(12,"(A,F12.8)",ADVANCE = "NO") " ", Qlocal(ii,jj)
-!          ENDDO
-!          WRITE(12,*) " "
-!        ENDDO
-!        CLOSE(UNIT=12) 
         
         IF(savecovs)THEN
-!           DO ii=1,D
-!              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-!           ENDDO
-           WRITE(11,"(A,I5)") "ID/N/SCOTTS//COV: ", i
-           WRITE(11,"((A1,F12.8))",ADVANCE = "NO") " ",Dlocal
-           WRITE(11,"((A1,F12.3))",ADVANCE = "NO") " ",nlocal
-           WRITE(11,"((A1,F12.8))",ADVANCE = "NO") " ",nlocal**(-1.0d0/(Dlocal+4.0d0))
-           WRITE(11,*) " "
            DO ii=1,D
-             DO jj=1,D
-               WRITE(11,"(A,F12.8)",ADVANCE = "NO") " ", Qlocal(ii,jj)
-             ENDDO
-             WRITE(11,*) " "
+              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
            ENDDO
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
+           WRITE(11,*) " "
         ENDIF
         
         ! inverse of the bandwidth matrix
