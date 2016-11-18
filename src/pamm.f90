@@ -414,9 +414,13 @@
       IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
       ! Allocate variables for local bandwidth estimate
       ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
-      ALLOCATE(xij(D),ytmp(D,ngrid),ytmpw(D,ngrid),pk(D))
-      ALLOCATE(wQ(nsamples),wlocal(ngrid),idxgrid(ngrid))
-      ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
+      ALLOCATE(xij(D),pk(D))
+      ALLOCATE(wQ(nsamples),idxgrid(ngrid))
+      IF(accurate)THEN 
+         ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
+      ELSE
+         ALLOCATE(xtmp(D,ngrid),xtmpw(D,ngrid),wloc(ngrid))
+      ENDIF
       ALLOCATE(ineigh(ngrid))
       
       ! Extract ngrid points on which the kernel density estimation is to be
@@ -582,7 +586,12 @@
           CALL getweightedcov(D,ngrid,nlocal,wloc,y,Qlocal)
 !############
         ENDIF
-   
+        
+        WRITE(*,*) size(wloc)
+        WRITE(*,*) nlocal
+        WRITE(*,*) Qlocal
+        
+        CALL EXIT(0)
         !!! estimate local dimensionality
         CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
         pk = pk/SUM(pk)
