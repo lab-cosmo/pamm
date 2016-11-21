@@ -80,8 +80,8 @@
       DOUBLE PRECISION tmpcheck
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, prefac, Dlocal
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, wlocal, pk
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, IM, ytmp,ytmpw
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, pk
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, IM
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp,xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wloc
@@ -342,6 +342,18 @@
       ! get the data from standard input
       IF (readprobs) THEN
          CALL readinputprobs(D, ngrid, y, prob, pabserr, prelerr, rgrid)
+         ! setup what is needed (mostly to random things)
+         nsamples=ngrid
+         normwj=ngrid
+         CALL allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
+                               npvoronoi,probboot,idxroot,idcls,idxgrid,qspath, &
+                               distmm, diff,msmu,tmpmsmu,normkernel, &
+                               normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
+                               xtmp,xtmpw,wloc,ineigh,wj,sigma2)
+         wj=1.0d0
+         sigma2=rgrid
+         normkernel=1
+         normvoro=1
          ! set the lambda to be used in QS
          IF(lambda.LT.0)THEN
             ! compute the median of the NN distances
@@ -353,15 +365,6 @@
            WRITE(*,*) " QS lambda: ", lambda
          ENDIF
          
-         ! setup what is needed (mostly to random things)
-         nsamples=ngrid
-         normwj=ngrid
-         ALLOCATE(iminij(ngrid),wj(ngrid),x(D,ngrid))  
-         wj=1.0d0
-         ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
-         ALLOCATE(npvoronoi(ngrid), sigma2(ngrid))
-         sigma2=rgrid
-         ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
          IF(verbose) WRITE(*,*) " Computing similarity matrix"
          DO i=1,ngrid
             distmm(i,i)=0.0d0
@@ -374,20 +377,6 @@
                distmm(j,i) = distmm(i,j)
             ENDDO
          ENDDO  
-         ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
-         ALLOCATE(normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
-         normkernel=1
-         normvoro=1
-         ! Allocate variables for local bandwidth estimate
-         ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
-         ALLOCATE(xij(D))
-         ALLOCATE(wQ(nsamples),idxgrid(ngrid),pk(D))
-         IF(accurate)THEN 
-           ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
-         ELSE
-           ALLOCATE(xtmp(D,ngrid),xtmpw(D,ngrid),wloc(ngrid))
-         ENDIF
-         ALLOCATE(ineigh(ngrid))
          
          GoTo 1111
       ELSE 
@@ -404,24 +393,11 @@
 
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
-      ALLOCATE(iminij(nsamples))
-      ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
-      ALLOCATE(y(D,ngrid), npvoronoi(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
-      ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
-      ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
-      ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
-      ! bootstrap probability density array will be allocated if necessary
-      IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
-      ! Allocate variables for local bandwidth estimate
-      ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
-      ALLOCATE(xij(D),pk(D))
-      ALLOCATE(wQ(nsamples),idxgrid(ngrid))
-      IF(accurate)THEN 
-         ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
-      ELSE
-         ALLOCATE(xtmp(D,ngrid),xtmpw(D,ngrid),wloc(ngrid))
-      ENDIF
-      ALLOCATE(ineigh(ngrid))
+      CALL allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
+                           y,npvoronoi,prob,probboot,idxroot,idcls,idxgrid,qspath, &
+                           distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
+                           normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
+                           xtmp,xtmpw,wloc,ineigh,rgrid,sigma2)
       
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -515,6 +491,8 @@
       ENDIF
       IF(verbose) WRITE(*,*) &
         " Localization factor : ", lfac 
+        
+      sigma2=lfac*lfac
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
@@ -533,13 +511,10 @@
         " Quick-Shift : ", lambda  
         
       ! if not specified localization is set to lambda
-     ! IF (lfac.LE.0.0d0) THEN
-     !   ! let's put some magic here
-     !   lfac = 0.7d0*lambda
-     ! ENDIF
-      prefac = -0.5d0/(lfac*lfac)
-        
-      
+      ! IF (lfac.LE.0.0d0) THEN
+      !   ! let's put some magic here
+      !   lfac = 0.7d0*lambda
+      ! ENDIF
       
       IF(savecovs)THEN
          OPEN(UNIT=11,FILE=trim(outputfile)//".cov",STATUS='REPLACE',ACTION='WRITE')
@@ -554,44 +529,25 @@
 !        ENDIF
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
-   
+        
+        prefac = -0.5d0/sigma2(i)
         !!! estimate covariance matrix loaclly
+        
         IF(accurate)THEN          
           !!! estimate weights for localization
           !!! using a baloon estimator centered on each grid
-          DO ii=1,D
-            xtmp(ii,:) = x(ii,:)-y(ii,i)
-          ENDDO
-          ! estimate weights for localization as product from 
-          ! spherical gaussian weights and weights in voronoi
-          wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * wj
-          ! estimate local number of sample points
-          nlocal = SUM(wloc)
-          
+          CALL getlocalweighted(D,nsamples,prefac,x,wj,y(:,i),wloc,nlocal)
           ! estimate Q from the complete dataset
           CALL getweightedcov(D,nsamples,nlocal,wloc,x,Qlocal)
         ELSE
           !!! estimate weights for localization
           !!! using a baloon estimator centered on each grid
-          DO ii=1,D
-            xtmp(ii,:) = y(ii,:)-y(ii,i)
-          ENDDO
-          ! estimate weights for localization as product from 
-          ! spherical gaussian weights and weights in voronoi
-          wloc = EXP(prefac*SUM(xtmp*xtmp,1)) * normvoro
-          ! estimate local number of sample points
-          nlocal = SUM(wloc)
-          
+          CALL getlocalweighted(D,ngrid,prefac,y,normvoro,y(:,i),wloc,nlocal)
           ! estimate Q from the grid
           CALL getweightedcov(D,ngrid,nlocal,wloc,y,Qlocal)
 !############
         ENDIF
         
-        WRITE(*,*) size(wloc)
-        WRITE(*,*) nlocal
-        WRITE(*,*) Qlocal
-        
-        CALL EXIT(0)
         !!! estimate local dimensionality
         CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
         pk = pk/SUM(pk)
@@ -799,7 +755,7 @@
       ! The squared error: bigp(i)(1-bigp(i))/normwj
       ! The squared relative error (1-bigp(i))/(bigp(i) normwj) so
         DO i=1,ngrid  
-          prelerr(i) = ( ( (1.0d0/bigp(i)) - 1.0d0 ) * (1.0d0/normwj) )**(0.5d0) 
+          prelerr(i) = ( ( (1.0d0/bigp(i))-1.0d0)*(1.0d0/normwj) )**(0.5d0) 
           pabserr(i) = ( ( 1.0d0 - bigp(i) ) * (bigp(i)/normwj) )**(0.5d0) 
         ENDDO
       ENDIF
@@ -1177,6 +1133,168 @@
            END IF
          END IF
       END FUNCTION median
+      
+      SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
+                                 y,npvoronoi,prob,probboot,idxroot,idcls,idxgrid,qspath, &
+                                 distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
+                                 normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
+                                 xtmp,xtmpw,wloc,ineigh,rgrid,sigma2)
+                                 
+         INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
+         LOGICAL, INTENT(IN) :: accurate
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: npvoronoi,idcls,ineigh
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,pk,bigp,normvoro
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wloc,wQ
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qlocal,IM,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,y,distmm
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hi,Hiinv
+         
+         
+         IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
+         IF (ALLOCATED(pnlist))     DEALLOCATE(pnlist)
+         IF (ALLOCATED(nlist))      DEALLOCATE(nlist)
+         IF (ALLOCATED(y))          DEALLOCATE(y)
+         IF (ALLOCATED(npvoronoi))  DEALLOCATE(npvoronoi)
+         IF (ALLOCATED(prob))       DEALLOCATE(prob)
+         IF (ALLOCATED(probboot))     DEALLOCATE(probboot)
+         IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
+         IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
+         IF (ALLOCATED(idxgrid))    DEALLOCATE(idxgrid)
+         IF (ALLOCATED(distmm))     DEALLOCATE(distmm)
+         IF (ALLOCATED(diff))       DEALLOCATE(diff)
+         IF (ALLOCATED(msmu))       DEALLOCATE(msmu)
+         IF (ALLOCATED(tmpmsmu))    DEALLOCATE(tmpmsmu)
+         IF (ALLOCATED(pabserr))    DEALLOCATE(pabserr)
+         IF (ALLOCATED(prelerr))    DEALLOCATE(prelerr)
+         IF (ALLOCATED(normvoro))   DEALLOCATE(normvoro)
+         IF (ALLOCATED(normkernel)) DEALLOCATE(normkernel)
+         IF (ALLOCATED(bigp))       DEALLOCATE(bigp)
+         IF (ALLOCATED(Q))          DEALLOCATE(Q)
+         IF (ALLOCATED(Qlocal))     DEALLOCATE(Qlocal)
+         IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
+         IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
+         IF (ALLOCATED(IM))         DEALLOCATE(IM)
+         IF (ALLOCATED(xij))        DEALLOCATE(xij)
+         IF (ALLOCATED(pk))         DEALLOCATE(pk)
+         IF (ALLOCATED(wQ))         DEALLOCATE(wQ)
+         IF (ALLOCATED(xtmp))       DEALLOCATE(xtmp)
+         IF (ALLOCATED(xtmpw))      DEALLOCATE(xtmpw)
+         IF (ALLOCATED(wloc))       DEALLOCATE(wloc)
+         IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
+         IF (ALLOCATED(rgrid))      DEALLOCATE(rgrid)
+
+         
+         ! Initialize the arrays, since now I know the number of
+         ! points and the dimensionality
+         ALLOCATE(iminij(nsamples))
+         ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
+         ALLOCATE(y(D,ngrid), npvoronoi(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
+         ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
+         ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
+         ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
+         ! bootstrap probability density array will be allocated if necessary
+         IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
+         ! Allocate variables for local bandwidth estimate
+         ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
+         ALLOCATE(xij(D),pk(D))
+         ALLOCATE(wQ(nsamples),idxgrid(ngrid))
+         IF(accurate)THEN 
+            ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
+         ELSE
+            ALLOCATE(xtmp(D,ngrid),xtmpw(D,ngrid),wloc(ngrid))
+         ENDIF
+         ALLOCATE(ineigh(ngrid))
+      END SUBROUTINE allocatevectors
+      
+      SUBROUTINE allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
+                                 npvoronoi,probboot,idxroot,idcls,idxgrid,qspath, &
+                                 distmm, diff,msmu,tmpmsmu,normkernel, &
+                                 normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
+                                 xtmp,xtmpw,wloc,ineigh,wj,sigma2)
+         INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
+         LOGICAL, INTENT(IN) :: accurate
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: npvoronoi,idcls,ineigh
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: msmu,tmpmsmu,pk,bigp,normvoro
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: normkernel,wloc,wQ,wj
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qlocal,IM,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,distmm
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hi,Hiinv
+         
+         
+         IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
+         IF (ALLOCATED(pnlist))     DEALLOCATE(pnlist)
+         IF (ALLOCATED(nlist))      DEALLOCATE(nlist)
+         IF (ALLOCATED(npvoronoi))  DEALLOCATE(npvoronoi)
+         IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
+         IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
+         IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
+         IF (ALLOCATED(idxgrid))    DEALLOCATE(idxgrid)
+         IF (ALLOCATED(distmm))     DEALLOCATE(distmm)
+         IF (ALLOCATED(diff))       DEALLOCATE(diff)
+         IF (ALLOCATED(msmu))       DEALLOCATE(msmu)
+         IF (ALLOCATED(tmpmsmu))    DEALLOCATE(tmpmsmu)
+         IF (ALLOCATED(normvoro))   DEALLOCATE(normvoro)
+         IF (ALLOCATED(normkernel)) DEALLOCATE(normkernel)
+         IF (ALLOCATED(bigp))       DEALLOCATE(bigp)
+         IF (ALLOCATED(Q))          DEALLOCATE(Q)
+         IF (ALLOCATED(Qlocal))     DEALLOCATE(Qlocal)
+         IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
+         IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
+         IF (ALLOCATED(IM))         DEALLOCATE(IM)
+         IF (ALLOCATED(xij))        DEALLOCATE(xij)
+         IF (ALLOCATED(pk))         DEALLOCATE(pk)
+         IF (ALLOCATED(wQ))         DEALLOCATE(wQ)
+         IF (ALLOCATED(xtmp))       DEALLOCATE(xtmp)
+         IF (ALLOCATED(xtmpw))      DEALLOCATE(xtmpw)
+         IF (ALLOCATED(wloc))       DEALLOCATE(wloc)
+         IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
+         IF (ALLOCATED(wj))         DEALLOCATE(wj)
+
+         
+         ! Initialize the arrays, since now I know the number of
+         ! points and the dimensionality
+         ALLOCATE(iminij(nsamples))
+         ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
+         ALLOCATE(npvoronoi(ngrid), sigma2(ngrid))
+         ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
+         ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
+         ALLOCATE(normkernel(ngrid),normvoro(ngrid),bigp(ngrid))
+         ! bootstrap probability density array will be allocated if necessary
+         IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
+         ! Allocate variables for local bandwidth estimate
+         ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
+         ALLOCATE(xij(D),pk(D))
+         ALLOCATE(wQ(nsamples),wj(nsamples),idxgrid(ngrid))
+         IF(accurate)THEN 
+            ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
+         ELSE
+            ALLOCATE(xtmp(D,ngrid),xtmpw(D,ngrid),wloc(ngrid))
+         ENDIF
+         ALLOCATE(ineigh(ngrid))
+      END SUBROUTINE allocatevectors2
+      
+      SUBROUTINE getlocalweighted(D,nps,prefac,vp,weights,pt,wloc,nloc)
+         INTEGER, INTENT(IN) :: D,nps
+         DOUBLE PRECISION, INTENT(IN) :: weights(nps),prefac
+         DOUBLE PRECISION, INTENT(IN) :: vp(D,nps),pt(D)
+         DOUBLE PRECISION, INTENT(OUT) :: wloc(nps),nloc
+         
+         INTEGER ii
+         DOUBLE PRECISION tmpx(D,nps)
+         
+         DO ii=1,D
+           tmpx(ii,:) = vp(ii,:)-pt(ii)
+         ENDDO
+         ! estimate weights for localization as product from 
+         ! spherical gaussian weights and weights in voronoi
+         wloc = EXP(prefac*SUM(tmpx*tmpx,1)) * weights
+         ! estimate local number of sample points
+         nloc = SUM(wloc)
+      END SUBROUTINE getlocalweighted
       
       INTEGER FUNCTION  findMinimum(x, startidx, endidx )
          INTEGER, INTENT(IN) :: startidx, endidx
