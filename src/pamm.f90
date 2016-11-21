@@ -359,6 +359,7 @@
          sigma2=rgrid
          normkernel=1
          normvoro=1
+         tmps2=0.0d0
          ! set the lambda to be used in QS
          IF(lambda.LT.0)THEN
             ! compute the median of the NN distances
@@ -520,14 +521,15 @@
       !   ! let's put some magic here
       !   lfac = 0.7d0*lambda
       ! ENDIF
-      
+      tmps2=0.0d0
+      ikde = 0
 100   IF(savecovs)THEN
          IF(ikde<10)THEN
             WRITE(comment,"((I1))") ikde
          ELSE
             WRITE(comment,"((I2))") ikde
          ENDIF
-         OPEN(UNIT=11,FILE=trim(outputfile)//".cov"//trim(comment),STATUS='REPLACE',ACTION='WRITE')
+   OPEN(UNIT=11,FILE=trim(outputfile)//"."//trim(comment)//".cov",STATUS='REPLACE',ACTION='WRITE')
          WRITE(11,*) "Local covariance (diagonal), Nlocal , Dlocal"
       ENDIF
       IF(verbose) WRITE(*,*) " Calculating covariance matrix around each grid point"
@@ -552,6 +554,7 @@
         ELSE
           !!! estimate weights for localization
           !!! using a baloon estimator centered on each grid
+          IF(sigma2(i).LT.rgrid(i)) prefac = -0.5d0/rgrid(i)
           CALL getlocalweighted(D,ngrid,prefac,y,normvoro,y(:,i),wloc,nlocal)
           ! estimate Q from the grid
           CALL getweightedcov(D,ngrid,nlocal,wloc,y,Qlocal)
@@ -603,8 +606,6 @@
         ! TODO: should we use here local dimensionality?
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
-      
-      ikde = 0
       
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
@@ -786,9 +787,12 @@
       ! rescale all the sigmas
       DO i=1,ngrid
          ! Abramson's choice alpha=1/2
-         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
+         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i), tmpkernel
          sigma2(i)=sigma2(i)*((tmpkernel/prob(i))**(0.5d0))
-         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i) 
+         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 1", sigma2(i)
+         !sigma2(i) = ((twopi/2.0d0)*((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
+         !               prob(i))**(2.0d0/DBLE(D)))/2.0d0
+         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 2", sigma2(i) 
       ENDDO
       
    ! BINOMIAL SCHEME
@@ -796,28 +800,43 @@
    !      IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
    !      sigma2(j) = (((1.0d0-((kderr*normwj)**2.0d0))*((2.0d0/twopi)**(DBLE(D)/2.0d0))) &
    !                   /prob(j))**(-2.0d0/DBLE(D))
+   
+
+   !       sigma2(i) = ((twopi/2.0d0)*((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
+   !                     prob(i))**(2.0d0/DBLE(D)))/2.0d0 
+
+
    !      ! sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
    !      ! kernel density estimation cannot become smaller than the distance with the nearest grid point
    !      ! IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
    !      IF(verbose) WRITE(*,*) "Prob ", prob(j),  " new sigma ", sigma2(j)         
    !   ENDDO
+   
+      IF(saveprobs)THEN 
+         IF(ikde<10)THEN
+            WRITE(comment,"((I1))") ikde
+         ELSE
+            WRITE(comment,"((I2))") ikde
+         ENDIF
+         comment=trim(outputfile)//"."//trim(comment)
+         CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,comment)
+      ENDIF
+      
       ikde = ikde+1
       
       tmpcheck=SUM(ABS(tmps2-prob))/SUM(prob)
         !tmpcheck=tmpcheck/SUM(tmps2)
-      IF((tmpcheck<0.01d0).AND.(ikde.GT.1))THEN
-         WRITE(*,*) "Relative change: ", tmpcheck, " >>> We can continue!"
+      IF(verbose) WRITE(*,*) "Cycle ", ikde, ". Relative change", tmpcheck
+      IF((tmpcheck.LT.0.001d0))THEN
+         IF(verbose) WRITE(*,*) " >>> Converged!"
       ELSE
          tmps2=prob
          GOTO 100
       ENDIF
       
       !if (ikde<3) GOTO 100 ! seems one could actually iterate to self-consistency....
-      
-1111  IF(saveprobs) & 
-       CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,outputfile) 
 
-      idxroot=0
+1111  idxroot=0
       ! Start quick shift
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       DO i=1,ngrid
