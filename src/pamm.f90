@@ -76,14 +76,14 @@
       ! BOOTSTRAP
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: prelerr, pabserr
-      INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
-      DOUBLE PRECISION tmpcheck
+      INTEGER nbootstrap, rndidx, nn, nbssample, nbstot, ikde
+      DOUBLE PRECISION tmpcheck   
       ! Variables for local bandwidth estimation
-      DOUBLE PRECISION nlocal, lfac, prefac, Dlocal
+      DOUBLE PRECISION nlocal, lfac, prefac, Dlocal , kderr
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, pk
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, IM
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp,xtmpw
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wloc
       INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
       
@@ -111,6 +111,7 @@
       fpost = .false.
       alpha = 1.0d0
       zeta = 0.0d0
+      kderr = 0.1d0
       ccmd = 0               ! no parameters specified
       Nk = 0                 ! number of gaussians
       nmsopt = 0             ! number of mean-shift refinements
@@ -159,6 +160,8 @@
             ccmd = 8
          ELSEIF (cmdbuffer == "-d") THEN            ! dimensionality
             ccmd = 9
+         ELSEIF (cmdbuffer == "-kderr") THEN          ! targete rerror in the kde estimate
+            ccmd = 10
          ELSEIF (cmdbuffer == "-p") THEN            ! use periodicity
             ccmd = 11
          ELSEIF (cmdbuffer == "-z") THEN            ! add a background to the probability mixture
@@ -228,6 +231,8 @@
                READ(cmdbuffer,*) D
                ALLOCATE(period(D))
                period=-1.0d0
+            ELSEIF (ccmd == 10) THEN                 ! read the number of mean-shift refinement steps
+               READ(cmdbuffer,*) kderr
             ELSEIF (ccmd == 11) THEN ! read the periodicity in each dimension
                IF (D<0) STOP "Dimensionality (-d) must precede the periodic lenghts (-p). "
                par_count = 1
@@ -594,9 +599,9 @@
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
       
-
+      ikde = 0
       
-      IF(verbose) WRITE(*,*) &
+100   IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
       
       prob = 0.0d0
@@ -759,6 +764,38 @@
           pabserr(i) = ( ( 1.0d0 - bigp(i) ) * (bigp(i)/normwj) )**(0.5d0) 
         ENDDO
       ENDIF
+      
+      ! Abramson's like scheme 
+      ! first get the geometric mean over all the grid points
+      ! use the log to deal with small numbers
+      tmpkernel=DLOG(prob(1))
+      DO i=2,ngrid
+        ! WRITE(*,*) "tmpkernel: ", tmpkernel
+        ! WRITE(*,*) "prob: ", probnmm(i)
+         tmpkernel=tmpkernel+DLOG(prob(i))
+      ENDDO
+      tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
+        
+      ! rescale all the sigmas
+      DO i=1,ngrid
+         ! Abramson's choice alpha=1/2
+         IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
+         sigma2(i)=sigma2(i)*((tmpkernel/prob(i))**(0.5d0))
+         IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i) 
+      ENDDO
+      
+   ! BINOMIAL SCHEME
+   !   DO j=1,ngrid
+   !      IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
+   !      sigma2(j) = (((1.0d0-((kderr*normwj)**2.0d0))*((2.0d0/twopi)**(DBLE(D)/2.0d0))) &
+   !                   /prob(j))**(-2.0d0/DBLE(D))
+   !      ! sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
+   !      ! kernel density estimation cannot become smaller than the distance with the nearest grid point
+   !      ! IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
+   !      IF(verbose) WRITE(*,*) "Prob ", prob(j),  " new sigma ", sigma2(j)         
+   !   ENDDO
+      ikde = ikde+1
+      if (ikde<3) GOTO 100 ! seems one could actually iterate to self-consistency....
       
 1111  IF(saveprobs) & 
        CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,outputfile) 
@@ -1086,6 +1123,7 @@
          WRITE(*,*) "                       to refine the KDE on the grid points"
          WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to "
          WRITE(*,*) "                       optimize cluster centers [0] "
+         WRITE(*,*) "   -kderr target     : Target relative error in the KDE [0.1] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -p P1,...,PD      : Periodicity in each dimension [ (6.28,6.28,6.28,...) ]"
          WRITE(*,*) "   -savevoronois     : Save Voronoi associations. This will produce:"
