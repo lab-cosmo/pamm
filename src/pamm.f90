@@ -48,7 +48,7 @@
 
       INTEGER jmax
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, bigp, &
-                                                     msmu, tmpmsmu, pcluster, px
+                                                     msmu, tmpmsmu, pcluster, px, tmps2
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: normvoro ! accumulator for wj in voronoi
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
@@ -354,7 +354,7 @@
                                npvoronoi,probboot,idxroot,idcls,idxgrid,qspath, &
                                distmm, diff,msmu,tmpmsmu,normkernel, &
                                normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
-                               xtmp,xtmpw,wloc,ineigh,wj,sigma2)
+                               xtmp,xtmpw,wloc,ineigh,wj,sigma2,tmps2)
          wj=1.0d0
          sigma2=rgrid
          normkernel=1
@@ -402,7 +402,7 @@
                            y,npvoronoi,prob,probboot,idxroot,idcls,idxgrid,qspath, &
                            distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
-                           xtmp,xtmpw,wloc,ineigh,rgrid,sigma2)
+                           xtmp,xtmpw,wloc,ineigh,rgrid,sigma2,tmps2)
       
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -768,6 +768,8 @@
       ! Abramson's like scheme 
       ! first get the geometric mean over all the grid points
       ! use the log to deal with small numbers
+      
+      tmpcheck=0.0d0
       tmpkernel=DLOG(prob(1))
       DO i=2,ngrid
         ! WRITE(*,*) "tmpkernel: ", tmpkernel
@@ -779,9 +781,9 @@
       ! rescale all the sigmas
       DO i=1,ngrid
          ! Abramson's choice alpha=1/2
-         IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
+         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
          sigma2(i)=sigma2(i)*((tmpkernel/prob(i))**(0.5d0))
-         IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i) 
+         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i) 
       ENDDO
       
    ! BINOMIAL SCHEME
@@ -795,7 +797,17 @@
    !      IF(verbose) WRITE(*,*) "Prob ", prob(j),  " new sigma ", sigma2(j)         
    !   ENDDO
       ikde = ikde+1
-      if (ikde<3) GOTO 100 ! seems one could actually iterate to self-consistency....
+      
+      tmpcheck=SUM(ABS(tmps2-prob))/SUM(prob)
+        !tmpcheck=tmpcheck/SUM(tmps2)
+      IF((tmpcheck<0.01d0).AND.(ikde.GT.1))THEN
+         WRITE(*,*) "Relative change: ", tmpcheck, " >>> We can continue!"
+      ELSE
+         tmps2=prob
+         GOTO 100
+      ENDIF
+      
+      !if (ikde<3) GOTO 100 ! seems one could actually iterate to self-consistency....
       
 1111  IF(saveprobs) & 
        CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,outputfile) 
@@ -1080,7 +1092,7 @@
       DEALLOCATE(y,npvoronoi,prob,sigma2,rgrid,normvoro)
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel,IM)
-      DEALLOCATE(xij,wQ,pk)
+      DEALLOCATE(xij,wQ,pk,tmps2)
       DEALLOCATE(xtmp,xtmpw,wloc,ineigh)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
@@ -1176,7 +1188,7 @@
                                  y,npvoronoi,prob,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
-                                 xtmp,xtmpw,wloc,ineigh,rgrid,sigma2)
+                                 xtmp,xtmpw,wloc,ineigh,rgrid,sigma2,tmps2)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
@@ -1184,7 +1196,7 @@
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: npvoronoi,idcls,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,pk,bigp,normvoro
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wloc,wQ
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid,tmps2
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qlocal,IM,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hi,Hiinv
@@ -1221,6 +1233,7 @@
          IF (ALLOCATED(xtmpw))      DEALLOCATE(xtmpw)
          IF (ALLOCATED(wloc))       DEALLOCATE(wloc)
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
+         IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
          IF (ALLOCATED(rgrid))      DEALLOCATE(rgrid)
 
          
@@ -1237,7 +1250,7 @@
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
          ALLOCATE(xij(D),pk(D))
-         ALLOCATE(wQ(nsamples),idxgrid(ngrid))
+         ALLOCATE(wQ(nsamples),idxgrid(ngrid),tmps2(ngrid))
          IF(accurate)THEN 
             ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
          ELSE
@@ -1250,14 +1263,14 @@
                                  npvoronoi,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,normkernel, &
                                  normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
-                                 xtmp,xtmpw,wloc,ineigh,wj,sigma2)
+                                 xtmp,xtmpw,wloc,ineigh,wj,sigma2,tmps2)
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: npvoronoi,idcls,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: msmu,tmpmsmu,pk,bigp,normvoro
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: normkernel,wloc,wQ,wj
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,tmps2
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qlocal,IM,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hi,Hiinv
@@ -1290,6 +1303,7 @@
          IF (ALLOCATED(xtmpw))      DEALLOCATE(xtmpw)
          IF (ALLOCATED(wloc))       DEALLOCATE(wloc)
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
+         IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
          IF (ALLOCATED(wj))         DEALLOCATE(wj)
 
          
@@ -1305,7 +1319,7 @@
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
-         ALLOCATE(xij(D),pk(D))
+         ALLOCATE(xij(D),pk(D),tmps2(ngrid))
          ALLOCATE(wQ(nsamples),wj(nsamples),idxgrid(ngrid))
          IF(accurate)THEN 
             ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
