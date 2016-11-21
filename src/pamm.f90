@@ -521,8 +521,13 @@
       !   lfac = 0.7d0*lambda
       ! ENDIF
       
-      IF(savecovs)THEN
-         OPEN(UNIT=11,FILE=trim(outputfile)//".cov",STATUS='REPLACE',ACTION='WRITE')
+100   IF(savecovs)THEN
+         IF(ikde<10)THEN
+            WRITE(comment,"((I1))") ikde
+         ELSE
+            WRITE(comment,"((I2))") ikde
+         ENDIF
+         OPEN(UNIT=11,FILE=trim(outputfile)//".cov"//trim(comment),STATUS='REPLACE',ACTION='WRITE')
          WRITE(11,*) "Local covariance (diagonal), Nlocal , Dlocal"
       ENDIF
       IF(verbose) WRITE(*,*) " Calculating covariance matrix around each grid point"
@@ -601,7 +606,7 @@
       
       ikde = 0
       
-100   IF(verbose) WRITE(*,*) &
+      IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
       
       prob = 0.0d0
