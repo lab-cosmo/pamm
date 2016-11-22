@@ -771,39 +771,39 @@
         ENDDO
       ENDIF
       
-!      ! Abramson's like scheme 
-!      ! first get the geometric mean over all the grid points
-!      ! use the log to deal with small numbers
-!      
-!      tmpcheck=0.0d0
-!      tmpkernel=DLOG(prob(1))
-!      DO i=2,ngrid
-!        ! WRITE(*,*) "tmpkernel: ", tmpkernel
-!        ! WRITE(*,*) "prob: ", probnmm(i)
-!         tmpkernel=tmpkernel+DLOG(prob(i))
-!      ENDDO
-!      tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
-!        
-!      ! rescale all the sigmas
-!      DO i=1,ngrid
-!         ! Abramson's choice alpha=1/2
-!         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i), tmpkernel
-!         sigma2(i)=sigma2(i)*((tmpkernel/prob(i))**(0.5d0))
-!         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 1", sigma2(i)
-!      ENDDO
+      ! Abramson's like scheme 
+      ! first get the geometric mean over all the grid points
+      ! use the log to deal with small numbers
       
-   ! BINOMIAL SCHEME
-      DO i=1,ngrid
-         IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
-         sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
-                     (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
-         !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
-         !            (twopi/4.0d0)**(DBLE(D)/2.0d0)*prob(i))**(2.0d0/DBLE(D)) 
-
-         ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-         IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
-         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i)         
+      tmpcheck=0.0d0
+      tmpkernel=DLOG(prob(1))
+      DO i=2,ngrid
+        ! WRITE(*,*) "tmpkernel: ", tmpkernel
+        ! WRITE(*,*) "prob: ", probnmm(i)
+         tmpkernel=tmpkernel+DLOG(prob(i))
       ENDDO
+      tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
+        
+      ! rescale all the sigmas
+      DO i=1,ngrid
+         ! Abramson's choice alpha=1/2
+         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i), tmpkernel
+         sigma2(i)=sigma2(i)*((kderr/prelerr(i))**(0.5d0))
+         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 1", sigma2(i)
+      ENDDO
+      
+!   ! BINOMIAL SCHEME
+!      DO i=1,ngrid
+!         IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
+!         sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
+!                     (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
+!         !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
+!         !            (twopi/4.0d0)**(DBLE(D)/2.0d0)*prob(i))**(2.0d0/DBLE(D)) 
+
+!         ! kernel density estimation cannot become smaller than the distance with the nearest grid point
+!         IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
+!         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i)         
+!      ENDDO
    
       IF(saveprobs)THEN 
          IF(ikde<10)THEN
