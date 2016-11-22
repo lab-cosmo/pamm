@@ -790,23 +790,15 @@
          !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i), tmpkernel
          sigma2(i)=sigma2(i)*((tmpkernel/prob(i))**(0.5d0))
          !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 1", sigma2(i)
-         !sigma2(i) = ((twopi/2.0d0)*((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
-         !               prob(i))**(2.0d0/DBLE(D)))/2.0d0
-         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 2", sigma2(i) 
       ENDDO
       
    ! BINOMIAL SCHEME
    !   DO j=1,ngrid
-   !      IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
-   !      sigma2(j) = (((1.0d0-((kderr*normwj)**2.0d0))*((2.0d0/twopi)**(DBLE(D)/2.0d0))) &
-   !                   /prob(j))**(-2.0d0/DBLE(D))
+   !      !IF(verbose) WRITE(*,*) "Update grid point ", j, sigma2(j)
    
+   !      sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
+   !                  (twopi/4.0d0)**(DBLE(D)/2.0d0)*prob(i))**(2.0d0/DBLE(D)) 
 
-   !       sigma2(i) = ((twopi/2.0d0)*((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
-   !                     prob(i))**(2.0d0/DBLE(D)))/2.0d0 
-
-
-   !      ! sigma2(j) = 1/twopi *1/( probnmm(j)*(1+normwj*kderr*kderr))**(D/2)
    !      ! kernel density estimation cannot become smaller than the distance with the nearest grid point
    !      ! IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
    !      IF(verbose) WRITE(*,*) "Prob ", prob(j),  " new sigma ", sigma2(j)         
@@ -1049,9 +1041,11 @@
          ENDIF
          
          tmppks=0.0d0
+         
          DO i=1,ngrid
             IF(idxroot(i).NE.qspath(k)) CYCLE
             !! TODO : compute the covariance from the initial samples
+            ! use the routine getweightedcov(D,nsamples,nlocal,wloc,x,Qlocal)
             tmppks=tmppks+prob(i)
             xij=0.0d0
             IF(periodic)THEN
