@@ -794,13 +794,14 @@
       
    ! BINOMIAL SCHEME
       DO i=1,ngrid
-         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
-   
-         sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
-                     (twopi/4.0d0)**(DBLE(D)/2.0d0)*prob(i))**(2.0d0/DBLE(D)) 
+         IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
+         sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
+                     (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
+         !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
+         !            (twopi/4.0d0)**(DBLE(D)/2.0d0)*prob(i))**(2.0d0/DBLE(D)) 
 
          ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-         ! IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
+         IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
          !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i)         
       ENDDO
    
