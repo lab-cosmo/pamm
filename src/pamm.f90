@@ -111,7 +111,7 @@
       fpost = .false.
       alpha = 1.0d0
       zeta = 0.0d0
-      kderr = 0.1d0
+      kderr = -1.0d0
       ccmd = 0               ! no parameters specified
       Nk = 0                 ! number of gaussians
       nmsopt = 0             ! number of mean-shift refinements
@@ -493,7 +493,7 @@
         
         ! Let's apply the Scott's rule
         lfac = ((4.0d0/(DBLE(D)+2.0d0))**(1.0d0/(DBLE(D)+4.0d0))) &
-               * DSQRT(dummd1) * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
+               * dummd1 * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
       ENDIF
       IF(verbose) WRITE(*,*) &
         " Localization factor : ", lfac 
@@ -507,14 +507,26 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
  
-      ! set the lambda to be used in QS
-      IF(lambda.LT.0)THEN
-        ! compute the median of the NN distances
-        lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
-        lambda2=lambda*lambda
+!      ! set the lambda to be used in QS
+!      IF(lambda.LT.0)THEN
+!        ! compute the median of the NN distances
+!        lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
+!        lambda2=lambda*lambda
+!      ENDIF
+      
+      IF(kderr.LT.0)THEN
+         ! estimate quickly the relative error of the data
+         prelerr=0.0d0
+         DO i=1,ngrid
+           prelerr(i) = (1.0d0-(normvoro(i)/normwj))/(normwj*normvoro(i))
+         ENDDO
+         kderr=median(ngrid,prelerr)
       ENDIF
       IF(verbose) WRITE(*,*) &
-        " Quick-Shift : ", lambda  
+        " Relative Error : ", kderr 
+      
+      !IF(verbose) WRITE(*,*) &
+      !  " Quick-Shift : ", lambda  
         
       ! if not specified localization is set to lambda
       ! IF (lfac.LE.0.0d0) THEN
@@ -571,6 +583,35 @@
         ! since log(x) for x <= 0 is nan
         WHERE( pk .ne. pk ) pk = 0.0d0
         Dlocal = EXP(-SUM(pk))
+   !!!!!! TEST SIGMAS
+     !IF(verbose) WRITE(*,*) "$$$ Current grid point ", i, DSQRT(sigma2(i))
+     !IF(verbose) WRITE(*,*) "normwj: ", normwj
+     !IF(verbose) WRITE(*,*) "nlocal: ", nlocal   
+     !IF(verbose) WRITE(*,*) "kderr : ", kderr 
+         sigma2(i) = ( ((sigma2(i)**(DBLE(D)/2.0d0))*normwj)/    & 
+            (nlocal*(1.0d0+(kderr*normwj)**2.0d0)) )**(2.0d0/DBLE(D))
+         !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
+         !            (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
+       
+         ! kernel density estimation cannot become smaller than the distance with the nearest grid point
+         !IF (sigma2(i).lt.rgrid(i)) sigma2(i)=rgrid(i)
+         
+        dummd1=0.0d0
+        CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix
+        DO ii=1,D
+          IF(pk(ii).GT.dummd1) dummd1=pk(ii)
+        ENDDO
+        
+        ! Let's apply the Scott's rule
+        rgrid(i) = ((4.0d0/(Dlocal+2.0d0))**(1.0d0/(Dlocal+4.0d0))) &
+               * dummd1 * normwj**(-1.0d0/(Dlocal+4.0d0))
+        IF (sigma2(i).lt.dummd2) THEN
+        !  IF(verbose) WRITE(*,*) "ECCOLO : ", sigma2(i)
+          sigma2(i)=rgrid(i)
+        !  IF(verbose) WRITE(*,*) "Regola : ", sigma2(i),rgrid(i)
+        ENDIF
+        !IF(verbose) WRITE(*,*) "Next sigma ", DSQRT(sigma2(i))
+   !!!!!!     
         
         ! oracle approximating shrinkage alogorithm
         dummd2 = ( (1.0d0-2.0d0/DBLE(D)) * trmatrix(D,Qlocal**2) & 
@@ -770,39 +811,40 @@
           pabserr(i) = ( ( 1.0d0 - bigp(i) ) * (bigp(i)/normwj) )**(0.5d0) 
         ENDDO
       ENDIF
+   
+!      ! Abramson's like scheme 
+!      ! first get the geometric mean over all the grid points
+!      ! use the log to deal with small numbers
       
-      ! Abramson's like scheme 
-      ! first get the geometric mean over all the grid points
-      ! use the log to deal with small numbers
-      
-      tmpcheck=0.0d0
-      tmpkernel=DLOG(prob(1))
-      DO i=2,ngrid
-        ! WRITE(*,*) "tmpkernel: ", tmpkernel
-        ! WRITE(*,*) "prob: ", probnmm(i)
-         tmpkernel=tmpkernel+DLOG(prob(i))
-      ENDDO
-      tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
+!      tmpcheck=0.0d0
+!      tmpkernel=DLOG(prob(1))
+!      DO i=2,ngrid
+!        ! WRITE(*,*) "tmpkernel: ", tmpkernel
+!        ! WRITE(*,*) "prob: ", probnmm(i)
+!         tmpkernel=tmpkernel+DLOG(prob(i))
+!      ENDDO
+!      tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
         
-      ! rescale all the sigmas
-      DO i=1,ngrid
-         ! Abramson's choice alpha=1/2
-         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i), tmpkernel
-         sigma2(i)=sigma2(i)*((kderr/prelerr(i))**(0.5d0))
-         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 1", sigma2(i)
-      ENDDO
+!      ! rescale all the sigmas
+!      DO i=1,ngrid
+!         ! Abramson's choice alpha=1/2
+!         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i), tmpkernel
+!         sigma2(i)=sigma2(i)*((kderr/prelerr(i))**(0.5d0))
+!         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 1", sigma2(i)
+!      ENDDO
       
-!   ! BINOMIAL SCHEME
+   ! BINOMIAL SCHEME
 !      DO i=1,ngrid
 !         IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
-!         sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
-!                     (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
-!         !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**3.0d0)* &
-!         !            (twopi/4.0d0)**(DBLE(D)/2.0d0)*prob(i))**(2.0d0/DBLE(D)) 
-
+         
+!         sigma2(i) = ( ((sigma2(i)**(DBLE(D)/2.0d0))*normwj)/    & 
+!            (nlocal*(1.0d0+(kderr*normwj)**2.0d0)) )**(2.0d0/DBLE(D))
+!         !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
+!         !            (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
+       
 !         ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-!         IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
-!         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i)         
+!         !IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
+!         IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i)         
 !      ENDDO
    
       IF(saveprobs)THEN 
@@ -827,7 +869,15 @@
          GOTO 100
       ENDIF
       
-      !if (ikde<3) GOTO 100 ! seems one could actually iterate to self-consistency....
+      ! set the lambda to be used in QS
+      IF(lambda.LT.0)THEN
+        ! compute the median of the NN distances
+        lambda=3.0d0*median(ngrid,rgrid(:))
+        lambda2=lambda*lambda
+      ENDIF
+
+      IF(verbose) WRITE(*,*) &
+        " Quick-Shift : ", lambda  
 
 1111  idxroot=0
       ! Start quick shift
