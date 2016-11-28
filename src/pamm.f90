@@ -77,7 +77,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: prelerr, pabserr
       INTEGER nbootstrap, rndidx, nn, nbssample, nbstot, ikde
-      DOUBLE PRECISION tmpcheck   
+      DOUBLE PRECISION tmpcheck,refcov
       ! Variables for local bandwidth estimation
       DOUBLE PRECISION nlocal, lfac, prefac, Dlocal , kderr
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, pk
@@ -485,22 +485,27 @@
         ! estimate localization from the global covariance
         ! using the Scott's Rule
         ! first we look for the highest value in the diagonal
-        dummd1=0.0d0
+        refcov=0.0d0
         CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
         DO ii=1,D
-          IF(pk(ii).GT.dummd1) dummd1=pk(ii)
+          IF(pk(ii).GT.dummd1) refcov=pk(ii)
         ENDDO
         
         ! Let's apply the Scott's rule
         lfac = ((4.0d0/(DBLE(D)+2.0d0))**(1.0d0/(DBLE(D)+4.0d0))) &
-               * DSQRT(dummd1) * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
+               * DSQRT(refcov) * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
       ENDIF
       IF(verbose) WRITE(*,*) &
         " Localization factor : ", lfac 
         
       sigma2=lfac*lfac
       
-      
+      ! set the lambda to be used in QS
+      IF(lambda.LT.0)THEN
+        !lambda=5.0d0*median(ngrid,rgrid(:))
+        lambda=refcov/10.0d0
+        lambda2=lambda*lambda
+      ENDIF  
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
@@ -861,13 +866,6 @@
          GOTO 100
       ENDIF
       
-      ! set the lambda to be used in QS
-      IF(lambda.LT.0)THEN
-        ! compute the median of the NN distances
-        lambda=5.0d0*median(ngrid,rgrid(:))
-        lambda2=lambda*lambda
-      ENDIF
-
       IF(verbose) WRITE(*,*) &
         " Quick-Shift : ", lambda  
 
@@ -883,7 +881,7 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter))= &
-                            qs_next(ngrid,qspath(counter),lambda2,prob,distmm)
+                qs_next(ngrid,qspath(counter),(lambda2*(1.0d0+prelerr(i))),prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
