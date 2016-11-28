@@ -503,8 +503,7 @@
         CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
         DO ii=1,D
           IF(pk(ii).GT.dummd1) refcov=pk(ii)
-        ENDDO
-        
+        ENDDO    
         ! Let's apply the Scott's rule
         ! should I take the square root of refcov??
         lfac = ((4.0d0/(DBLE(D)+2.0d0))**(1.0d0/(DBLE(D)+4.0d0))) &
@@ -518,7 +517,7 @@
       ! set the lambda to be used in QS
       IF(lambda.LT.0)THEN
         !lambda=5.0d0*median(ngrid,rgrid(:))
-        lambda=refcov/10.0d0
+        lambda=refcov/4.0d0
         lambda2=lambda*lambda
       ENDIF  
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
