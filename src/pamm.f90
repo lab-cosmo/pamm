@@ -376,7 +376,7 @@
          ! set the lambda to be used in QS
          IF(lambda.LT.0)THEN
          !lambda=5.0d0*median(ngrid,rgrid(:))
-         lambda=refcov/10.0d0
+         lambda=refcov/5.0d0
          lambda2=lambda*lambda
          ENDIF  
 
@@ -672,73 +672,105 @@
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
       
+      !!!!!! KDE
       prob = 0.0d0
-      bigp = 0.0d0
-      
       DO i=1,ngrid
         DO j=1,ngrid
-          
-          dummd1 = 0.0d0
-          IF(periodic .and. (nbootstrap.eq.0)) tmpcheck=0.0d0
-          
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data 
           IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>16.0d0) THEN
             ! assume distribution in far away grid point is narrow
             IF(periodic)THEN
-              dummd2=1.0d0
-              CALL pammrij(D, period, y(:,i), y(:,j), xij)
-              DO jj=1,D
-                 dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
-              ENDDO
-              tmpkernel = dummd2 * normvoro(j)
-              IF(nbootstrap.eq.0) &
-                tmpcheck = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j)) &
-                         * normvoro(j) &
-                         + tmpcheck 
+               prob(i)=prob(i)+ normvoro(j)* & 
+                   fmultiVM(D,dlocals(j),period,y(:,i),y(:,j),Hiinv(:,:,j),Hi(:,:,j))
             ELSE
-              dummd1 = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j))*normvoro(j)
-            ENDIF     
+               prob(i)=prob(i)+ normvoro(j)* &
+                   fmultigauss(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
+            ENDIF
           ELSE
             ! cycle just inside the polyhedra using the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
               IF(periodic)THEN
-                dummd2=1.0d0
-                CALL pammrij(D, period, y(:,i),x(:,nlist(k)), xij)
-                DO jj=1,D
-                   dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
-                ENDDO
-                tmpkernel = dummd2 * wj(nlist(k))
-                IF(nbootstrap.eq.0) &
-                  ! assume a gaussian kernel to estimate the error also with periodic data
-                  tmpcheck = fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) &
-                           * wj(nlist(k)) &
-                           + tmpcheck 
+                prob(i)=prob(i)+ wj(nlist(k))* & 
+                   fmultiVM(D,dlocals(j),period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j),Hi(:,:,j))
               ELSE
-                tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
-              ENDIF     
-              ! cumulate the non normalized value of the kernel
-              dummd1 = dummd1 + tmpkernel    
+                prob(i)=prob(i)+ wj(nlist(k))* &
+                   fmultigauss(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
+              ENDIF       
             ENDDO
           ENDIF
-            
-          ! get the non-normalized prob, used to compute the estimate of the error
-          IF(periodic .and. (nbootstrap.eq.0)) THEN
-            ! If we are using VM kernels and we are not estimating the error using BS
-            ! then estimate the error using a gaussian kernel
-            bigp(i) = bigp(i) + tmpcheck
-          ELSE
-            bigp(i) = bigp(i) + dummd1
-          ENDIF
-          ! We now have to normalize the kernel
-          prob(i) = prob(i) + dummd1*normkernel(j)
-          
-        ENDDO          
+        ENDDO
       ENDDO
-      
       prob=prob/normwj
-      bigp=bigp/normwj
-   
-      ! use bootstrapping to estimate the error of our KDE
+      !!!!!! END KDE
+      
+      
+!      prob = 0.0d0
+!      bigp = 0.0d0
+!      
+!      DO i=1,ngrid
+!        DO j=1,ngrid
+!          
+!          dummd1 = 0.0d0
+!          IF(periodic .and. (nbootstrap.eq.0)) tmpcheck=0.0d0
+!          
+!          ! renormalize the distance taking into accout the anisotropy of the multidimensional data 
+!          IF (mahalanobis(D,period,y(:,i),y(:,j),  Hiinv(:,:,j))>16.0d0) THEN
+!            ! assume distribution in far away grid point is narrow
+!            IF(periodic)THEN
+!              dummd2=1.0d0
+!              CALL pammrij(D, period, y(:,i), y(:,j), xij)
+!              DO jj=1,D
+!                 dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
+!              ENDDO
+!              tmpkernel = dummd2 * normvoro(j)
+!              IF(nbootstrap.eq.0) &
+!                tmpcheck = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j)) &
+!                         * normvoro(j) &
+!                         + tmpcheck 
+!            ELSE
+!              dummd1 = fmultikernel(D,period,y(:,i),y(:,j),Hiinv(:,:,j))*normvoro(j)
+!            ENDIF     
+!          ELSE
+!            ! cycle just inside the polyhedra using the neighbour list
+!            DO k=pnlist(j)+1,pnlist(j+1)
+!              IF(periodic)THEN
+!                dummd2=1.0d0
+!                CALL pammrij(D, period, y(:,i),x(:,nlist(k)), xij)
+!                DO jj=1,D
+!                   dummd2 = dummd2 * fkernelvm(Hiinv(jj,jj,j),xij(jj))
+!                ENDDO
+!                tmpkernel = dummd2 * wj(nlist(k))
+!                IF(nbootstrap.eq.0) &
+!                  ! assume a gaussian kernel to estimate the error also with periodic data
+!                  tmpcheck = fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) &
+!                           * wj(nlist(k)) &
+!                           + tmpcheck 
+!              ELSE
+!                tmpkernel = wj(nlist(k))*fmultikernel(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
+!              ENDIF     
+!              ! cumulate the non normalized value of the kernel
+!              dummd1 = dummd1 + tmpkernel    
+!            ENDDO
+!          ENDIF
+!            
+!          ! get the non-normalized prob, used to compute the estimate of the error
+!          IF(periodic .and. (nbootstrap.eq.0)) THEN
+!            ! If we are using VM kernels and we are not estimating the error using BS
+!            ! then estimate the error using a gaussian kernel
+!            bigp(i) = bigp(i) + tmpcheck
+!          ELSE
+!            bigp(i) = bigp(i) + dummd1
+!          ENDIF
+!          ! We now have to normalize the kernel
+!          prob(i) = prob(i) + dummd1*normkernel(j)
+!          
+!        ENDDO          
+!      ENDDO
+!      
+!      prob=prob/normwj
+!      bigp=bigp/normwj
+!   
+!      ! use bootstrapping to estimate the error of our KDE
 
       IF(nbootstrap > 0) probboot = 0.0d0
   
@@ -829,41 +861,6 @@
           pabserr(i)=prelerr(i)*prob(i)
         ENDDO
       ENDIF
-   
-!      ! Abramson's like scheme 
-!      ! first get the geometric mean over all the grid points
-!      ! use the log to deal with small numbers
-      
-!      tmpcheck=0.0d0
-!      tmpkernel=DLOG(prob(1))
-!      DO i=2,ngrid
-!        ! WRITE(*,*) "tmpkernel: ", tmpkernel
-!        ! WRITE(*,*) "prob: ", probnmm(i)
-!         tmpkernel=tmpkernel+DLOG(prob(i))
-!      ENDDO
-!      tmpkernel=DEXP((1.0d0/DBLE(ngrid))*tmpkernel)
-        
-!      ! rescale all the sigmas
-!      DO i=1,ngrid
-!         ! Abramson's choice alpha=1/2
-!         !IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i), tmpkernel
-!         sigma2(i)=sigma2(i)*((kderr/prelerr(i))**(0.5d0))
-!         !IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma 1", sigma2(i)
-!      ENDDO
-      
-   ! BINOMIAL SCHEME
-!      DO i=1,ngrid
-!         IF(verbose) WRITE(*,*) "Update grid point ", i, sigma2(i)
-         
-!         sigma2(i) = ( ((sigma2(i)**(DBLE(D)/2.0d0))*normwj)/    & 
-!            (nlocal*(1.0d0+(kderr*normwj)**2.0d0)) )**(2.0d0/DBLE(D))
-!         !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
-!         !            (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
-       
-!         ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-!         !IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
-!         IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i)         
-!      ENDDO
       
       ikde = ikde+1
       
@@ -2002,6 +1999,79 @@
          ENDDO
       END FUNCTION qs_next
       
+      DOUBLE PRECISION FUNCTION fmultigauss(D,period,x,y,icov)
+         ! Return the multivariate gaussian density
+         ! Args:
+         !    gpars: gaussian parameters
+         !    x: point in wich estimate the value of the gaussian
+         
+         INTEGER , INTENT(IN) :: D
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: x(D)
+         DOUBLE PRECISION, INTENT(IN) :: y(D)
+         DOUBLE PRECISION, INTENT(IN) :: icov(D,D)
+         
+         fmultigauss = fmultikernel(D,period,x,y,icov)/ &
+                      DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+         
+      END FUNCTION fmultigauss
+      
+      DOUBLE PRECISION FUNCTION fmultiVM(D,dlocal,period,x,y,icov,cov)
+         ! Return the multivariate gaussian density
+         ! Args:
+         !    gpars: gaussian parameters
+         !    x: point in wich estimate the value of the gaussian
+         
+         INTEGER , INTENT(IN) :: D
+         DOUBLE PRECISION, INTENT(IN) :: dlocal
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: x(D)
+         DOUBLE PRECISION, INTENT(IN) :: y(D)
+         DOUBLE PRECISION, INTENT(IN) :: icov(D,D),cov(D,D)
+         DOUBLE PRECISION dv(D)
+         
+         DOUBLE PRECISION dumm,dumm1,ev(D)
+         INTEGER jj,effD
+         
+         !! Here if the concetration parameter is big enaugh, then 
+         !! the Vm distrib can be seen as a gaussian..
+         !! Let's exploit this
+         
+         ! check the diagonal of Hi: if the biggest element
+         ! is smaller than 0.6, we can safely use a multivariate gaussian
+         
+         
+         dumm=0.0d0
+         DO jj=1,D
+            dumm1=DSQRT(cov(jj,jj))
+            IF(dumm.GT.dumm1) dumm=dumm1
+            ev(jj)=cov(jj,jj)
+         ENDDO
+         
+         ! sort the diagonal 
+         CALL sort(ev, D)
+         ! get the local dimensionality
+         effD=NINT(REAL(dlocal))
+         
+         IF(dumm.LT.0.6d0)THEN
+            fmultiVM=fmultikernel(D,period,x,y,icov)/ &
+                      DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+         ELSE
+            ! productkernels
+            fmultiVM=1.0d0
+            CALL pammrij(D, period, x, y, dv)
+            DO i = D, (D-effD), -1
+               IF(DSQRT(ev(jj)).LT.0.6d0)THEN
+                 fmultiVM = fmultiVM * (1.0d0/((twopi*ev(jj))**0.5d0))* &
+                       dexp(-0.5d0*(dv(jj)**2.0d0)/ev(jj))
+               ELSE
+                 fmultiVM = fmultiVM * fkernelvm(1.0d0/ev(jj),dv(jj))
+               ENDIF
+            END DO
+         ENDIF
+         
+      END FUNCTION fmultiVM
+      
       DOUBLE PRECISION FUNCTION fmultikernel(D,period,x,y,icov)
          ! Return the multivariate gaussian density
          ! Args:
@@ -2052,14 +2122,9 @@
 
             DOUBLE PRECISION, INTENT(IN) :: kkk
             DOUBLE PRECISION, INTENT(IN) :: dist
-            !DOUBLE PRECISION vv
-            
-            ! this is just to avoid errors related to the numerical precision
-            !vv=1.0d0/sig2
-            !IF(DLOG(sig2).lt.(-2)) vv=100.0d0
            
-            fkernelvm=DEXP(DCOS(dist)*kkk)!/ &
-                      !(BESSI0(vv)*twopi)
+            fkernelvm=DEXP(DCOS(dist)*kkk) / &
+                      (BESSI0(kkk)*twopi)
                     
       END FUNCTION fkernelvm
 
