@@ -48,7 +48,8 @@
 
       INTEGER jmax
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, bigp, &
-                                                     msmu, tmpmsmu, pcluster, px, tmps2
+                                                     msmu, tmpmsmu, pcluster, px, tmps2, &
+                                                     dlocals
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: normvoro ! accumulator for wj in voronoi
       INTEGER, ALLOCATABLE, DIMENSION(:) :: npvoronoi, iminij, pnlist, nlist
@@ -70,7 +71,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
       INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxgrid
-      DOUBLE PRECISION linkel
+      DOUBLE PRECISION linkel,maxrer
       LOGICAL isthere
       
       ! BOOTSTRAP
@@ -354,18 +355,31 @@
                                npvoronoi,probboot,idxroot,idcls,idxgrid,qspath, &
                                distmm, diff,msmu,tmpmsmu,normkernel, &
                                normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
-                               xtmp,xtmpw,wloc,ineigh,wj,sigma2,tmps2)
+                               xtmp,xtmpw,wloc,ineigh,wj,sigma2,tmps2,dlocals)
          wj=1.0d0
          sigma2=rgrid
          normkernel=1
          normvoro=1
          tmps2=0.0d0
+         
+         ! estimate Q from the grid
+         CALL getweightedcov(D,ngrid,normwj,normvoro,y,Q)
+         ! estimate localization from the global covariance
+         ! using the Scott's Rule
+         ! first we look for the highest value in the diagonal
+         refcov=0.0d0
+         CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
+         DO ii=1,D
+             IF(pk(ii).GT.dummd1) refcov=pk(ii)
+         ENDDO
+         
          ! set the lambda to be used in QS
          IF(lambda.LT.0)THEN
-            ! compute the median of the NN distances
-            lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
-            lambda2=lambda*lambda
-         ENDIF
+         !lambda=5.0d0*median(ngrid,rgrid(:))
+         lambda=refcov/10.0d0
+         lambda2=lambda*lambda
+         ENDIF  
+
          IF(verbose)THEN
            WRITE(*,*) " Ngrids: ", ngrid
            WRITE(*,*) " QS lambda: ", lambda
@@ -403,7 +417,7 @@
                            y,npvoronoi,prob,probboot,idxroot,idcls,idxgrid,qspath, &
                            distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
-                           xtmp,xtmpw,wloc,ineigh,rgrid,sigma2,tmps2)
+                           xtmp,xtmpw,wloc,ineigh,rgrid,sigma2,tmps2,dlocals)
       
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -492,6 +506,7 @@
         ENDDO
         
         ! Let's apply the Scott's rule
+        ! should I take the square root of refcov??
         lfac = ((4.0d0/(DBLE(D)+2.0d0))**(1.0d0/(DBLE(D)+4.0d0))) &
                * DSQRT(refcov) * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
       ENDIF
@@ -525,9 +540,11 @@
          ! estimate quickly the relative error of the data
          prelerr=0.0d0
          DO i=1,ngrid
+           ! rough estimate of the error assimung the binomial distribution
            prelerr(i) = (1.0d0-(normvoro(i)/normwj))/(normwj*normvoro(i))
          ENDDO
-         kderr=median(ngrid,prelerr)
+         !kderr=median(ngrid,prelerr)
+         kderr=SUM(prelerr)/ngrid
       ENDIF
       IF(verbose) WRITE(*,*) &
         " Relative Error : ", kderr 
@@ -542,6 +559,7 @@
       ! ENDIF
       tmps2=0.0d0
       ikde = 0
+      dlocals = 1.0d0
 100   IF(savecovs)THEN
          IF(ikde<10)THEN
             WRITE(comment,"((I1))") ikde
@@ -589,13 +607,9 @@
         ! and set pk to zero for that value
         ! since log(x) for x <= 0 is nan
         WHERE( pk .ne. pk ) pk = 0.0d0
-        Dlocal = EXP(-SUM(pk))
-   !!!!!! TEST SIGMAS
-     !IF(verbose) WRITE(*,*) "$$$ Current grid point ", i, DSQRT(sigma2(i))
-     !IF(verbose) WRITE(*,*) "normwj: ", normwj
-     !IF(verbose) WRITE(*,*) "nlocal: ", nlocal   
-     !IF(verbose) WRITE(*,*) "kderr : ", kderr 
-         sigma2(i) = ( ((sigma2(i)**(DBLE(D)/2.0d0))*normwj)/    & 
+        dlocals(i) = EXP(-SUM(pk))
+
+        sigma2(i) = ( ((sigma2(i)**(DBLE(D)/2.0d0))*normwj)/    & 
             (nlocal*(1.0d0+(kderr*normwj)**2.0d0)) )**(2.0d0/DBLE(D))
          !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
          !            (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
@@ -610,8 +624,8 @@
         ENDDO
         
         ! Let's apply the Scott's rule
-        rgrid(i) = (((4.0d0/(Dlocal+2.0d0))**(1.0d0/(Dlocal+4.0d0))) &
-               * DSQRT(dummd1) * normwj**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+        rgrid(i) = (((4.0d0/(dlocals(i)+2.0d0))**(1.0d0/(dlocals(i)+4.0d0))) &
+               * DSQRT(dummd1) * normwj**(-1.0d0/(dlocals(i)+4.0d0)))**2.0d0
         IF (sigma2(i).lt.rgrid(i)) THEN
         !  IF(verbose) WRITE(*,*) "ECCOLO : ", sigma2(i)
           sigma2(i)=rgrid(i)
@@ -632,7 +646,7 @@
         ! apply scotts rule to oracle covariance matrix
         Hi(:,:,i) = ( (1.0d0-dummd1) * Qlocal & 
                   + dummd1 * ( trmatrix(D,Qlocal)/DBLE(D) ) * IM ) & 
-                  * ( nlocal**(-1.0d0/(Dlocal+4.0d0)) )**2.0d0 
+                  * ( nlocal**(-1.0d0/(dlocals(i)+4.0d0)) )**2.0d0 
         
         ! store for each grid point the regularized covariance matrix
         Qlocal = (1.0d0-dummd1) * Qlocal + dummd1 * trmatrix(D,Qlocal)*IM / DBLE(D)
@@ -642,7 +656,7 @@
               WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
            ENDDO
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Dlocal
+           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",dlocals(i)
            WRITE(11,*) " "
         ENDIF
         
@@ -804,18 +818,15 @@
           prelerr(i) = pabserr(i) / prob(i)
         ENDDO 
       ELSE
-      ! Integrating over a Gaussian kernel with variance sigma2
-      ! will cover a volume Vi=(pi/(2 sigma2))^(D/2), assuming that sigma2 is equal in all the dimensions
-      ! If the estimate probability density on grid point i is p(i)
-      ! then the probability to be within that (smooth) bin is bigp(i)=p(i) * Vi. 
-      ! The number of points is then normwj*bigp(i), and we can take this to 
-      ! correspond to the mean of a binomial distribution. 
-      ! The variance is: normwj*bigp(i)(1-bigp(i))
-      ! The squared error: bigp(i)(1-bigp(i))/normwj
-      ! The squared relative error (1-bigp(i))/(bigp(i) normwj) so
         DO i=1,ngrid  
-          prelerr(i) = ( ( (1.0d0/bigp(i))-1.0d0)*(1.0d0/normwj) )**(0.5d0) 
-          pabserr(i) = ( ( 1.0d0 - bigp(i) ) * (bigp(i)/normwj) )**(0.5d0) 
+          !prelerr(i) = ( ( (1.0d0/bigp(i))-1.0d0)*(1.0d0/normwj) )**(0.5d0) 
+          !pabserr(i) = ( ( 1.0d0 - bigp(i) ) * (bigp(i)/normwj) )**(0.5d0) 
+          prelerr(i)=DSQRT((((((twopi/2.0d0)**(-dlocals(i)/2.0d0))*(DSQRT(rgrid(i))**(-dlocals(i))) &
+                     *GAMMA(dlocals(i)/2.0d0))/prob(i))-1.0d0)/(normwj**2.0d0))
+          ! I got here the relative error on Ni (point falling into the Voronoi i)
+          ! that, propagating the error is equal to the relative error of prob(i).
+          ! To get the absolute error we just need to do prelerr(i)*prob(i) 
+          pabserr(i)=prelerr(i)*prob(i)
         ENDDO
       ENDIF
    
@@ -859,6 +870,17 @@
       tmpcheck=SUM(ABS(tmps2-prob))/SUM(prob)
         !tmpcheck=tmpcheck/SUM(tmps2)
       IF(verbose) WRITE(*,*) "Cycle ", ikde, ". Relative change", tmpcheck
+      
+      IF(saveprobs)THEN 
+         IF(ikde<10)THEN
+            WRITE(comment,"((I1))") ikde
+         ELSE
+            WRITE(comment,"((I2))") ikde
+         ENDIF
+         comment=trim(outputfile)//"."//trim(comment)
+         CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,comment)
+      ENDIF
+      
       IF((tmpcheck.LT.0.001d0))THEN
          IF(verbose) WRITE(*,*) " >>> Converged!"
       ELSE
@@ -868,7 +890,8 @@
       
       IF(verbose) WRITE(*,*) &
         " Quick-Shift : ", lambda  
-
+      
+      maxrer=MAXVAL(prelerr)
 1111  idxroot=0
       ! Start quick shift
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
@@ -880,8 +903,12 @@
          qspath(1)=i
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
+         
+            ! We use an adpative scheme for the qslambda
+            ! I renormalize all the rerr and I use that to amplify the qs lambda locally
             idxroot(qspath(counter))= &
-                qs_next(ngrid,qspath(counter),(lambda2*(1.0d0+prelerr(i))),prob,distmm)
+                qs_next(ngrid,qspath(counter), & 
+                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1144,7 +1171,7 @@
          DEALLOCATE(clusters)
       ENDIF
       
-      DEALLOCATE(x,wj)
+      DEALLOCATE(x,wj,dlocals)
       DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm,idxgrid)
       DEALLOCATE(pnlist,nlist,iminij,bigp)
@@ -1247,7 +1274,7 @@
                                  y,npvoronoi,prob,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
-                                 xtmp,xtmpw,wloc,ineigh,rgrid,sigma2,tmps2)
+                                 xtmp,xtmpw,wloc,ineigh,rgrid,sigma2,tmps2,dlocals)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
@@ -1255,7 +1282,7 @@
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: npvoronoi,idcls,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,pk,bigp,normvoro
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wloc,wQ
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid,tmps2
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid,tmps2,dlocals
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qlocal,IM,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hi,Hiinv
@@ -1294,6 +1321,7 @@
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
          IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
          IF (ALLOCATED(rgrid))      DEALLOCATE(rgrid)
+         IF (ALLOCATED(dlocals))    DEALLOCATE(dlocals)
 
          
          ! Initialize the arrays, since now I know the number of
@@ -1308,7 +1336,7 @@
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
-         ALLOCATE(xij(D),pk(D))
+         ALLOCATE(xij(D),pk(D),dlocals(ngrid))
          ALLOCATE(wQ(nsamples),idxgrid(ngrid),tmps2(ngrid))
          IF(accurate)THEN 
             ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
@@ -1322,14 +1350,14 @@
                                  npvoronoi,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,normkernel, &
                                  normvoro,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
-                                 xtmp,xtmpw,wloc,ineigh,wj,sigma2,tmps2)
+                                 xtmp,xtmpw,wloc,ineigh,wj,sigma2,tmps2,dlocals)
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: npvoronoi,idcls,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: msmu,tmpmsmu,pk,bigp,normvoro
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: normkernel,wloc,wQ,wj
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,tmps2
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,tmps2,dlocals
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qlocal,IM,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hi,Hiinv
@@ -1364,6 +1392,7 @@
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
          IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
          IF (ALLOCATED(wj))         DEALLOCATE(wj)
+         IF (ALLOCATED(dlocals))    DEALLOCATE(dlocals)
 
          
          ! Initialize the arrays, since now I know the number of
@@ -1378,7 +1407,7 @@
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qlocal(D,D),Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
-         ALLOCATE(xij(D),pk(D),tmps2(ngrid))
+         ALLOCATE(xij(D),pk(D),tmps2(ngrid),dlocals(ngrid))
          ALLOCATE(wQ(nsamples),wj(nsamples),idxgrid(ngrid))
          IF(accurate)THEN 
             ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wloc(nsamples))
