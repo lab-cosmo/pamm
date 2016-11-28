@@ -493,12 +493,14 @@
         
         ! Let's apply the Scott's rule
         lfac = ((4.0d0/(DBLE(D)+2.0d0))**(1.0d0/(DBLE(D)+4.0d0))) &
-               * dummd1 * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
+               * DSQRT(dummd1) * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
       ENDIF
       IF(verbose) WRITE(*,*) &
         " Localization factor : ", lfac 
         
       sigma2=lfac*lfac
+      
+      
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!                                                                    !!
 !!!            Calculate local covariance matrix on grid               !!
@@ -603,9 +605,9 @@
         ENDDO
         
         ! Let's apply the Scott's rule
-        rgrid(i) = ((4.0d0/(Dlocal+2.0d0))**(1.0d0/(Dlocal+4.0d0))) &
-               * dummd1 * normwj**(-1.0d0/(Dlocal+4.0d0))
-        IF (sigma2(i).lt.dummd2) THEN
+        rgrid(i) = (((4.0d0/(Dlocal+2.0d0))**(1.0d0/(Dlocal+4.0d0))) &
+               * DSQRT(dummd1) * normwj**(-1.0d0/(Dlocal+4.0d0)))**2.0d0
+        IF (sigma2(i).lt.rgrid(i)) THEN
         !  IF(verbose) WRITE(*,*) "ECCOLO : ", sigma2(i)
           sigma2(i)=rgrid(i)
         !  IF(verbose) WRITE(*,*) "Regola : ", sigma2(i),rgrid(i)
@@ -846,16 +848,6 @@
 !         !IF (sigma2(j).lt.rgrid(j)) sigma2(j)=rgrid(j)
 !         IF(verbose) WRITE(*,*) "Prob ", prob(i),  " new sigma ", sigma2(i)         
 !      ENDDO
-   
-      IF(saveprobs)THEN 
-         IF(ikde<10)THEN
-            WRITE(comment,"((I1))") ikde
-         ELSE
-            WRITE(comment,"((I2))") ikde
-         ENDIF
-         comment=trim(outputfile)//"."//trim(comment)
-         CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,comment)
-      ENDIF
       
       ikde = ikde+1
       
@@ -872,7 +864,7 @@
       ! set the lambda to be used in QS
       IF(lambda.LT.0)THEN
         ! compute the median of the NN distances
-        lambda=3.0d0*median(ngrid,rgrid(:))
+        lambda=5.0d0*median(ngrid,rgrid(:))
         lambda2=lambda*lambda
       ENDIF
 
@@ -1066,10 +1058,10 @@
             DO i=1,ngrid
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
                IF(periodic)THEN
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/16.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/25.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/16.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/25.0d0))
                   CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
                
