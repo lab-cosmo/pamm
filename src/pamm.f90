@@ -492,12 +492,27 @@
         IM(ii,ii) = 1.0d0    
       ENDDO
       
+      ! estimate global covariance matrix
+      IF(accurate)THEN
+        ! estimate Q from the complete dataset
+        CALL getweightedcov(D,nsamples,normwj,wj,x,Q)
+      ELSE
+        ! estimate Q from the grid
+        CALL getweightedcov(D,ngrid,normwj,normvoro,y,Q)
+      ENDIF
+      
+      ! get the biggest eigenvalue of Q
+      CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
+      DO ii=1,D
+        IF (pk(ii).GT.dummd1) dummd1 = pk(ii)
+      ENDDO 
+      
       ! estimate the localization for each grid 
       ! point based on the choice of nlocal
       DO i=1,ngrid
       
-        ! use rgrid as initial guess
-        sigma2(i) = rgrid(i)
+        ! use biggest eigenvalue of Q as initial guess
+        sigma2(i) = dummd1
        
         ! first estimate of nlocal
         IF (accurate) THEN          
@@ -509,7 +524,7 @@
         ! if nlocal is smaller than target value approach quickly to target value
         IF (nlocal.LT.ntarget) THEN
           DO WHILE(nlocal.LT.ntarget)
-            sigma2(i)=sigma2(i)+rgrid(i)
+            sigma2(i)=sigma2(i)+dummd1
             IF (accurate) THEN          
               CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
             ELSE
@@ -522,9 +537,9 @@
         ! fine tuning 
         DO WHILE(.TRUE.)  
           IF(nlocal.GT.ntarget) THEN
-            sigma2(i) = sigma2(i)-rgrid(i)/2.0d0**j
+            sigma2(i) = sigma2(i)-dummd1/2.0d0**j
           ELSE
-            sigma2(i) = sigma2(i)+rgrid(i)/2.0d0**j
+            sigma2(i) = sigma2(i)+dummd1/2.0d0**j
           ENDIF
           
           IF (accurate) THEN          
