@@ -541,127 +541,28 @@
         WRITE(*,*) i, sigma2(i), ntarget, INT(ANINT(nlocal))
       ENDDO
       
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      !!! estimate covariance matrix globally
-      IF(accurate)THEN
-        ! estimate Q from the complete dataset
-        CALL getweightedcov(D,nsamples,normwj,wj,x,Q)
-      ELSE
-        ! estimate Q from the grid
-        CALL getweightedcov(D,ngrid,normwj,normvoro,y,Q)
-      ENDIF
-      
-      IF (lfac.LE.0.0d0) THEN
-        ! estimate localization from the global covariance
-        ! using the Scott's Rule
-        ! first we look for the highest value in the diagonal
-        refcov=0.0d0
-        CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
-        DO ii=1,D
-          IF(pk(ii).GT.dummd1) refcov=pk(ii)
-        ENDDO    
-        ! Let's apply the Scott's rule
-        ! should I take the square root of refcov??
-        lfac = ((4.0d0/(DBLE(D)+2.0d0))**(1.0d0/(DBLE(D)+4.0d0))) &
-               * DSQRT(refcov) * ngrid**(-1.0d0/(DBLE(D)+4.0d0))
-      ENDIF
-      IF(verbose) WRITE(*,*) &
-        " Localization factor : ", lfac 
-        
-      sigma2=lfac*lfac
-      
-      ! set the lambda to be used in QS
-      IF(lambda.LT.0)THEN
-        !lambda=5.0d0*median(ngrid,rgrid(:))
-        lambda=refcov/4.0d0
-        lambda2=lambda*lambda
-      ENDIF  
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!                                                                    !!
-!!!            Calculate local covariance matrix on grid               !!
-!!!                 utilizing a two pass algorithm                     !!
-!!!                                                                    !!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
- 
-!      ! set the lambda to be used in QS
-!      IF(lambda.LT.0)THEN
-!        ! compute the median of the NN distances
-!        lambda=4.0d0*median(ngrid,DSQRT(rgrid(:)))
-!        lambda2=lambda*lambda
-!      ENDIF
-      
-      IF(kderr.LT.0)THEN
-         ! estimate quickly the relative error of the data
-         prelerr=0.0d0
-         DO i=1,ngrid
-           ! rough estimate of the error assimung the binomial distribution
-           prelerr(i) = (1.0d0-(normvoro(i)/normwj))/(normwj*normvoro(i))
-         ENDDO
-         !kderr=median(ngrid,prelerr)
-         kderr=SUM(prelerr)/ngrid
-      ENDIF
-      IF(verbose) WRITE(*,*) &
-        " Relative Error : ", kderr 
-      
-      !IF(verbose) WRITE(*,*) &
-      !  " Quick-Shift : ", lambda  
-        
-      ! if not specified localization is set to lambda
-      ! IF (lfac.LE.0.0d0) THEN
-      !   ! let's put some magic here
-      !   lfac = 0.7d0*lambda
-      ! ENDIF
-      tmps2=0.0d0
-      ikde = 0
-      dlocals = 1.0d0
-100   IF(savecovs)THEN
-         IF(ikde<10)THEN
-            WRITE(comment,"((I1))") ikde
-         ELSE
-            WRITE(comment,"((I2))") ikde
-         ENDIF
-   OPEN(UNIT=11,FILE=trim(outputfile)//"."//trim(comment)//".cov",STATUS='REPLACE',ACTION='WRITE')
-         WRITE(11,*) "Local covariance (diagonal), Nlocal , Dlocal"
-      ENDIF
       IF(verbose) WRITE(*,*) " Calculating covariance matrix around each grid point"
       DO i=1,ngrid
-!        IF(lfac**2 < pammr2(D,period,y(:,i),x(:,ineigh(i)))) THEN
-!          prefac = -0.5d0/pammr2(D,period,y(:,i),x(:,ineigh(i)))
-!        ELSE
-!          prefac = -0.5d0/lfac**2
-!        ENDIF
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         
         prefac = -0.5d0/sigma2(i)
-        !!! estimate covariance matrix loaclly
-        
+        ! estimate covariance matrix locally
         IF(accurate)THEN          
-          !!! estimate weights for localization
-          !!! using a baloon estimator centered on each grid
+          ! estimate weights for localization
+          ! using a baloon estimator centered on each grid
           CALL getlocalweighted(D,nsamples,prefac,x,wj,y(:,i),wloc,nlocal)
           ! estimate Q from the complete dataset
           CALL getweightedcov(D,nsamples,nlocal,wloc,x,Qlocal)
         ELSE
-          !!! estimate weights for localization
-          !!! using a baloon estimator centered on each grid
-          IF(sigma2(i).LT.rgrid(i)) prefac = -0.5d0/rgrid(i)
+          ! estimate weights for localization
+          ! using a baloon estimator centered on each grid
           CALL getlocalweighted(D,ngrid,prefac,y,normvoro,y(:,i),wloc,nlocal)
           ! estimate Q from the grid
           CALL getweightedcov(D,ngrid,nlocal,wloc,y,Qlocal)
-!############
         ENDIF
         
-        !!! estimate local dimensionality
+        ! estimate local dimensionality
         CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix       
         pk = pk/SUM(pk)
         pk = pk*LOG(pk)
@@ -671,33 +572,8 @@
         ! since log(x) for x <= 0 is nan
         WHERE( pk .ne. pk ) pk = 0.0d0
         dlocals(i) = EXP(-SUM(pk))
-
-        sigma2(i) = ( ((sigma2(i)**(DBLE(D)/2.0d0))*normwj)/    & 
-            (nlocal*(1.0d0+(kderr*normwj)**2.0d0)) )**(2.0d0/DBLE(D))
-         !sigma2(i) = ((1.0d0 + (kderr*kderr)*normwj**2.0d0)* & 
-         !            (twopi)**(DBLE(D)/2.0d0)*prob(i))**(-2.0d0/DBLE(D))
-       
-         ! kernel density estimation cannot become smaller than the distance with the nearest grid point
-         !IF (sigma2(i).lt.rgrid(i)) sigma2(i)=rgrid(i)
-         
-        dummd1=0.0d0
-        CALL eigval(Qlocal,D,pk) ! eigenvalues of the covariance matrix
-        DO ii=1,D
-          IF(pk(ii).GT.dummd1) dummd1=pk(ii)
-        ENDDO
-        
-        ! Let's apply the Scott's rule
-        rgrid(i) = (((4.0d0/(dlocals(i)+2.0d0))**(1.0d0/(dlocals(i)+4.0d0))) &
-               * DSQRT(dummd1) * normwj**(-1.0d0/(dlocals(i)+4.0d0)))**2.0d0
-        IF (sigma2(i).lt.rgrid(i)) THEN
-        !  IF(verbose) WRITE(*,*) "ECCOLO : ", sigma2(i)
-          sigma2(i)=rgrid(i)
-        !  IF(verbose) WRITE(*,*) "Regola : ", sigma2(i),rgrid(i)
-        ENDIF
-        !IF(verbose) WRITE(*,*) "Next sigma ", DSQRT(sigma2(i))
-   !!!!!!     
-        
-        ! oracle approximating shrinkage alogorithm
+  
+        ! apply oracle approximating shrinkage alogorithm on local Q
         dummd2 = ( (1.0d0-2.0d0/DBLE(D)) * trmatrix(D,Qlocal**2) & 
                   + trmatrix(D,Qlocal)**2.0d0 ) &
                / ( (nlocal + 1.0d0 - 2.0d0/DBLE(D)) &
@@ -706,31 +582,19 @@
       
         dummd1 = min(1.0d0,dummd2)
         
-        ! apply scotts rule to oracle covariance matrix
-        Hi(:,:,i) = ( (1.0d0-dummd1) * Qlocal & 
-                  + dummd1 * ( trmatrix(D,Qlocal)/DBLE(D) ) * IM ) & 
-                  * ( nlocal**(-1.0d0/(dlocals(i)+4.0d0)) )**2.0d0 
-        
         ! store for each grid point the regularized covariance matrix
         Qlocal = (1.0d0-dummd1) * Qlocal + dummd1 * trmatrix(D,Qlocal)*IM / DBLE(D)
         
-        IF(savecovs)THEN
-           DO ii=1,D
-              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-           ENDDO
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
-           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",dlocals(i)
-           WRITE(11,*) " "
-        ENDIF
+        ! apply scotts rule to oracle covariance matrix
+        ! TODO: add dimensionality correction of Scotts rule
+        Hi(:,:,i) = Qlocal * ( nlocal**(-1.0d0/(dlocals(i)+4.0d0)) )**2.0d0 
         
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
 
         ! estimate the normalization constants
         normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
-        ! TODO: should we use here local dimensionality?
       ENDDO
-      IF(savecovs) CLOSE(UNIT=11) 
       
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
@@ -924,30 +788,7 @@
           pabserr(i)=prelerr(i)*prob(i)
         ENDDO
       ENDIF
-      
-      ikde = ikde+1
-      
-      tmpcheck=SUM(ABS(tmps2-prob))/SUM(prob)
-        !tmpcheck=tmpcheck/SUM(tmps2)
-      IF(verbose) WRITE(*,*) "Cycle ", ikde, ". Relative change", tmpcheck
-      
-      IF(saveprobs)THEN 
-         IF(ikde<10)THEN
-            WRITE(comment,"((I1))") ikde
-         ELSE
-            WRITE(comment,"((I2))") ikde
-         ENDIF
-         comment=trim(outputfile)//"."//trim(comment)
-         CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,comment)
-      ENDIF
-      
-      IF((tmpcheck.LT.0.001d0))THEN
-         IF(verbose) WRITE(*,*) " >>> Converged!"
-      ELSE
-         tmps2=prob
-         GOTO 100
-      ENDIF
-      
+
       IF(verbose) WRITE(*,*) &
         " Quick-Shift : ", lambda  
       
