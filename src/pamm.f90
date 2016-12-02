@@ -80,6 +80,7 @@
       INTEGER nbootstrap, rndidx, nn, nbssample, nbstot, ikde
       DOUBLE PRECISION tmpcheck,refcov
       ! Variables for local bandwidth estimation
+      INTEGER ntarget
       DOUBLE PRECISION nlocal, lfac, prefac, Dlocal , kderr
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, pk
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, IM
@@ -117,6 +118,7 @@
       Nk = 0                 ! number of gaussians
       nmsopt = 0             ! number of mean-shift refinements
       ngrid = -1             ! number of samples extracted with minmax
+      ntarget = -1
       seed = 12345           ! seed for the random number generator
       thrmerg = 0.8d0        ! merge different clusters
       lambda = -1            ! quick shift cut-off
@@ -398,7 +400,7 @@
             ENDDO
          ENDDO  
          
-         GoTo 1111
+         GOTO 1111
       ELSE 
          CALL readinput(D, weighted, nsamples, x, normwj, wj)
          ! "renormalizes" the weight so we can consider them sort of sample counts
@@ -410,6 +412,10 @@
       ! If not specified, the number voronoi polyhedra
       ! are set to the square of the total number of points
       IF (ngrid.EQ.-1) ngrid=int(sqrt(float(nsamples)))
+      
+      ! If not specified, the target local number of sample points
+      ! is set to the square of the total number of points
+      IF (ntarget.EQ.-1) ntarget=int(sqrt(float(nsamples)))
 
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
@@ -480,11 +486,69 @@
          ENDDO
       ENDDO 
       
-      !!! create identity matrix
+      ! identity matrix
       IM = 0.0d0             
       DO ii=1,D
         IM(ii,ii) = 1.0d0    
       ENDDO
+      
+      ! estimate the localization for each grid 
+      ! point based on the choice of nlocal
+      DO i=1,ngrid
+      
+        ! use rgrid as initial guess
+        sigma2(i) = rgrid(i)
+       
+        ! first estimate of nlocal
+        IF (accurate) THEN          
+          CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
+        ELSE
+          CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,normvoro,y(:,i),wloc,nlocal)
+        ENDIF  
+       
+        ! if nlocal is smaller than target value approach quickly to target value
+        IF (nlocal.LT.ntarget) THEN
+          DO WHILE(nlocal.LT.ntarget)
+            sigma2(i)=sigma2(i)+rgrid(i)
+            IF (accurate) THEN          
+              CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
+            ELSE
+              CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,normvoro,y(:,i),wloc,nlocal)
+            ENDIF 
+          ENDDO
+        ENDIF
+        
+        j = 1
+        ! fine tuning 
+        DO WHILE(.TRUE.)  
+          IF(nlocal.GT.ntarget) THEN
+            sigma2(i) = sigma2(i)-rgrid(i)/2.0d0**j
+          ELSE
+            sigma2(i) = sigma2(i)+rgrid(i)/2.0d0**j
+          ENDIF
+          
+          IF (accurate) THEN          
+            CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
+          ELSE
+            CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,normvoro,y(:,i),wloc,nlocal)
+          ENDIF  
+          
+          ! exit loop if sigma gives correct nlocal
+          IF (ANINT(nlocal).EQ.ntarget) EXIT
+          
+          j = j+1
+        ENDDO
+        WRITE(*,*) i, sigma2(i), ntarget, INT(ANINT(nlocal))
+      ENDDO
+      
+      
+      
+      
+      
+      
+      
+      
+      
       
       !!! estimate covariance matrix globally
       IF(accurate)THEN
