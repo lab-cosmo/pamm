@@ -81,7 +81,7 @@
       DOUBLE PRECISION refcov
       ! Variables for local bandwidth estimation
       INTEGER ntarget
-      DOUBLE PRECISION nlocal, prefac , kderr
+      DOUBLE PRECISION nlocal, prefac , kderr, tune
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, pk
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, IM
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hi, Hiinv
@@ -509,13 +509,14 @@
       ENDIF
       
       ! get the biggest eigenvalue of Q
+      tune = 0.0d0
       CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
       DO ii=1,D
-        IF (pk(ii).GT.dummd1) dummd1 = pk(ii)
+        IF (pk(ii).GT.tune) tune = pk(ii)
       ENDDO 
       
       ! use biggest eigenvalue of Q as initial guess
-      sigma2 = dummd1
+      sigma2 = tune
       
       ! estimate the localization for each grid 
       ! point based on the choice of nlocal
@@ -534,7 +535,7 @@
         ! typically the initial sigma is big enough not to do this, however, nobody knows...
         IF (nlocal.LT.ntarget) THEN
           DO WHILE(nlocal.LT.ntarget)
-            sigma2(i)=sigma2(i)+dummd1
+            sigma2(i)=sigma2(i)+tune
             IF (accurate) THEN          
               CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
             ELSE
@@ -550,12 +551,14 @@
         !       not possible to evaluate on the grid...
         DO WHILE(.TRUE.)  
           IF(nlocal.GT.ntarget) THEN
-            sigma2(i) = sigma2(i)-dummd1/2.0d0**j
+            sigma2(i) = sigma2(i)-tune/2.0d0**j
           ELSE
-            sigma2(i) = sigma2(i)+dummd1/2.0d0**j
+            sigma2(i) = sigma2(i)+tune/2.0d0**j
           ENDIF
           
-          IF (accurate) THEN          
+          IF (accurate) THEN  
+            ! estimate weights for localization
+            ! using a baloon estimator centered on each grid        
             CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
           ELSE
             CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,normvoro,y(:,i),wloc,nlocal)
@@ -566,20 +569,18 @@
           
           ! adjust scaling factor for new sigma
           j = j+1
+          
+          IF(verbose .AND. (modulo(j,10).EQ.0)) &
+            WRITE(*,*) j,sigma2(i),nlocal,ntarget
         ENDDO
+       
 
         prefac = -0.5d0/sigma2(i)
         ! estimate covariance matrix locally
         IF(accurate)THEN          
-          ! estimate weights for localization
-          ! using a baloon estimator centered on each grid
-          CALL getlocalweighted(D,nsamples,prefac,x,wj,y(:,i),wloc,nlocal)
           ! estimate Q from the complete dataset
           CALL getweightedcov(D,nsamples,nlocal,wloc,x,Qlocal)
         ELSE
-          ! estimate weights for localization
-          ! using a baloon estimator centered on each grid
-          CALL getlocalweighted(D,ngrid,prefac,y,normvoro,y(:,i),wloc,nlocal)
           ! estimate Q from the grid
           CALL getweightedcov(D,ngrid,nlocal,wloc,y,Qlocal)
         ENDIF
