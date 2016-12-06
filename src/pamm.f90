@@ -491,8 +491,13 @@
         IM(ii,ii) = 1.0d0    
       ENDDO
       
+      IF(savecovs)THEN
+        OPEN(UNIT=11,FILE=trim(outputfile)//".cov",STATUS='REPLACE',ACTION='WRITE')
+        WRITE(11,*) "Local covariance (diagonal), Nlocal , Dlocal"
+      ENDIF
+      
       IF(verbose) WRITE(*,*) & 
-        " Estimating localizations"
+        " Estimating localizations and bandwidths"
       
       ! estimate global covariance matrix
       IF(accurate)THEN
@@ -540,8 +545,9 @@
         
         j = 1
         ! fine tuning 
-        ! TODO: we have to check if sigma gets to small if we want to do the fast evaluation on the grid
-        !       maybe this is even not possible to evaluate on the grid...
+        ! TODO: we have to check if sigma gets to small if we want to
+        !       do the fast evaluation on the grid maybe this is even
+        !       not possible to evaluate on the grid...
         DO WHILE(.TRUE.)  
           IF(nlocal.GT.ntarget) THEN
             sigma2(i) = sigma2(i)-dummd1/2.0d0**j
@@ -561,13 +567,7 @@
           ! adjust scaling factor for new sigma
           j = j+1
         ENDDO
-      ENDDO
-      
-      IF(verbose) WRITE(*,*) " Calculating covariance matrix around each grid point"
-      DO i=1,ngrid
-        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-          WRITE(*,*) i,"/",ngrid
-        
+
         prefac = -0.5d0/sigma2(i)
         ! estimate covariance matrix locally
         IF(accurate)THEN          
@@ -611,17 +611,27 @@
         ! TODO: add dimensionality correction of Scotts rule
         Hi(:,:,i) = Qlocal * ( nlocal**(-1.0d0/(Di(i)+4.0d0)) )**2.0d0 
         
+        IF(savecovs)THEN
+          DO ii=1,D
+            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
+          ENDDO
+          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
+          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Di(i)
+          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",sigma2(i)
+          WRITE(11,*) " "
+        ENDIF
+        
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
 
         ! estimate the normalization constants
         normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
       ENDDO
+      IF(savecovs) CLOSE(UNIT=11) 
+      
       
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
-      
-      
       IF (periodic) THEN
         !!! Kernel Density estimation for periodic data
         prob = 0.0d0
@@ -663,9 +673,12 @@
         ENDDO
         prob=prob/normwj
       ENDIF
-    
       
-      
+      IF(saveprobs)THEN 
+        comment=TRIM(outputfile)
+        CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,comment)
+      ENDIF
+          
 !      prob = 0.0d0
 !      bigp = 0.0d0
 !      
