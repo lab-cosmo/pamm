@@ -508,29 +508,27 @@
         CALL getweightedcov(D,ngrid,normwj,normvoro,y,Q)
       ENDIF
       
-      ! get the biggest eigenvalue of Q
+      ! use biggest eigenvalue of Q as initial guess
       tune = 0.0d0
       CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
       DO ii=1,D
         IF (pk(ii).GT.tune) tune = pk(ii)
       ENDDO 
-      
-      ! use biggest eigenvalue of Q as initial guess
       sigma2 = tune
       
       ! estimate the localization for each grid 
-      ! point based on the choice of nlocal
+      ! point based on the choice of ntarget
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
           
-        ! first estimate of nlocal
+        ! initial estimate of nlocal using biggest eigenvalue of global Q
         IF (accurate) THEN          
           CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
         ELSE
           CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,normvoro,y(:,i),wloc,nlocal)
         ENDIF  
-       
+
         ! if nlocal is smaller than target value try to approach quickly to target value
         ! typically the initial sigma is big enough not to do this, however, nobody knows...
         IF (nlocal.LT.ntarget) THEN
@@ -568,14 +566,10 @@
           IF (ANINT(nlocal).EQ.ntarget) EXIT
           
           ! adjust scaling factor for new sigma
-          j = j+1
-          
-          IF(verbose .AND. (modulo(j,10).EQ.0)) &
-            WRITE(*,*) j,sigma2(i),nlocal,ntarget
+          j = j+1       
         ENDDO
-       
+        WRITE(*,*) "final:   ",y(:,i),sigma2(i),nlocal,ntarget  
 
-        prefac = -0.5d0/sigma2(i)
         ! estimate covariance matrix locally
         IF(accurate)THEN          
           ! estimate Q from the complete dataset
@@ -618,10 +612,10 @@
           ENDDO
           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Di(i)
+          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",y(:,i)
           WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",sigma2(i)
           WRITE(11,*) " "
         ENDIF
-        
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
 
@@ -674,6 +668,12 @@
         ENDDO
         prob=prob/normwj
       ENDIF
+      
+      OPEN(UNIT=12,FILE=TRIM(outputfile)//".probstmp",STATUS='REPLACE',ACTION='WRITE')
+      DO i=1,ngrid
+        WRITE(12,*) y(:,i),prob(i),SQRT(sigma2(i))
+      ENDDO
+      CLOSE(UNIT=12)
       
       IF(saveprobs)THEN 
         comment=TRIM(outputfile)
@@ -845,6 +845,7 @@
 1111  idxroot=0
       ! Start quick shift
       ! lambda is based on localization
+      ! TODO: Use mahalanobis distance in QS
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
