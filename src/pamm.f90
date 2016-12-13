@@ -515,9 +515,19 @@
         IF (pk(ii).GT.tune) tune = pk(ii)
       ENDDO 
       sigma2 = tune
-      
+
       ! estimate the localization for each grid 
       ! point based on the choice of ntarget
+      ! TODO: we have to check if sigma gets to small if we want to
+      !       do the fast evaluation of the bisection on the grid 
+      !       maybe this is even not possible to evaluate on the grid...
+      !       Solution so far:
+      IF (.NOT.accurate) THEN
+        WRITE(*,*) &
+          " Error: accurate calculation is needed for estimation of localizations."
+        CALL EXIT(-1)
+      ENDIF 
+      
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
@@ -528,26 +538,29 @@
         ELSE
           CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,normvoro,y(:,i),wloc,nlocal)
         ENDIF  
-
+        
+!        WRITE(*,*) "  aproaching target"
         ! if nlocal is smaller than target value try to approach quickly to target value
         ! typically the initial sigma is big enough not to do this, however, nobody knows...
         IF (nlocal.LT.ntarget) THEN
           DO WHILE(nlocal.LT.ntarget)
+            ! approach the desired value
             sigma2(i)=sigma2(i)+tune
+            
             IF (accurate) THEN          
               CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
             ELSE
               CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,normvoro,y(:,i),wloc,nlocal)
             ENDIF 
           ENDDO
+          
         ENDIF
         
+!        WRITE(*,*) "  fine tuning of localization" 
+        ! approach optimal value using bisectioning
         j = 1
-        ! fine tuning 
-        ! TODO: we have to check if sigma gets to small if we want to
-        !       do the fast evaluation on the grid maybe this is even
-        !       not possible to evaluate on the grid...
         DO WHILE(.TRUE.)  
+          ! fine tuning 
           IF(nlocal.GT.ntarget) THEN
             sigma2(i) = sigma2(i)-tune/2.0d0**j
           ELSE
@@ -566,9 +579,9 @@
           IF (ANINT(nlocal).EQ.ntarget) EXIT
           
           ! adjust scaling factor for new sigma
-          j = j+1       
+          j = j+1     
+!          WRITE(*,*) INT(ANINT(nlocal)),ntarget    
         ENDDO
-        WRITE(*,*) "final:   ",y(:,i),sigma2(i),nlocal,ntarget  
 
         ! estimate covariance matrix locally
         IF(accurate)THEN          
@@ -621,8 +634,26 @@
 
         ! estimate the normalization constants
         normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+        
+        ! estimate a new distance matrix based on the local covariance
+        ! and the mahalanobis distance between grid points
+        CALL invmatrix(D,Qlocal,Q)
+        DO j=1,ngrid
+          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Q)
+        ENDDO
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
+      
+      ! store distmm matrix for debugging purposes
+      OPEN(UNIT=11,FILE=trim(outputfile)//".distmm",STATUS='REPLACE',ACTION='WRITE')
+      DO i=1,ngrid
+        WRITE(11,*) distmm(i,:)
+      ENDDO
+      CLOSE(UNIT=11) 
+      
+      
+      
+      
       
       
       IF(verbose) WRITE(*,*) &
@@ -863,7 +894,7 @@
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
                 qs_next(ngrid,qspath(counter), & 
-                   sigma2(i),prob,distmm)
+                   1.0d0,prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1928,7 +1959,7 @@
       
       INTEGER FUNCTION qs_next(ngrid,idx,lambda2,probnmm,distmm)
          ! Return the index of the closest point higher in P
-         !
+         ! 
          ! Args:
          !    ngrid: number of grid points
          !    idx: current point
