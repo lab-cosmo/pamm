@@ -80,7 +80,7 @@
       INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
       DOUBLE PRECISION refcov
       ! Variables for local bandwidth estimation
-      INTEGER ntarget
+      INTEGER ntarget, ntargeti
       DOUBLE PRECISION nlocal, prefac , kderr, tune
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, wQ, pk
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Qlocal, IM
@@ -518,20 +518,12 @@
 
       ! estimate the localization for each grid 
       ! point based on the choice of ntarget
-      ! TODO: we have to check if sigma gets to small if we want to
-      !       do the fast evaluation of the bisection on the grid 
-      !       maybe this is even not possible to evaluate on the grid...
-      !       Solution so far:
-      IF (.NOT.accurate) THEN
-        WRITE(*,*) &
-          " Error: accurate calculation is needed for estimation of localizations."
-        CALL EXIT(-1)
-      ENDIF 
-      
+
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
-          
+        ntargeti = max(ntarget, 2*int(normvoro(i))) ! never go below the number of points in the current grid location
+            
         ! initial estimate of nlocal using biggest eigenvalue of global Q
         IF (accurate) THEN          
           CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wloc,nlocal)
@@ -542,8 +534,8 @@
 !        WRITE(*,*) "  aproaching target"
         ! if nlocal is smaller than target value try to approach quickly to target value
         ! typically the initial sigma is big enough not to do this, however, nobody knows...
-        IF (nlocal.LT.ntarget) THEN
-          DO WHILE(nlocal.LT.ntarget)
+        IF (nlocal.LT.ntargeti) THEN
+          DO WHILE(nlocal.LT.ntargeti)
             ! approach the desired value
             sigma2(i)=sigma2(i)+tune
             
@@ -561,7 +553,7 @@
         j = 1
         DO WHILE(.TRUE.)  
           ! fine tuning 
-          IF(nlocal.GT.ntarget) THEN
+          IF(nlocal.GT.ntargeti) THEN
             sigma2(i) = sigma2(i)-tune/2.0d0**j
           ELSE
             sigma2(i) = sigma2(i)+tune/2.0d0**j
@@ -576,10 +568,10 @@
           ENDIF  
           
           ! exit loop if sigma gives correct nlocal
-          IF (ANINT(nlocal).EQ.ntarget) EXIT
+          IF (ANINT(nlocal).EQ.ntargeti) EXIT
           
           ! adjust scaling factor for new sigma
-          j = j+1     
+          j = j+1
 !          WRITE(*,*) INT(ANINT(nlocal)),ntarget    
         ENDDO
 
