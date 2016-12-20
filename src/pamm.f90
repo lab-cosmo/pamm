@@ -345,6 +345,12 @@
          CALL EXIT(-1)
       ENDIF
       
+      ! set the lambda to be used in QS
+      IF (lambda.LT.0) THEN
+        lambda = 4.0d0
+        lambda2 = lambda * lambda
+      ENDIF  
+      
       ! CLUSTERING MODE
       ! get the data from standard input
       IF (readprobs) THEN
@@ -377,7 +383,7 @@
          ! set the lambda to be used in QS
          IF(lambda.LT.0)THEN
          !lambda=5.0d0*median(ngrid,rgrid(:))
-         lambda=refcov/5.0d0
+         lambda=4.0d0
          lambda2=lambda*lambda
          ENDIF  
 
@@ -410,11 +416,11 @@
 
       ! If not specified, the number voronoi polyhedra
       ! are set to the square of the total number of points
-      IF (ngrid.EQ.-1) ngrid=int(sqrt(float(nsamples)))
+      IF (ngrid.EQ.-1) ngrid = int(sqrt(float(nsamples)))
       
       ! If not specified, the target local number of sample points
       ! is set to the square of the total number of points
-      IF (ntarget.EQ.-1) ntarget=int(sqrt(float(nsamples)))
+      IF (ntarget.EQ.-1) ntarget = int(float(nsamples) / 5.0d0)
 
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
@@ -629,22 +635,21 @@
         
         ! estimate a new distance matrix based on the local covariance
         ! and the mahalanobis distance between grid points
+        ! TODO: create a new matrix for Qinv
         CALL invmatrix(D,Qlocal,Q)
         DO j=1,ngrid
-          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Q)
+          ! TODO: I think the order of yi,yj and Hi plays a role
+          !       should we use i or j in Hi and which should be first (solved)
+          distmm(i,j) = mahalanobis(D,period,y(:,j),y(:,i),Hiinv(:,:,i))
         ENDDO
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
       
-      ! store distmm matrix for debugging purposes
-      OPEN(UNIT=11,FILE=trim(outputfile)//".distmm",STATUS='REPLACE',ACTION='WRITE')
-      DO i=1,ngrid
-        WRITE(11,*) distmm(i,:)
-      ENDDO
-      CLOSE(UNIT=11) 
-      
-      
-      
+!      OPEN(UNIT=11,FILE=trim(outputfile)//".distmm",STATUS='REPLACE',ACTION='WRITE')
+!      DO i=1,ngrid
+!        WRITE(11,*) distmm(i,:)
+!      ENDDO
+!      CLOSE(UNIT=11) 
       
       
       
@@ -870,6 +875,7 @@
       ! lambda is based on localization
       ! TODO: Use mahalanobis distance in QS
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
+      WRITE(*,*) lambda,lambda2
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
@@ -886,7 +892,7 @@
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
                 qs_next(ngrid,qspath(counter), & 
-                   1.0d0,prob,distmm)
+                     lambda2,prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1060,11 +1066,12 @@
             
             DO i=1,ngrid
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
+               ! TODO: has to be adapted for mahalanobis distances ...
                IF(periodic)THEN
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/25.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/16.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/25.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/16.0d0))
                   CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
                
@@ -1966,15 +1973,17 @@
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
 
          INTEGER j
-         DOUBLE PRECISION dmin
+         DOUBLE PRECISION dmin, dmean
 
-         dmin=1.0d10
-         qs_next=idx
+         dmin = 1.0d100
+         qs_next = idx
          DO j=1,ngrid
-            IF(probnmm(j).GT.probnmm(idx))THEN
-               IF((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda2))THEN
-                  dmin=distmm(idx,j)
-                  qs_next=j
+            IF ( probnmm(j).GT.probnmm(idx) ) THEN
+               ! TODO: Can be optimized ...
+               dmean = ( distmm(idx,j) + distmm(j,idx) ) / 2.0d0
+               IF ( (dmean.LT.dmin) .AND. (dmean.LT.lambda2) ) THEN
+                  dmin = dmean
+                  qs_next = j
                ENDIF
             ENDIF
          ENDDO
