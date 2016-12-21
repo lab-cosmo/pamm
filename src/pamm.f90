@@ -101,7 +101,7 @@
       LOGICAL weighted                            ! flag for using weigheted data
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, lambda2
-
+      LOGICAL selfcorrection
       ! Counters and dummy variable
       INTEGER i,j,k,ii,jj,counter,dummyi1,endf
       DOUBLE PRECISION dummd1,dummd2
@@ -134,6 +134,7 @@
       readjgrid = .FALSE.    ! don't read the grid from the standard input
       savecovs  = .FALSE.
       accurate  = .FALSE.    ! compute the covariance from the grid
+      selfcorrection = .FALSE.
       
       D=-1
       periodic=.false.
@@ -172,6 +173,8 @@
              ccmd = 14
          ELSEIF (cmdbuffer == "-readprobs") THEN    ! read the grid points from the standard input
             readprobs= .true.
+         ELSEIF (cmdbuffer == "-selfcorrection") THEN    ! read the grid points from the standard input
+            selfcorrection= .true.
          ELSEIF (cmdbuffer == "-accurate") THEN    ! read the grid points from the standard input
             accurate= .true.
          ELSEIF (cmdbuffer == "-readidxsgrid") THEN    ! read the grid points from the standard input
@@ -460,7 +463,7 @@
          CALL getvoro(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,ineigh,normvoro,idxgrid)
       ELSE
          CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij,ineigh,normvoro, &
-                  saveidxs,outputfile)
+                  saveidxs,idxgrid,outputfile)
       ENDIF
       
       ! print out the voronois associations
@@ -688,6 +691,9 @@
             ELSE
               ! cycle just inside the polyhedra using the neighbour list
               DO k=pnlist(j)+1,pnlist(j+1)
+                IF(selfcorrection)THEN
+                  IF(k.EQ.idxgrid(i)) CYCLE
+                ENDIF
                 prob(i) = prob(i) + wj(nlist(k)) &
                         * fmultigauss(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))      
               ENDDO
@@ -1219,6 +1225,8 @@
          WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
          WRITE(*,*) "                       write out the adjacency matrix [default: off] "
          WRITE(*,*) "   -accurate         : Compute the covariances matrix from the entire dataset "
+         WRITE(*,*) "   -selfcorrection   : Remove the grid point from the samples when estimating "
+         WRITE(*,*) "                       the kde on itself "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
@@ -1700,7 +1708,7 @@
       END SUBROUTINE readinputprobs
 
       SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,npvoronoi,iminij, &
-                        ineigh,normvoro,saveidx,ofile)
+                        ineigh,normvoro,saveidx,idxgrid,ofile)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          ! 
@@ -1724,6 +1732,7 @@
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: normvoro 
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: idxgrid
          CHARACTER(LEN=1024), INTENT(IN) :: ofile   
          LOGICAL, INTENT(IN) :: saveidx   
 
@@ -1735,6 +1744,7 @@
          npvoronoi=0
          ! choose randomly the first point
          irandom=int(RAND()*nsamples)
+         idxgrid(1)=irandom
          IF(saveidx) THEN
             OPEN(UNIT=12,FILE=trim(ofile)//".idxs",STATUS='REPLACE',ACTION='WRITE')
             WRITE(12,"((I9))") irandom
@@ -1765,6 +1775,7 @@
             IF(saveidx) THEN
                WRITE(12,"((I9))") jmax
             ENDIF
+            idxgrid(i)=jmax
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
          ENDDO
@@ -2002,7 +2013,7 @@
          DOUBLE PRECISION, INTENT(IN) :: icov(D,D)
          
          fmultigauss = fmultikernel(D,period,x,y,icov)/ &
-                      DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+                      DSQRT((twopi**DBLE(D))/detmatrix(D,icov))
          
       END FUNCTION fmultigauss
       
