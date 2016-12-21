@@ -692,7 +692,7 @@
               ! cycle just inside the polyhedra using the neighbour list
               DO k=pnlist(j)+1,pnlist(j+1)
                 IF(selfcorrection)THEN
-                  IF(k.EQ.idxgrid(i)) CYCLE
+                  IF(nlist(k).EQ.idxgrid(i)) CYCLE
                 ENDIF
                 prob(i) = prob(i) + wj(nlist(k)) &
                         * fmultigauss(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))      
@@ -2056,7 +2056,7 @@
          
          IF(dumm.LT.0.6d0)THEN
             fmultiVM=fmultikernel(D,period,x,y,icov)/ &
-                      DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+                      DSQRT((twopi**DBLE(D))*detmatrix(D,cov))
          ELSE
             ! productkernels
             fmultiVM=1.0d0
