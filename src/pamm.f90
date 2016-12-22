@@ -101,7 +101,6 @@
       LOGICAL weighted                            ! flag for using weigheted data
       INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
       DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, lambda2
-      LOGICAL selfcorrection
       ! Counters and dummy variable
       INTEGER i,j,k,ii,jj,counter,dummyi1,endf
       DOUBLE PRECISION dummd1,dummd2
@@ -134,8 +133,7 @@
       readjgrid = .FALSE.    ! don't read the grid from the standard input
       savecovs  = .FALSE.
       accurate  = .FALSE.    ! compute the covariance from the grid
-      selfcorrection = .FALSE.
-      
+            
       D=-1
       periodic=.false.
       CALL random_init(seed) ! initialize random number generator
@@ -173,8 +171,6 @@
              ccmd = 14
          ELSEIF (cmdbuffer == "-readprobs") THEN    ! read the grid points from the standard input
             readprobs= .true.
-         ELSEIF (cmdbuffer == "-selfcorrection") THEN    ! read the grid points from the standard input
-            selfcorrection= .true.
          ELSEIF (cmdbuffer == "-accurate") THEN    ! read the grid points from the standard input
             accurate= .true.
          ELSEIF (cmdbuffer == "-readidxsgrid") THEN    ! read the grid points from the standard input
@@ -386,7 +382,7 @@
          ! set the lambda to be used in QS
          IF(lambda.LT.0)THEN
          !lambda=5.0d0*median(ngrid,rgrid(:))
-         lambda=4.0d0
+         lambda=3.0d0
          lambda2=lambda*lambda
          ENDIF  
 
@@ -423,7 +419,7 @@
       
       ! If not specified, the target local number of sample points
       ! is set to the square of the total number of points
-      IF (ntarget.EQ.-1) ntarget = int(float(nsamples) / 5.0d0)
+      IF (ntarget.EQ.-1) ntarget = int(float(nsamples) / 7.0d0)
 
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
@@ -691,9 +687,7 @@
             ELSE
               ! cycle just inside the polyhedra using the neighbour list
               DO k=pnlist(j)+1,pnlist(j+1)
-                IF(selfcorrection)THEN
-                  IF(nlist(k).EQ.idxgrid(i)) CYCLE
-                ENDIF
+                IF(nlist(k).EQ.idxgrid(i)) CYCLE
                 prob(i) = prob(i) + wj(nlist(k)) &
                         * fmultigauss(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))      
               ENDDO
@@ -881,7 +875,6 @@
       ! lambda is based on localization
       ! TODO: Use mahalanobis distance in QS
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
-      WRITE(*,*) lambda,lambda2
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
@@ -898,7 +891,7 @@
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
                 qs_next(ngrid,qspath(counter), & 
-                     lambda2,prob,distmm)
+                     D*lambda2,prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
