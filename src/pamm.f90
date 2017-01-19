@@ -27,6 +27,9 @@
 ! TORT OR OTHERWISE, ARISIng FROM, OUT OF OR IN CONNECTION WITH THE
 ! SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 !
+! TODO: (i) we need only to store Hiinv and normkernel for each grid point
+!           -> remove Di(:), Hi(:), ... to save memory
+!           -> if periodic data is used we probably need to save Hi(:) too 
 
       PROGRAM pamm
       USE libpamm
@@ -49,7 +52,7 @@
 
       INTEGER jmax
       
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, bigp, &
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, lnK, bigp, &
                                                      msmu, tmpmsmu, pcluster, px, tmps2, &
                                                      Di
       DOUBLE PRECISION :: normwj                              ! accumulator for wj
@@ -413,7 +416,7 @@
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                           y,nj,prob,probboot,idxroot,idcls,idxgrid,qspath, &
+                           y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
                            distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
                            xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -512,7 +515,6 @@
           DO WHILE(nlocal.LT.nlim)
             ! approach the desired value
             sigma2(i)=sigma2(i)+tune
-            
             IF (accurate) THEN          
               CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wlocal,nlocal)
             ELSE
@@ -601,8 +603,8 @@
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
 
-        ! estimate the normalization constants
-        normkernel(i) = 1.0d0/DSQRT((twopi**DBLE(D))*detmatrix(D,Hi(:,:,i)))
+        ! estimate the logarithmic normalization constants
+        normkernel(i) = DBLE(D)*LOG(twopi) + logdet(D,Hi(:,:,i))
         
         ! estimate a new distance matrix based on the local covariance and the
         ! mahalanobis distance between grid points based on bandwidth matrix
@@ -640,27 +642,37 @@
         ENDDO
         prob=prob/normwj
       ELSE
-        !!! Kernel Density estimation for non-periodic data
+        ! non-periodic logarithmic kernel density estimate
+        ! using log-sum-exp formula (see numerical recipies)
         prob = 0.0d0
         DO i=1,ngrid
+          lnK = 0.0d0
           DO j=1,ngrid
             ! renormalize the distance taking into accout the anisotropy of the multidimensional data
             IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
               ! assume distribution in far away grid point is narrow
-              prob(i) = prob(i) + wi(j) &
-                      * fmultikernel(D,y(:,i),y(:,j),Hiinv(:,:,j),normkernel(j))
+              ! and store sum of all contributions in grid point
+              ! exponent of the gaussian        
+              dummd1 = DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hiinv(:,:,j)))
+              ! natural logarithm of kernel
+              lnK(idxgrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wi(j))    
             ELSE
               ! cycle just inside the polyhedra using the neighbour list
               DO k=pnlist(j)+1,pnlist(j+1)
                 ! this is the self correction
-                IF ( nlist(k).EQ.idxgrid(i) ) CYCLE
-                prob(i) = prob(i) + wj(nlist(k)) &
-                        * fmultikernel(D,y(:,i),x(:,nlist(k)),Hiinv(:,:,j),normkernel(j))      
-              ENDDO
+                IF(nlist(k).EQ.idxgrid(i)) CYCLE 
+                ! exponent of the gaussian        
+                dummd1 = DOT_PRODUCT(y(:,i)-x(:,nlist(k)),MATMUL(y(:,i)-x(:,nlist(k)),Hiinv(:,:,j)))
+                ! weighted natural logarithm of kernel
+                lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(nlist(k)))    
+              ENDDO 
             ENDIF
           ENDDO
+          ! find max value on logarithmic kernel
+          dummd2 = MAXVAL(lnK)
+          prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
         ENDDO
-        prob=prob/normwj
+        prob=prob-LOG(normwj)
       ENDIF
       
       OPEN(UNIT=12,FILE=TRIM(outputfile)//".probstmp",STATUS='REPLACE',ACTION='WRITE')
@@ -1024,7 +1036,7 @@
       DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm,idxgrid)
       DEALLOCATE(pnlist,nlist,iminij,bigp)
-      DEALLOCATE(y,nj,prob,sigma2,rgrid,wi)
+      DEALLOCATE(y,nj,prob,lnK,sigma2,rgrid,wi)
       DEALLOCATE(diff,msmu,tmpmsmu)
       DEALLOCATE(Q,Qlocal,Hi,Hiinv,normkernel,IM)
       DEALLOCATE(xij,wQ,pk,tmps2)
@@ -1122,7 +1134,7 @@
       END FUNCTION median
       
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                                 y,nj,prob,probboot,idxroot,idcls,idxgrid,qspath, &
+                                 y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,bigp,Q,Qlocal,Hi,Hiinv,IM,xij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -1131,7 +1143,7 @@
          LOGICAL, INTENT(IN) :: accurate
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,pk,bigp,wi
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,lnK,msmu,tmpmsmu,pk,bigp,wi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wQ
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid,tmps2,Di
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qlocal,IM,probboot
@@ -1143,9 +1155,10 @@
          IF (ALLOCATED(pnlist))     DEALLOCATE(pnlist)
          IF (ALLOCATED(nlist))      DEALLOCATE(nlist)
          IF (ALLOCATED(y))          DEALLOCATE(y)
-         IF (ALLOCATED(nj))  DEALLOCATE(nj)
+         IF (ALLOCATED(nj))         DEALLOCATE(nj)
          IF (ALLOCATED(prob))       DEALLOCATE(prob)
-         IF (ALLOCATED(probboot))     DEALLOCATE(probboot)
+         IF (ALLOCATED(lnK))        DEALLOCATE(lnK)
+         IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
          IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
          IF (ALLOCATED(idxgrid))    DEALLOCATE(idxgrid)
@@ -1172,13 +1185,13 @@
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
          IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
          IF (ALLOCATED(rgrid))      DEALLOCATE(rgrid)
-         IF (ALLOCATED(Di))    DEALLOCATE(Di)
+         IF (ALLOCATED(Di))         DEALLOCATE(Di)
 
          
          ! Initialize the arrays, since now I know the number of
          ! points and the dimensionality
          ALLOCATE(iminij(nsamples))
-         ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
+         ALLOCATE(pnlist(ngrid+1), nlist(nsamples), lnK(nsamples))
          ALLOCATE(y(D,ngrid), nj(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
          ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
          ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
@@ -1217,7 +1230,7 @@
          IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
          IF (ALLOCATED(pnlist))     DEALLOCATE(pnlist)
          IF (ALLOCATED(nlist))      DEALLOCATE(nlist)
-         IF (ALLOCATED(nj))  DEALLOCATE(nj)
+         IF (ALLOCATED(nj))         DEALLOCATE(nj)
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
          IF (ALLOCATED(idcls))      DEALLOCATE(idcls)

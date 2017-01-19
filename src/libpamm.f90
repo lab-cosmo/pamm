@@ -506,7 +506,7 @@
                END DO
                IF (DetExists .EQV. .FALSE.) THEN
                    detmatrix=0.0d0
-                   return
+                   RETURN
                END IF
             ENDIF
             DO j=k+1,D
@@ -523,6 +523,52 @@
             detmatrix=detmatrix*matrix(i,i)
          ENDDO
       END FUNCTION detmatrix
+      
+      DOUBLE PRECISION FUNCTION logdet(D,M)
+        ! log determinant of a square matrix
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D,D) , INTENT(IN) :: M
+
+         DOUBLE PRECISION, DIMENSION(D,D) :: matrix
+         DOUBLE PRECISION :: mt, temp
+         INTEGER :: i, j, k
+         LOGICAL :: DetExists = .TRUE.
+
+         matrix=M
+         !Convert to upper triangular form
+         DO k = 1, D-1
+            IF (matrix(k,k) == 0) THEN
+               DetExists = .FALSE.
+               DO i = k+1,D
+                  IF (matrix(i,k) /= 0) THEN
+                     DO j=1,D
+                        temp = matrix(i,j)
+                        matrix(i,j)= matrix(k,j)
+                        matrix(k,j) = temp
+                     END DO
+                     DetExists = .TRUE.
+                     EXIT
+                  ENDIF
+               END DO
+               IF (DetExists .EQV. .FALSE.) THEN
+                   logdet=0.0d0
+                   return
+               END IF
+            ENDIF
+            DO j=k+1,D
+                mt = matrix(j,k)/matrix(k,k)
+                DO i=k+1,D
+                    matrix(j,i) = matrix(j,i) - mt*matrix(k,i)
+                END DO
+            END DO
+         ENDDO
+
+         !calculate log determinant by sum diagonal elements
+         logdet=0.0d0
+         DO i=1,D
+            logdet=logdet+LOG(matrix(i,i))
+         ENDDO
+      END FUNCTION logdet
       
       DOUBLE PRECISION FUNCTION variance(nsamples,D,x,weights)
          INTEGER, INTENT(IN) :: nsamples
