@@ -646,7 +646,7 @@
         ! using log-sum-exp formula (see numerical recipies)
         prob = 0.0d0
         DO i=1,ngrid
-          lnK = 0.0d0
+          lnK = -1.0d100
           DO j=1,ngrid
             ! renormalize the distance taking into accout the anisotropy of the multidimensional data
             IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
