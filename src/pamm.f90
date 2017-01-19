@@ -579,9 +579,13 @@
         ! regularized local covariance matrix for grid point 
         Qlocal = (1.0d0-dummd1) * Qlocal + dummd1 * trmatrix(D,Qlocal)*IM / DBLE(D)
         
-        ! apply scotts rule to oracle covariance matrix
-        ! TODO: add dimensionality correction of Scotts rule
-        Hi(:,:,i) = Qlocal * ( nlocal**(-1.0d0/(Di(i)+4.0d0)) )**2.0d0 
+        ! estimate bandwidth from scotts rule
+!        Hi(:,:,i) = Qlocal * ( nlocal**(-1.0d0/(Di(i)+4.0d0)) )**2.0d0 
+        ! estimate bandwidth from scotts rule with dimensionality correction
+!        Hi(:,:,i) = ( (4.0d0 / (Di(i) + 2.0d0) )**(1.0d0 / (Di(i) + 4.0d0)) &
+!                  * nlocal**( -1.0d0 / (Di(i) + 4.0d0)) )**2.0d0 * Qlocal
+        ! estimate bandwidth from normal reference rule
+        Hi(:,:,i) = (4.0d0 / ( nlocal * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qlocal        
         
         IF(savecovs)THEN
           DO ii=1,D
@@ -752,7 +756,7 @@
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
                 qs_next(ngrid,qspath(counter), & 
-                     D*lambda2,prob,distmm)
+                     lambda2,prob,distmm)
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
