@@ -750,7 +750,7 @@
          
       END SUBROUTINE pammrij
       
-      DOUBLE PRECISION FUNCTION mahalanobis(D,period,x,y,icov)
+      DOUBLE PRECISION FUNCTION mdist(D,period,x,y,icov)
          ! Return the mahalanobi distance between two points
          ! Args:
          !    ...
@@ -766,7 +766,7 @@
          tmpv = MATMUL(dv,icov)
          xcx = DOT_PRODUCT(dv,tmpv)
 
-         mahalanobis = xcx
-      END FUNCTION mahalanobis
+         mdist = xcx
+      END FUNCTION mdist
 
       END MODULE libpamm
