@@ -282,7 +282,7 @@
       ! If not specified, set the lambda to be used in QS 
       ! to four and set at the same time also the lambda square
       IF (lambda.LT.0) THEN
-        lambda = 4.0d0
+        lambda = 1.0d0
         lambda2 = lambda * lambda
       ENDIF  
 
@@ -621,9 +621,9 @@
         ! estimate a new distance matrix based on bhattacharya distance
         DO j=1,i-1 
           ! mean of both covariance matrices
-          Hmean = (Hi(:,:,i)+Hi(:,:,j))/2.0d0
+!          Hmean = (Hi(:,:,i)+Hi(:,:,j))/2.0d0
           ! inverse mean covariance matrix
-          CALL invmatrix(D,Hmean,Hinv)
+!          CALL invmatrix(D,Hmean,Hinv)
           ! and finally the bhattacharyya distance between these two points
 !          distmm(i,j) = 0.125d0 * DOT_PRODUCT(y(:,j)-y(:,i),MATMUL(y(:,j)-y(:,i),Hinv)) &
 !                      + 0.5d0 * (logdet(D,Hmean) - 0.5d0 * (logdetHi(i)+logdetHi(j)))
@@ -633,16 +633,17 @@
 !                      * detmatrix(D,Qi(:,:,j))**1.0d0/4.0d0 &
 !                      / detmatrix(D,Hmean)**1.0d0/2.0d0 & 
 !                      * EXP(0.125d0*DOT_PRODUCT(y(:,j)-y(:,i),MATMUL(y(:,j)-y(:,i),Hinv))) 
-          ! simply the squared euclidean norm
-!          distmm(i,j) = DOT_PRODUCT(y(:,j)-y(:,i),y(:,j)-y(:,i))
           ! Kullback-Leibler-divergence for multivariate distributions
-          dummd1 = 0.5d0 * ( trmatrix(D,MATMUL(Hinv,Hi(:,:,i))) &
-                 + DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hinv)) &
-                 - D + logdet(D,Hmean) - logdetHi(i) )
-          dummd1 = 0.5d0 * ( trmatrix(D,MATMUL(Hinv,Hi(:,:,j))) &
-                 + DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hinv)) &
-                 - D + logdet(D,Hmean) - logdetHi(j) )
-          distmm(i,j) = 0.5d0*dummd1 + 0.5d0*dummd2
+!          dummd1 = 0.5d0 * ( trmatrix(D,MATMUL(Hinv,Hi(:,:,i))) &
+!                 + DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hinv)) &
+!                 - D + logdet(D,Hmean) - logdetHi(i) )
+!          dummd1 = 0.5d0 * ( trmatrix(D,MATMUL(Hinv,Hi(:,:,j))) &
+!                 + DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hinv)) &
+!                 - D + logdet(D,Hmean) - logdetHi(j) )
+!          distmm(i,j) = 0.5d0*dummd1 + 0.5d0*dummd2
+          
+          ! simply the squared euclidean norm
+          distmm(i,j) = DOT_PRODUCT(y(:,j)-y(:,i),y(:,j)-y(:,i))
           
           ! matrix is symmetric
           distmm(j,i) = distmm(i,j) 
@@ -803,7 +804,7 @@
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
                 qs_next(ngrid,qspath(counter), & 
-                     lambda2,prob,distmm)
+                     lambda2*sigma2(qspath(counter)),prob,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
