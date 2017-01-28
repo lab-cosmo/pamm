@@ -88,7 +88,7 @@
       INTEGER ntarget, nlim
       DOUBLE PRECISION nlocal, prefac , kderr, tune
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, logdetHi, wQ, pk
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Hmean, Qinv, IM
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Hmean, Hinv, IM
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Hi, Hiinv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal
@@ -282,7 +282,7 @@
       ! If not specified, set the lambda to be used in QS 
       ! to four and set at the same time also the lambda square
       IF (lambda.LT.0) THEN
-        lambda = 0.9d0
+        lambda = 4.0d0
         lambda2 = lambda * lambda
       ENDIF  
 
@@ -359,7 +359,7 @@
          CALL allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                nj,probboot,idxroot,idcls,idxgrid,qspath, &
                                distmm, diff,msmu,tmpmsmu,normkernel, &
-                               wi,bigp,Q,Qi,Hmean,Qinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
+                               wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
                                xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
          wj=1.0d0
          sigma2=rgrid
@@ -418,7 +418,7 @@
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                            y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
                            distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                           wi,bigp,Q,Qi,Hmean,Qinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
+                           wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
                            xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
       
       ! create identity matrix
@@ -621,20 +621,29 @@
         ! estimate a new distance matrix based on bhattacharya distance
         DO j=1,i-1 
           ! mean of both covariance matrices
-!          Hmean = (Qi(:,:,i)+Qi(:,:,j))/2.0d0
+          Hmean = (Hi(:,:,i)+Hi(:,:,j))/2.0d0
           ! inverse mean covariance matrix
-!          CALL invmatrix(D,Hmean,Qinv)
+          CALL invmatrix(D,Hmean,Hinv)
           ! and finally the bhattacharyya distance between these two points
-!          distmm(i,j) = 0.125d0 * DOT_PRODUCT(y(:,j)-y(:,i),MATMUL(y(:,j)-y(:,i),Qinv)) &
+!          distmm(i,j) = 0.125d0 * DOT_PRODUCT(y(:,j)-y(:,i),MATMUL(y(:,j)-y(:,i),Hinv)) &
 !                      + 0.5d0 * (logdet(D,Hmean) - 0.5d0 * (logdetHi(i)+logdetHi(j)))
           ! and finally the hellinger distance between these two points (ensures trianguler inequality)
 !          distmm(i,j) = 1.0d0 &
 !                      - detmatrix(D,Qi(:,:,i))**1.0d0/4.0d0 &
 !                      * detmatrix(D,Qi(:,:,j))**1.0d0/4.0d0 &
 !                      / detmatrix(D,Hmean)**1.0d0/2.0d0 & 
-!                      * EXP(0.125d0*DOT_PRODUCT(y(:,j)-y(:,i),MATMUL(y(:,j)-y(:,i),Qinv))) 
+!                      * EXP(0.125d0*DOT_PRODUCT(y(:,j)-y(:,i),MATMUL(y(:,j)-y(:,i),Hinv))) 
           ! simply the squared euclidean norm
-          distmm(i,j) = DOT_PRODUCT(y(:,j)-y(:,i),y(:,j)-y(:,i))
+!          distmm(i,j) = DOT_PRODUCT(y(:,j)-y(:,i),y(:,j)-y(:,i))
+          ! Kullback-Leibler-divergence for multivariate distributions
+          dummd1 = 0.5d0 * ( trmatrix(D,MATMUL(Hinv,Hi(:,:,i))) &
+                 + DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hinv)) &
+                 - D + logdet(D,Hmean) - logdetHi(i) )
+          dummd1 = 0.5d0 * ( trmatrix(D,MATMUL(Hinv,Hi(:,:,j))) &
+                 + DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hinv)) &
+                 - D + logdet(D,Hmean) - logdetHi(j) )
+          distmm(i,j) = 0.5d0*dummd1 + 0.5d0*dummd2
+          
           ! matrix is symmetric
           distmm(j,i) = distmm(i,j) 
         ENDDO
@@ -794,7 +803,7 @@
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
                 qs_next(ngrid,qspath(counter), & 
-                     sigma2(qspath(counter)),prob,distmm)
+                     lambda2,prob,distmm)
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -1161,7 +1170,7 @@
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                  y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                                 wi,bigp,Q,Qi,Hmean,Qinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
+                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
@@ -1171,7 +1180,7 @@
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,lnK,msmu,tmpmsmu,pk,bigp,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wQ
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid,tmps2,Di
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Qinv,IM,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,IM,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv
          
@@ -1199,7 +1208,7 @@
          IF (ALLOCATED(Q))          DEALLOCATE(Q)
          IF (ALLOCATED(Qi))         DEALLOCATE(Qi)
          IF (ALLOCATED(Hmean))      DEALLOCATE(Hmean)
-         IF (ALLOCATED(Qinv))       DEALLOCATE(Qinv)
+         IF (ALLOCATED(Hinv))       DEALLOCATE(Hinv)
          IF (ALLOCATED(logdetHi))   DEALLOCATE(logdetHi)
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
          IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
@@ -1227,7 +1236,7 @@
          ! bootstrap probability density array will be allocated if necessary
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
-         ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Qinv(D,D))
+         ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
          ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
          ALLOCATE(xij(D),pk(D),Di(ngrid))
          ALLOCATE(wQ(nsamples),idxgrid(ngrid),tmps2(ngrid))
@@ -1242,7 +1251,7 @@
       SUBROUTINE allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                  nj,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,normkernel, &
-                                 wi,bigp,Q,Qi,Hmean,Qinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
+                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
@@ -1251,7 +1260,7 @@
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: msmu,tmpmsmu,pk,bigp,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: normkernel,wlocal,wQ,wj
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,tmps2,Di
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Qinv,IM,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,IM,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv
          
@@ -1274,7 +1283,7 @@
          IF (ALLOCATED(Q))          DEALLOCATE(Q)
          IF (ALLOCATED(Qi))         DEALLOCATE(Qi)
          IF (ALLOCATED(Hmean))      DEALLOCATE(Hmean)
-         IF (ALLOCATED(Qinv))       DEALLOCATE(Qinv)
+         IF (ALLOCATED(Hinv))       DEALLOCATE(Hinv)
          IF (ALLOCATED(logdetHi))   DEALLOCATE(logdetHi)
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
          IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
@@ -1302,7 +1311,7 @@
          ! bootstrap probability density array will be allocated if necessary
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
-         ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Qinv(D,D))
+         ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
          ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
          ALLOCATE(xij(D),pk(D),tmps2(ngrid),Di(ngrid),logdetHi(ngrid))
          ALLOCATE(wQ(nsamples),wj(nsamples),idxgrid(ngrid))
