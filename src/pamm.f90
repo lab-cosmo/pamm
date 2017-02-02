@@ -89,7 +89,7 @@
       DOUBLE PRECISION nlocal, prefac , kderr, tune
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, logdetHi, wQ, pk
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Hmean, Hinv, IM
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Hi, Hiinv
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Hi, Hiinv, Qiinv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal
       INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
@@ -359,7 +359,7 @@
          CALL allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                nj,probboot,idxroot,idcls,idxgrid,qspath, &
                                distmm, diff,msmu,tmpmsmu,normkernel, &
-                               wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
+                               wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,IM,xij,pk,wQ, &
                                xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
          wj=1.0d0
          sigma2=rgrid
@@ -418,7 +418,7 @@
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                            y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
                            distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                           wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
+                           wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,IM,xij,pk,wQ, &
                            xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
       
       ! create identity matrix
@@ -620,31 +620,8 @@
         distmm(i,i)=0.0d0  
         ! estimate a new distance matrix based on bhattacharya distance
         DO j=1,i-1 
-          ! mean of both covariance matrices
-!          Hmean = (Hi(:,:,i)+Hi(:,:,j))/2.0d0
-          ! inverse mean covariance matrix
-!          CALL invmatrix(D,Hmean,Hinv)
-          ! and finally the bhattacharyya distance between these two points
-!          distmm(i,j) = 0.125d0 * DOT_PRODUCT(y(:,j)-y(:,i),MATMUL(y(:,j)-y(:,i),Hinv)) &
-!                      + 0.5d0 * (logdet(D,Hmean) - 0.5d0 * (logdetHi(i)+logdetHi(j)))
-          ! and finally the hellinger distance between these two points (ensures trianguler inequality)
-!          distmm(i,j) = 1.0d0 &
-!                      - detmatrix(D,Qi(:,:,i))**1.0d0/4.0d0 &
-!                      * detmatrix(D,Qi(:,:,j))**1.0d0/4.0d0 &
-!                      / detmatrix(D,Hmean)**1.0d0/2.0d0 & 
-!                      * EXP(0.125d0*DOT_PRODUCT(y(:,j)-y(:,i),MATMUL(y(:,j)-y(:,i),Hinv))) 
-          ! Kullback-Leibler-divergence for multivariate distributions
-!          dummd1 = 0.5d0 * ( trmatrix(D,MATMUL(Hinv,Hi(:,:,i))) &
-!                 + DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hinv)) &
-!                 - D + logdet(D,Hmean) - logdetHi(i) )
-!          dummd1 = 0.5d0 * ( trmatrix(D,MATMUL(Hinv,Hi(:,:,j))) &
-!                 + DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hinv)) &
-!                 - D + logdet(D,Hmean) - logdetHi(j) )
-!          distmm(i,j) = 0.5d0*dummd1 + 0.5d0*dummd2
-          
           ! simply the squared euclidean norm
           distmm(i,j) = DOT_PRODUCT(y(:,j)-y(:,i),y(:,j)-y(:,i))
-          
           ! matrix is symmetric
           distmm(j,i) = distmm(i,j) 
         ENDDO
@@ -799,12 +776,14 @@
          
             ! We use an adpative scheme for the qslambda
             ! I renormalize all the rerr and I use that to amplify the qs lambda locally
+
 !            idxroot(qspath(counter))= &
 !                qs_next(ngrid,qspath(counter), & 
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
-                qs_next(ngrid,qspath(counter), & 
-                     lambda2*sigma2(qspath(counter)),prob,distmm)
+                qs_next(D,ngrid,qspath(counter), & 
+                     lambda2*sigma2(qspath(counter)),prob,distmm,y,Qiinv)
+                     
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -1073,7 +1052,7 @@
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,nj,prob,lnK,sigma2,rgrid,wi)
       DEALLOCATE(diff,msmu,tmpmsmu)
-      DEALLOCATE(Q,Qi,Hi,Hiinv,normkernel,IM)
+      DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel,IM)
       DEALLOCATE(xij,wQ,pk,tmps2)
       DEALLOCATE(xtmp,xtmpw,wlocal,ineigh)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
@@ -1171,7 +1150,7 @@
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                  y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
+                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,IM,xij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
@@ -1183,7 +1162,7 @@
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid,tmps2,Di
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,IM,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,y,distmm
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv,Qiinv
          
          
          IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
@@ -1213,6 +1192,7 @@
          IF (ALLOCATED(logdetHi))   DEALLOCATE(logdetHi)
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
          IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
+         IF (ALLOCATED(Qiinv))      DEALLOCATE(Qiinv)
          IF (ALLOCATED(IM))         DEALLOCATE(IM)
          IF (ALLOCATED(xij))        DEALLOCATE(xij)
          IF (ALLOCATED(pk))         DEALLOCATE(pk)
@@ -1238,7 +1218,7 @@
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
-         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
+         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid),IM(D,D))
          ALLOCATE(xij(D),pk(D),Di(ngrid))
          ALLOCATE(wQ(nsamples),idxgrid(ngrid),tmps2(ngrid))
          IF(accurate)THEN 
@@ -1252,7 +1232,7 @@
       SUBROUTINE allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                  nj,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,normkernel, &
-                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,IM,xij,pk,wQ, &
+                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,IM,xij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
@@ -1263,7 +1243,7 @@
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,tmps2,Di
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,IM,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,distmm
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv,Qiinv
          
          
          IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
@@ -1288,6 +1268,7 @@
          IF (ALLOCATED(logdetHi))   DEALLOCATE(logdetHi)
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
          IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
+         IF (ALLOCATED(Qiinv))      DEALLOCATE(Qiinv)
          IF (ALLOCATED(IM))         DEALLOCATE(IM)
          IF (ALLOCATED(xij))        DEALLOCATE(xij)
          IF (ALLOCATED(pk))         DEALLOCATE(pk)
@@ -1313,7 +1294,7 @@
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
-         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),IM(D,D))
+         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid),IM(D,D))
          ALLOCATE(xij(D),pk(D),tmps2(ngrid),Di(ngrid),logdetHi(ngrid))
          ALLOCATE(wQ(nsamples),wj(nsamples),idxgrid(ngrid))
          IF(accurate)THEN 
@@ -1892,7 +1873,7 @@
          ENDIF
       END FUNCTION
       
-      INTEGER FUNCTION qs_next(ngrid,idx,lambda2,probnmm,distmm)
+      INTEGER FUNCTION qs_next(D,ngrid,idx,lambda2,probnmm,distmm,y,Qiinv)
          ! Return the index of the closest point higher in P
          ! 
          ! Args:
@@ -1902,57 +1883,38 @@
          !    probnmm: density estimations
          !    distmm: distances matrix
 
+         INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
          DOUBLE PRECISION, INTENT(IN) :: lambda2
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-
+         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
+         DOUBLE PRECISION, DIMENSION(D,D,ngrid), INTENT(IN) :: Qiinv
+         
          INTEGER j
-         DOUBLE PRECISION dmin, dd
+         DOUBLE PRECISION dmin, dd, dtmp
 
          dmin = 1.0d100
+         
          qs_next = idx
-!         DO j=1,ngrid
-!            IF ( probnmm(j).GT.probnmm(idx) ) THEN
-!               ! use the mean mdist distance between two points
-!               dd = ( distmm(idx,j) + distmm(j,idx) ) / 2.0d0
-!               IF ( (dd.LT.dmin) .AND. (dd.LT.lambda2) ) THEN
-!                  dmin = dd
-!                  qs_next = j
-!               ENDIF
-!            ENDIF
-!         ENDDO
-!          DO j=1,ngrid
-!            IF ( probnmm(j).GT.probnmm(idx) ) THEN
-!               ! use the greater mdist distance between two points
-!               dd = MAX(distmm(idx,j),distmm(j,idx))
-!               IF ( (dd.LT.dmin) .AND. (dd.LT.lambda2) ) THEN
-!                  dmin = dd
-!                  qs_next = j
-!               ENDIF
-!            ENDIF
-!         ENDDO
-!          DO j=1,ngrid
-!            IF ( probnmm(j).GT.probnmm(idx) ) THEN
-!               ! use the smaller mdist distance between two points
-!               dd = MIN(distmm(idx,j),distmm(j,idx))
-!               IF ( (dd.LT.dmin) .AND. (dd.LT.lambda2) ) THEN
-!                  dmin = dd
-!                  qs_next = j
-!               ENDIF
-!            ENDIF
-!         ENDDO
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
                ! use current mdist distance of point looking to find a neighbor
                dd = distmm(idx,j)
-               IF ( (dd.LT.dmin) .AND. (dd.LT.lambda2) ) THEN
-                  dmin = dd
-                  qs_next = j
+               IF ( dd.LT.lambda2 ) THEN
+                  dtmp = ( prob(idx)-prob(j)+0.5d0 & 
+                       * DOT_PRODUCT(y(:,j)-y(:,idx), &
+                         MATMUL(y(:,i)-y(:,idx),Qiinv(:,:,j)))) &
+                       / DBLE(D)
+                  IF (dtmp .LT. dmin) THEN 
+                    dmin = dtmp
+                    qs_next = j
+                  ENDIF
                ENDIF
             ENDIF
          ENDDO
+         WRITE(*,*) "shit: ",idx,qs_next,dmin
       END FUNCTION qs_next
       
       DOUBLE PRECISION FUNCTION fmultiVM(D,dlocal,period,x,y,icov,cov)
