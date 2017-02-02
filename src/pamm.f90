@@ -581,6 +581,9 @@
         ! regularized local covariance matrix for grid point 
         Qi(:,:,i) = (1.0d0-dummd1) * Qi(:,:,i) + dummd1 * trmatrix(D,Qi(:,:,i))*IM / DBLE(D)
         
+        ! inverse local covariance matrix and store it
+        CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
+        
         ! estimate bandwidth from scotts rule
 !        Hi(:,:,i) = Qi * ( nlocal**(-1.0d0/(Di(i)+4.0d0)) )**2.0d0 
         ! estimate bandwidth from scotts rule with dimensionality correction
@@ -782,7 +785,7 @@
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
                 qs_next(D,ngrid,qspath(counter), & 
-                     lambda2*sigma2(qspath(counter)),prob,distmm,y,Qiinv)
+                     lambda2*Di(qspath(counter)),prob,distmm,y,Qiinv)
                      
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1893,28 +1896,40 @@
          DOUBLE PRECISION, DIMENSION(D,D,ngrid), INTENT(IN) :: Qiinv
          
          INTEGER j
-         DOUBLE PRECISION dmin, dd, dtmp
+         DOUBLE PRECISION dmin, dd, Dm, dtmp
+         DOUBLE PRECISION, DIMENSION(D) :: t
 
          dmin = 1.0d100
          
          qs_next = idx
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
-               ! use current mdist distance of point looking to find a neighbor
-               dd = distmm(idx,j)
-               IF ( dd.LT.lambda2 ) THEN
-                  dtmp = ( prob(idx)-prob(j)+0.5d0 & 
-                       * DOT_PRODUCT(y(:,j)-y(:,idx), &
-                         MATMUL(y(:,i)-y(:,idx),Qiinv(:,:,j)))) &
-                       / DBLE(D)
-                  IF (dtmp .LT. dmin) THEN 
-                    dmin = dtmp
-                    qs_next = j
-                  ENDIF
+!               ! find point on hypothetical spherical QS cutoff
+!               t = (y(:,j)-y(:,idx))/DSQRT(DOT_PRODUCT(y(:,j)-y(:,idx),y(:,j)-y(:,idx)))*lambda2
+!               Dm = DOT_PRODUCT(t,MATMUL(t,Qiinv(:,:,idx)))
+!               WRITE(*,*) "cutoff:                ", lambda2
+!               WRITE(*,*) "myself:                ", y(:,idx)
+!               WRITE(*,*) "target:                ", y(:,j)
+!               WRITE(*,*) "point on QS sphere :   ", t
+!               WRITE(*,*) "inv covariance matrix: ", Qiinv(:,:,idx)
+!               ! use current mdist distance of point looking to find a neighbor
+!               dtmp = DSQRT(DOT_PRODUCT(t,t))/Dm*lambda2
+!               dd = distmm(idx,j)
+!               IF (  (dd.LT.dmin) .AND. (dd.LT.dtmp) ) THEN
+!                 dmin = dd
+!                 qs_next = j
+!               ENDIF
+               dd = DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),Qiinv(:,:,idx)))
+               IF (dd.LT.lambda2) THEN
+                 dtmp=DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),Qiinv(:,:,j)))
+                 IF (dtmp.LT.dmin) THEN
+                   dmin = dtmp 
+                   qs_next = j
+                 ENDIF 
                ENDIF
             ENDIF
          ENDDO
-         WRITE(*,*) "shit: ",idx,qs_next,dmin
+         WRITE(*,*) "QS: ",idx,qs_next,dmin
       END FUNCTION qs_next
       
       DOUBLE PRECISION FUNCTION fmultiVM(D,dlocal,period,x,y,icov,cov)
