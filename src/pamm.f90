@@ -784,8 +784,8 @@
 !                qs_next(ngrid,qspath(counter), & 
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
-                qs_next(D,ngrid,qspath(counter), & 
-                     lambda2*Di(qspath(counter)),prob,distmm,y,Qiinv)
+                qs_next(D,ngrid,qspath(counter),lambda2, & 
+                     sigma2(qspath(counter)),prob,distmm,y,Qiinv)
                      
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1876,7 +1876,7 @@
          ENDIF
       END FUNCTION
       
-      INTEGER FUNCTION qs_next(D,ngrid,idx,lambda2,probnmm,distmm,y,Qiinv)
+      INTEGER FUNCTION qs_next(D,ngrid,idx,scl,lambda2,probnmm,distmm,y,Qiinv)
          ! Return the index of the closest point higher in P
          ! 
          ! Args:
@@ -1889,7 +1889,7 @@
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda2
+         DOUBLE PRECISION, INTENT(IN) :: lambda2, scl
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
          DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
@@ -1898,6 +1898,7 @@
          INTEGER j
          DOUBLE PRECISION dmin, dd, Dm, dtmp
          DOUBLE PRECISION, DIMENSION(D) :: t
+         DOUBLE PRECISION, DIMENSION(D,D) :: sphere
 
          dmin = 1.0d100
          
@@ -1919,8 +1920,9 @@
 !                 dmin = dd
 !                 qs_next = j
 !               ENDIF
-               dd = DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),Qiinv(:,:,idx)))
-               IF (dd.LT.lambda2) THEN
+               sphere = IM/lambda2
+               dd = DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),sphere))
+               IF (dd.LT.scl) THEN
                  dtmp=DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),Qiinv(:,:,j)))
                  IF (dtmp.LT.dmin) THEN
                    dmin = dtmp 
