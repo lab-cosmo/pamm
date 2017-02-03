@@ -75,7 +75,7 @@
       ! cluster connectivity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
       INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxgrid
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: igrid
       DOUBLE PRECISION linkel,maxrer
       LOGICAL isthere
       
@@ -358,7 +358,7 @@
          nsamples=ngrid
          normwj=ngrid
          CALL allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                               nj,probboot,idxroot,idcls,idxgrid,qspath, &
+                               nj,probboot,idxroot,idcls,igrid,qspath, &
                                distmm, diff,msmu,tmpmsmu,normkernel, &
                                wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
                                xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
@@ -417,7 +417,7 @@
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                           y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
+                           y,nj,prob,lnK,probboot,idxroot,idcls,igrid,qspath, &
                            distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
                            xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -443,16 +443,16 @@
          OPEN(UNIT=12,FILE=gridfile,STATUS='OLD',ACTION='READ')
          ! read the grid from a file
          DO i=1,ngrid
-            READ(12,*) idxgrid(i)
+            READ(12,*) igrid(i)
          ENDDO
          
          WRITE(*,*) " Building the Voronoi associations"
          
          ! do the voronoi associations
-         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij,ineigh,wi,idxgrid)
+         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij,ineigh,wi,igrid)
       ELSE
          CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,nj,iminij,ineigh,wi, &
-                  saveidxs,idxgrid,outputfile)
+                  saveidxs,igrid,outputfile)
       ENDIF
       
       ! print out the voronois associations
@@ -633,20 +633,21 @@
         lnK = -1.0d100
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
-          IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
+          dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
+          IF (dummd1.GT.36.0d0) THEN
             ! assume distribution in far away grid point is narrow
             ! and store sum of all contributions in grid point
-            ! exponent of the gaussian        
-            dummd1 = DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hiinv(:,:,j)))
+            ! exponent of the gaussian      
             ! natural logarithm of kernel
-            lnK(idxgrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wi(j))    
+            lnK(igrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wi(j))    
           ELSE
             ! cycle just inside the polyhedra using the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
-              ! this is the self correction
-              IF(nlist(k).EQ.idxgrid(i)) CYCLE 
-              ! exponent of the gaussian        
-              dummd1 = DOT_PRODUCT(y(:,i)-x(:,nlist(k)),MATMUL(y(:,i)-x(:,nlist(k)),Hiinv(:,:,j)))
+              ! self correction
+              IF(nlist(k).EQ.igrid(i)) CYCLE 
+              ! exponent of the gaussian       
+              CALL pammrij(D,period,x(:,nlist(k)),y(:,j),dij)  
+              dummd1 = DOT_PRODUCT(dij,MATMUL(dij,Hiinv(:,:,j)))
               ! weighted natural logarithm of kernel
               lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(nlist(k)))    
             ENDDO 
@@ -700,7 +701,7 @@
                   rndidx = int(nj(j)*random_uniform())+1
                   rndidx = nlist(pnlist(j)+rndidx)
                   ! self correction
-                  IF ( rndidx.EQ.idxgrid(i) ) CYCLE
+                  IF ( rndidx.EQ.igrid(i) ) CYCLE
                   ptmp = ptmp + fmultikernel(D,y(:,i),x(:,rndidx), & 
                                              Hiinv(:,:,j),normkernel(j))
                 ENDDO
@@ -1012,7 +1013,7 @@
       
       DEALLOCATE(x,wj,Di)
       DEALLOCATE(period)
-      DEALLOCATE(idxroot,qspath,distmm,idxgrid)
+      DEALLOCATE(idxroot,qspath,distmm,igrid)
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,nj,prob,lnK,sigma2,rgrid,wi)
       DEALLOCATE(diff,msmu,tmpmsmu)
@@ -1112,14 +1113,14 @@
       END FUNCTION median
       
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                                 y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
+                                 y,nj,prob,lnK,probboot,idxroot,idcls,igrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
-         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,igrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,lnK,msmu,tmpmsmu,pk,bigp,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wQ
@@ -1139,7 +1140,7 @@
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
          IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
-         IF (ALLOCATED(idxgrid))    DEALLOCATE(idxgrid)
+         IF (ALLOCATED(igrid))    DEALLOCATE(igrid)
          IF (ALLOCATED(distmm))     DEALLOCATE(distmm)
          IF (ALLOCATED(diff))       DEALLOCATE(diff)
          IF (ALLOCATED(msmu))       DEALLOCATE(msmu)
@@ -1183,7 +1184,7 @@
          ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
          ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid))
          ALLOCATE(dij(D),pk(D),Di(ngrid))
-         ALLOCATE(wQ(nsamples),idxgrid(ngrid),tmps2(ngrid))
+         ALLOCATE(wQ(nsamples),igrid(ngrid),tmps2(ngrid))
          IF(accurate)THEN 
             ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wlocal(nsamples))
          ELSE
@@ -1193,13 +1194,13 @@
       END SUBROUTINE allocatevectors
       
       SUBROUTINE allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                                 nj,probboot,idxroot,idcls,idxgrid,qspath, &
+                                 nj,probboot,idxroot,idcls,igrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,normkernel, &
                                  wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
-         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,igrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: msmu,tmpmsmu,pk,bigp,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: normkernel,wlocal,wQ,wj
@@ -1216,7 +1217,7 @@
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
          IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
-         IF (ALLOCATED(idxgrid))    DEALLOCATE(idxgrid)
+         IF (ALLOCATED(igrid))    DEALLOCATE(igrid)
          IF (ALLOCATED(distmm))     DEALLOCATE(distmm)
          IF (ALLOCATED(diff))       DEALLOCATE(diff)
          IF (ALLOCATED(msmu))       DEALLOCATE(msmu)
@@ -1258,7 +1259,7 @@
          ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
          ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid))
          ALLOCATE(dij(D),pk(D),tmps2(ngrid),Di(ngrid),logdetHi(ngrid))
-         ALLOCATE(wQ(nsamples),wj(nsamples),idxgrid(ngrid))
+         ALLOCATE(wQ(nsamples),wj(nsamples),igrid(ngrid))
          IF(accurate)THEN 
             ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wlocal(nsamples))
          ELSE
@@ -1620,7 +1621,7 @@
       END SUBROUTINE readinputprobs
 
       SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,nj,iminij, &
-                        ineigh,wi,saveidx,idxgrid,ofile)
+                        ineigh,wi,saveidx,igrid,ofile)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          ! 
@@ -1644,7 +1645,7 @@
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi 
-         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: idxgrid
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: igrid
          CHARACTER(LEN=1024), INTENT(IN) :: ofile   
          LOGICAL, INTENT(IN) :: saveidx   
 
@@ -1656,7 +1657,7 @@
          nj=0
          ! choose randomly the first point
          irandom=int(RAND()*nsamples)
-         idxgrid(1)=irandom
+         igrid(1)=irandom
          IF(saveidx) THEN
             OPEN(UNIT=12,FILE=trim(ofile)//".idxs",STATUS='REPLACE',ACTION='WRITE')
             WRITE(12,"((I9))") irandom
@@ -1687,7 +1688,7 @@
             IF(saveidx) THEN
                WRITE(12,"((I9))") jmax
             ENDIF
-            idxgrid(i)=jmax
+            igrid(i)=jmax
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
          ENDDO
@@ -1717,7 +1718,7 @@
       END SUBROUTINE mkgrid
       
       SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij, &
-                         ineigh,wi,idxgrid)
+                         ineigh,wi,igrid)
          IMPLICIT NONE
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
@@ -1742,7 +1743,7 @@
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi   
-         INTEGER, DIMENSION(ngrid), INTENT(IN) :: idxgrid 
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: igrid 
 
          INTEGER i,j
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax, dneigh
@@ -1758,7 +1759,7 @@
             IF(modulo(i,1000).EQ.0) WRITE(*,*) i,"/",ngrid
             dmax = 0.0d0
             dneigh = 1.0d99
-            y(:,i)=x(:,idxgrid(i))
+            y(:,i)=x(:,igrid(i))
             DO j=1,nsamples
                dij = pammr2(D,period,y(:,i),x(:,j))
                IF (dminij(j)>dij) THEN
