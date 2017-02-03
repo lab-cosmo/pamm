@@ -750,7 +750,7 @@
          
       END SUBROUTINE pammrij
       
-      DOUBLE PRECISION FUNCTION mdist(D,period,x,y,icov)
+      DOUBLE PRECISION FUNCTION mahalanobis(D,period,x,y,Qinv)
          ! Return the mahalanobi distance between two points
          ! Args:
          !    ...
@@ -759,14 +759,44 @@
          DOUBLE PRECISION, INTENT(IN) :: period(D)
          DOUBLE PRECISION, INTENT(IN) :: x(D)
          DOUBLE PRECISION, INTENT(IN) :: y(D)
-         DOUBLE PRECISION, INTENT(IN) :: icov(D,D)
+         DOUBLE PRECISION, INTENT(IN) :: Qinv(D,D)
          DOUBLE PRECISION dv(D),tmpv(D),xcx
          
          CALL pammrij(D, period, x, y, dv)
-         tmpv = MATMUL(dv,icov)
+         tmpv = MATMUL(dv,Qinv)
          xcx = DOT_PRODUCT(dv,tmpv)
 
-         mdist = xcx
-      END FUNCTION mdist
+         mahalanobis = xcx
+      END FUNCTION mahalanobis
+      
+      SUBROUTINE oracle(D,N,Q)
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, INTENT(IN) :: N
+         DOUBLE PRECISION, DIMENSION(D,D), INTENT(INOUT) :: Q
+		
+         DOUBLE PRECISION rho,phi,trQ,tr2Q,trQ2
+         DOUBLE PRECISION Qf(D*D) ! flat Q
+		     
+         INTEGER ii
+		     
+         Qf = reshape(Q, (/ D*D /))
+         trQ = SUM(Qf(1:D*D:D+1))
+         tr2Q = trQ**2
+         trQ2 = SUM(Qf(1:D*D:D+1)**2)
+
+         ! apply oracle approximating shrinkage alogorithm on Q
+         phi = ( (1.0d0-2.0d0/DBLE(D) ) * trQ2 + tr2Q ) &
+             / ( (N+1.0d0-2.0d0/DBLE(D)) * trQ2 - tr2Q/DBLE(D) )
+      
+         rho = min(1.0d0,phi)
+        
+         ! regularized local covariance matrix for grid point 
+         Q = (1.0d0-rho)*Q 
+         trQ = trQ/DBLE(D)
+         DO ii=1,D
+           Q(ii,ii) = Q(ii,ii) + rho*trQ
+         ENDDO
+         
+      END SUBROUTINE oracle
 
       END MODULE libpamm

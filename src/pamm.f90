@@ -87,8 +87,8 @@
       ! Variables for local bandwidth estimation
       INTEGER ntarget, nlim
       DOUBLE PRECISION nlocal, prefac , kderr, tune
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: xij, normkernel, logdetHi, wQ, pk
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Hmean, Hinv, IM
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dij, normkernel, logdetHi, wQ, pk
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Hmean, Hinv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Hi, Hiinv, Qiinv
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp, xtmpw
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal
@@ -352,6 +352,7 @@
       ! CLUSTERING MODE
       ! get the data from standard input
       IF (readprobs) THEN
+         STOP "*** not implemented yet! *** (distance matrix is not calculated properly)"
          CALL readinputprobs(D, ngrid, y, prob, pabserr, prelerr, rgrid)
          ! setup what is needed (mostly to random things)
          nsamples=ngrid
@@ -359,7 +360,7 @@
          CALL allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                nj,probboot,idxroot,idcls,idxgrid,qspath, &
                                distmm, diff,msmu,tmpmsmu,normkernel, &
-                               wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,IM,xij,pk,wQ, &
+                               wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
                                xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
          wj=1.0d0
          sigma2=rgrid
@@ -368,7 +369,7 @@
          tmps2=0.0d0
          
          ! estimate Q from the grid
-         CALL getweightedcov(D,ngrid,normwj,wi,y,Q)
+         CALL cov(D,period,ngrid,normwj,wi,y,Q)
          ! estimate localization from the global covariance
          ! using the Scott's Rule
          ! first we look for the highest value in the diagonal
@@ -418,14 +419,8 @@
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                            y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
                            distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                           wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,IM,xij,pk,wQ, &
+                           wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
                            xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
-      
-      ! create identity matrix
-      IM = 0.0d0             
-      DO ii=1,D
-        IM(ii,ii) = 1.0d0    
-      ENDDO
       
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -468,7 +463,6 @@
         WRITE(11,*) "#Local covariance (diagonal), Nlocal , Dlocal, y, localization"
       ENDIF
       
-      
       ! Generate the neighbour list
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,nj,iminij,pnlist,nlist)
@@ -479,10 +473,10 @@
       ! estimate global covariance matrix
       IF(accurate)THEN
         ! estimate Q from complete dataset
-        CALL getweightedcov(D,nsamples,normwj,wj,x,Q)
+        CALL cov(D,period,nsamples,normwj,wj,x,Q)
       ELSE
         ! estimate Q from grid
-        CALL getweightedcov(D,ngrid,normwj,wi,y,Q)
+        CALL cov(D,period,ngrid,normwj,wi,y,Q)
       ENDIF
       
       ! use biggest eigenvalue of Q as initial guess for bisectioning
@@ -499,13 +493,14 @@
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
-        nlim = max(ntarget, 2*int(wi(i))) ! never go below the number of points in the current grid location
+        ! cannot go below number of points in current grid points
+        nlim = max(ntarget, 2*int(wi(i))) 
             
         ! initial estimate of nlocal using biggest eigenvalue of global Q
         IF (accurate) THEN          
-          CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wlocal,nlocal)
+          CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal,nlocal)
         ELSE
-          CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,wi,y(:,i),wlocal,nlocal)
+          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
         ENDIF  
         
         ! aproaching quickly ntarget
@@ -516,9 +511,9 @@
             ! approach the desired value
             sigma2(i)=sigma2(i)+tune
             IF (accurate) THEN          
-              CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wlocal,nlocal)
+              CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal,nlocal)
             ELSE
-              CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,wi,y(:,i),wlocal,nlocal)
+              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
             ENDIF 
           ENDDO
           
@@ -537,9 +532,9 @@
           IF (accurate) THEN  
             ! estimate weights for localization
             ! using a baloon estimator centered on each grid        
-            CALL getlocalweighted(D,nsamples,-0.5d0/sigma2(i),x,wj,y(:,i),wlocal,nlocal)
+            CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal,nlocal)
           ELSE
-            CALL getlocalweighted(D,ngrid,-0.5d0/sigma2(i),y,wi,y(:,i),wlocal,nlocal)
+            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
           ENDIF  
           
           ! exit loop if sigma gives correct nlocal
@@ -552,10 +547,10 @@
         ! estimate covariance matrix locally
         IF(accurate)THEN          
           ! estimate Q from the complete dataset
-          CALL getweightedcov(D,nsamples,nlocal,wlocal,x,Qi(:,:,i))
+          CALL cov(D,period,nsamples,nlocal,wlocal,x,Qi(:,:,i))
         ELSE
           ! estimate Q from the grid
-          CALL getweightedcov(D,ngrid,nlocal,wlocal,y,Qi(:,:,i))
+          CALL cov(D,period,ngrid,nlocal,wlocal,y,Qi(:,:,i))
         ENDIF
         
         ! estimate local dimensionality
@@ -568,18 +563,9 @@
         ! since log(x) for x <= 0 is nan
         WHERE( pk .ne. pk ) pk = 0.0d0
         Di(i) = EXP(-SUM(pk))
-  
-        ! apply oracle approximating shrinkage alogorithm on local Q
-        dummd2 = ( (1.0d0-2.0d0/DBLE(D)) * trmatrix(D,Qi(:,:,i)**2) & 
-                  + trmatrix(D,Qi(:,:,i))**2.0d0 ) &
-               / ( (nlocal + 1.0d0 - 2.0d0/DBLE(D)) &
-                  * trmatrix(D,Qi(:,:,i)**2) &
-                  - (trmatrix(D,Qi(:,:,i))**2.0d0) / DBLE(D) )
-      
-        dummd1 = min(1.0d0,dummd2)
         
-        ! regularized local covariance matrix for grid point 
-        Qi(:,:,i) = (1.0d0-dummd1) * Qi(:,:,i) + dummd1 * trmatrix(D,Qi(:,:,i))*IM / DBLE(D)
+        ! oracle shrinkage of covariance matrix
+        CALL oracle(D,nlocal,Q)  
         
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
@@ -623,10 +609,11 @@
         distmm(i,i)=0.0d0  
         ! estimate a new distance matrix based on bhattacharya distance
         DO j=1,i-1 
-          ! simply the squared euclidean norm
-          distmm(i,j) = DOT_PRODUCT(y(:,j)-y(:,i),y(:,j)-y(:,i))
-          ! matrix is symmetric
-          distmm(j,i) = distmm(i,j) 
+          ! upper triangular is mahalanobis distance using spherical covariance
+          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))/sigma2(i)
+          ! lower triangular is mahalanobis distance using true covariance
+          CALL pammrij(D,period,y(:,j),y(:,i),dij)
+          distmm(j,i) = DOT_PRODUCT(dij,MATMUL(dij,Qiinv(:,:,j)))
         ENDDO
       ENDDO
       
@@ -635,61 +622,41 @@
         " Computing kernel density on reference points"
       ! TODO: (1) if we have a mixture of non-periodic and periodic data one could split
       !       this procedure for each dimension...
-      !       (2) KDE for periodic data is not working
+      !       (2) using gaussians for periodic data 
+      !           a Gaussian distribution is approximately a van Mises distribution
+      !           if van Mises kernel is sufficiently small ...
       !       (3) These routines should be subfunctions
-      IF (periodic) THEN
-        !!! Kernel Density estimation for periodic data
-        prob = 0.0d0
-        DO i=1,ngrid
-          DO j=1,ngrid
-            ! renormalize the distance taking into accout the anisotropy of the multidimensional data 
-            IF (mdist(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>16.0d0) THEN
-              ! assume distribution in far away grid point is narrow
-              prob(i) = prob(i) + wi(j) & 
-                      * fmultiVM(D,Di(j),period,y(:,i),y(:,j),Hiinv(:,:,j),Hi(:,:,j))
-            ELSE
-              ! cycle just inside the polyhedra using the neighbour list
-              DO k=pnlist(j)+1,pnlist(j+1)
-                prob(i) = prob(i) + wj(nlist(k)) & 
-                        * fmultiVM(D,Di(j),period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j),Hi(:,:,j))
-              ENDDO
-            ENDIF
-          ENDDO
-        ENDDO
-        prob=prob/normwj
-      ELSE
-        ! non-periodic logarithmic kernel density estimate
-        ! using log-sum-exp formula (see numerical recipies)
-        prob = 0.0d0
-        DO i=1,ngrid
-          lnK = -1.0d100
-          DO j=1,ngrid
-            ! renormalize the distance taking into accout the anisotropy of the multidimensional data
-            IF (mdist(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
-              ! assume distribution in far away grid point is narrow
-              ! and store sum of all contributions in grid point
+      ! logarithmic kernel density estimate
+      ! using log-sum-exp formula (see numerical recipies)
+      prob = 0.0d0
+      DO i=1,ngrid
+        lnK = -1.0d100
+        DO j=1,ngrid
+          ! renormalize the distance taking into accout the anisotropy of the multidimensional data
+          IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
+            ! assume distribution in far away grid point is narrow
+            ! and store sum of all contributions in grid point
+            ! exponent of the gaussian        
+            dummd1 = DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hiinv(:,:,j)))
+            ! natural logarithm of kernel
+            lnK(idxgrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wi(j))    
+          ELSE
+            ! cycle just inside the polyhedra using the neighbour list
+            DO k=pnlist(j)+1,pnlist(j+1)
+              ! this is the self correction
+              IF(nlist(k).EQ.idxgrid(i)) CYCLE 
               ! exponent of the gaussian        
-              dummd1 = DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hiinv(:,:,j)))
-              ! natural logarithm of kernel
-              lnK(idxgrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wi(j))    
-            ELSE
-              ! cycle just inside the polyhedra using the neighbour list
-              DO k=pnlist(j)+1,pnlist(j+1)
-                ! this is the self correction
-                IF(nlist(k).EQ.idxgrid(i)) CYCLE 
-                ! exponent of the gaussian        
-                dummd1 = DOT_PRODUCT(y(:,i)-x(:,nlist(k)),MATMUL(y(:,i)-x(:,nlist(k)),Hiinv(:,:,j)))
-                ! weighted natural logarithm of kernel
-                lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(nlist(k)))    
-              ENDDO 
-            ENDIF
-          ENDDO
-          ! find max value on logarithmic kernel
-          dummd2 = MAXVAL(lnK)
-          prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
+              dummd1 = DOT_PRODUCT(y(:,i)-x(:,nlist(k)),MATMUL(y(:,i)-x(:,nlist(k)),Hiinv(:,:,j)))
+              ! weighted natural logarithm of kernel
+              lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(nlist(k)))    
+            ENDDO 
+          ENDIF
         ENDDO
-        prob=prob-LOG(normwj)
-      ENDIF
+        ! find max value on logarithmic kernel
+        dummd2 = MAXVAL(lnK)
+        prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
+      ENDDO
+      prob=prob-LOG(normwj)
       
       OPEN(UNIT=12,FILE=TRIM(outputfile)//".probstmp",STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
@@ -706,6 +673,7 @@
       !!! computing kernel density estimation error
       ! if set use bootstrapping to estimate the error of our KDE
       IF(nbootstrap > 0) THEN
+        STOP "*** not implemented yet *** (consistency check with log-sum-exp is still missing)"
         probboot = 0.0d0
         DO nn=1,nbootstrap
           IF(verbose) WRITE(*,*) &
@@ -723,7 +691,7 @@
               ! container for kernel estimate     
               ptmp=0.0d0
               ! do not compute KDEs for points that belong to far away Voronoi
-              IF (mdist(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
+              IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
                 ! assume distribution in far away grid point is narrow 
                 ptmp = fmultikernel(D,y(:,i),y(:,j),Hiinv(:,:,j),normkernel(j)) &
                           * nbssample                        
@@ -759,15 +727,10 @@
         ENDDO
       ENDIF
 
-      IF(verbose) WRITE(*,*) &
-        " Quick-Shift : localization based"  
+      IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       
       maxrer=MAXVAL(prelerr)
 1111  idxroot=0
-      ! Start quick shift
-      ! lambda is based on localization
-      ! TODO: Use mdist distance in QS
-      IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
@@ -776,17 +739,15 @@
          qspath(1)=i
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-         
-            ! We use an adpative scheme for the qslambda
-            ! I renormalize all the rerr and I use that to amplify the qs lambda locally
-
-!            idxroot(qspath(counter))= &
-!                qs_next(ngrid,qspath(counter), & 
-!                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
-            idxroot(qspath(counter))= &
-                qs_next(D,ngrid,qspath(counter),lambda2, & 
-                     sigma2(qspath(counter)),prob,distmm,y,Qiinv)
-                     
+            ! find closest point higher in probability  
+            idxroot(qspath(counter)) = qs_next( &   
+                                         ngrid, &
+                                         qspath(counter), &
+                                         lambda2, & 
+                                         sigma2(qspath(counter)), &
+                                         prob, &
+                                         distmm)
+                    
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -959,7 +920,7 @@
             
             DO i=1,ngrid
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
-               ! TODO: has to be adapted for mdist distances ...
+               ! TODO: has to be adapted for mahalanobis distances ...
                IF(periodic)THEN
                   msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/16.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
@@ -991,23 +952,23 @@
          DO i=1,ngrid
             IF(idxroot(i).NE.qspath(k)) CYCLE
             !! TODO : compute the covariance from the initial samples
-            ! use the routine getweightedcov(D,nsamples,nlocal,wlocal,x,Qi)
+            ! use the routine covariance(D,nsamples,nlocal,wlocal,x,Qi)
             tmppks=tmppks+prob(i)
-            xij=0.0d0
+            dij=0.0d0
             IF(periodic)THEN
-               CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,xij)
+               CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,dij)
             ELSE
-               CALL pammrij(D,period,y(:,i),clusters(k)%mean,xij)
+               CALL pammrij(D,period,y(:,i),clusters(k)%mean,dij)
             ENDIF
             
             DO ii=1,D
                DO jj=1,D
                   IF(periodic)THEN
                      vmclusters(k)%cov(ii,jj)= vmclusters(k)%cov(ii,jj)+prob(i)* &
-                                               xij(ii)*xij(jj)               
+                                               dij(ii)*dij(jj)               
                   ELSE
                      clusters(k)%cov(ii,jj)=clusters(k)%cov(ii,jj)+prob(i)* &
-                                               xij(ii)*xij(jj)
+                                               dij(ii)*dij(jj)
                   ENDIF
                ENDDO
             ENDDO
@@ -1055,8 +1016,8 @@
       DEALLOCATE(pnlist,nlist,iminij,bigp)
       DEALLOCATE(y,nj,prob,lnK,sigma2,rgrid,wi)
       DEALLOCATE(diff,msmu,tmpmsmu)
-      DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel,IM)
-      DEALLOCATE(xij,wQ,pk,tmps2)
+      DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
+      DEALLOCATE(dij,wQ,pk,tmps2)
       DEALLOCATE(xtmp,xtmpw,wlocal,ineigh)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
@@ -1153,7 +1114,7 @@
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                  y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,IM,xij,pk,wQ, &
+                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
@@ -1162,8 +1123,8 @@
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,lnK,msmu,tmpmsmu,pk,bigp,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wQ
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,rgrid,tmps2,Di
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,IM,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,dij,sigma2,rgrid,tmps2,Di
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv,Qiinv
          
@@ -1196,8 +1157,7 @@
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
          IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
          IF (ALLOCATED(Qiinv))      DEALLOCATE(Qiinv)
-         IF (ALLOCATED(IM))         DEALLOCATE(IM)
-         IF (ALLOCATED(xij))        DEALLOCATE(xij)
+         IF (ALLOCATED(dij))        DEALLOCATE(dij)
          IF (ALLOCATED(pk))         DEALLOCATE(pk)
          IF (ALLOCATED(wQ))         DEALLOCATE(wQ)
          IF (ALLOCATED(xtmp))       DEALLOCATE(xtmp)
@@ -1221,8 +1181,8 @@
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
-         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid),IM(D,D))
-         ALLOCATE(xij(D),pk(D),Di(ngrid))
+         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid))
+         ALLOCATE(dij(D),pk(D),Di(ngrid))
          ALLOCATE(wQ(nsamples),idxgrid(ngrid),tmps2(ngrid))
          IF(accurate)THEN 
             ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wlocal(nsamples))
@@ -1235,7 +1195,7 @@
       SUBROUTINE allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
                                  nj,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm, diff,msmu,tmpmsmu,normkernel, &
-                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,IM,xij,pk,wQ, &
+                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
                                  xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          LOGICAL, INTENT(IN) :: accurate
@@ -1243,8 +1203,8 @@
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: msmu,tmpmsmu,pk,bigp,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: normkernel,wlocal,wQ,wj
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,xij,sigma2,tmps2,Di
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,IM,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,dij,sigma2,tmps2,Di
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv,Qiinv
          
@@ -1272,8 +1232,7 @@
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
          IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
          IF (ALLOCATED(Qiinv))      DEALLOCATE(Qiinv)
-         IF (ALLOCATED(IM))         DEALLOCATE(IM)
-         IF (ALLOCATED(xij))        DEALLOCATE(xij)
+         IF (ALLOCATED(dij))        DEALLOCATE(dij)
          IF (ALLOCATED(pk))         DEALLOCATE(pk)
          IF (ALLOCATED(wQ))         DEALLOCATE(wQ)
          IF (ALLOCATED(xtmp))       DEALLOCATE(xtmp)
@@ -1297,8 +1256,8 @@
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
          ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
-         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid),IM(D,D))
-         ALLOCATE(xij(D),pk(D),tmps2(ngrid),Di(ngrid),logdetHi(ngrid))
+         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid))
+         ALLOCATE(dij(D),pk(D),tmps2(ngrid),Di(ngrid),logdetHi(ngrid))
          ALLOCATE(wQ(nsamples),wj(nsamples),idxgrid(ngrid))
          IF(accurate)THEN 
             ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wlocal(nsamples))
@@ -1318,25 +1277,38 @@
 
 
 !      END SUBROUTINE distmat
-      
-      SUBROUTINE getlocalweighted(D,nps,prefac,vp,weights,pt,wlocal,nloc)
-         INTEGER, INTENT(IN) :: D,nps
-         DOUBLE PRECISION, INTENT(IN) :: weights(nps),prefac
-         DOUBLE PRECISION, INTENT(IN) :: vp(D,nps),pt(D)
-         DOUBLE PRECISION, INTENT(OUT) :: wlocal(nps),nloc
+
+      SUBROUTINE localization(D,period,N,s2,x,w,y,wl,num)
+         INTEGER, INTENT(IN) :: D
+         INTEGER, INTENT(IN) :: N
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: s2
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         DOUBLE PRECISION, INTENT(IN) :: y(D)
+         DOUBLE PRECISION, INTENT(IN) :: w(N)
+         DOUBLE PRECISION, INTENT(OUT) :: wl(N)
+         DOUBLE PRECISION, INTENT(OUT) :: num
          
          INTEGER ii
-         DOUBLE PRECISION tmpx(D,nps)
+         DOUBLE PRECISION xy(D,N)
          
          DO ii=1,D
-           tmpx(ii,:) = vp(ii,:)-pt(ii)
+           xy(ii,:) = x(ii,:)-y(ii)
+           IF (period(ii) > 0.0d0) THEN
+             ! scaled lenght
+             xy(ii,:) = xy(ii,:)/period(ii)
+             ! Finds the smallest separation between the images of the vector elements
+             xy(ii,:) = xy(ii,:) - DNINT(xy(ii,:)) ! Minimum Image Convention
+             ! Rescale back the length
+             xy(ii,:) = xy(ii,:)*period(ii)
+           ENDIF  
          ENDDO
          ! estimate weights for localization as product from 
          ! spherical gaussian weights and weights in voronoi
-         wlocal = EXP(prefac*SUM(tmpx*tmpx,1)) * weights
+         wl = EXP(-0.5d0/s2*SUM(xy*xy,1))*w
          ! estimate local number of sample points
-         nloc = SUM(wlocal)
-      END SUBROUTINE getlocalweighted
+         num = SUM(wl)
+      END SUBROUTINE localization
       
       INTEGER FUNCTION  findMinimum(x, startidx, endidx )
          INTEGER, INTENT(IN) :: startidx, endidx
@@ -1407,24 +1379,55 @@
          END DO
       END SUBROUTINE argsort
 
-      SUBROUTINE getweightedcov(D,nsamples,normweights,weights,samples,covm)
+      SUBROUTINE cov(D,period,N,wnorm,w,x,Q)
          INTEGER, INTENT(IN) :: D
-         INTEGER, INTENT(IN) :: nsamples
-         DOUBLE PRECISION, INTENT(IN) :: normweights
-         DOUBLE PRECISION, INTENT(IN) :: weights(nsamples)
-         DOUBLE PRECISION, INTENT(IN) :: samples(D,nsamples)
-         DOUBLE PRECISION, INTENT(OUT) :: covm(D,D)
+         INTEGER, INTENT(IN) :: N
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: wnorm
+         DOUBLE PRECISION, INTENT(IN) :: w(N)
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
          
-         DOUBLE PRECISION samplestmp(D,nsamples),wstmp(D,nsamples)
+         DOUBLE PRECISION xm(D)         ! mean of each dimension
+         DOUBLE PRECISION xxm(D,N)      ! difference of x and xm
+         DOUBLE PRECISION xxmw(D,N)     ! weighted difference of x and xm
+         
+!         DOUBLE PRECISION sumcos,sumsin
+         
          INTEGER ii
          
          DO ii=1,D
-           samplestmp(ii,:) = samples(ii,:) - SUM(samples(ii,:)*weights)/normweights
-           wstmp(ii,:) = samplestmp(ii,:) * weights/normweights
+           ! find the mean for periodic or non periodic data
+           
+!           IF (period(ii) > 0.0d0) THEN
+!             sumsin = SUM(SIN(x(ii,:)))/nsamples
+!             sumcos = SUM(COS(x(ii,:)))/nsamples
+!             xm(ii) = ATAN(sumsin/sumcos)
+!             IF (sumcos<0.0d0) THEN
+!               xm(ii) = xm(ii) + twopi/2.0d0
+!             ELSEIF (sumsin<0.0d0 .AND. sumcos>0.0d0) THEN
+!               xm(ii) = xm(ii) + twopi        
+!             ENDIF
+!           ELSE
+!             xm(ii) = SUM(x(ii,:)*w)/wnorm
+!           ENDIF
+  
+           xm(ii) = SUM(x(ii,:)*w)/wnorm
+  
+           xxm(ii,:) = x(ii,:) - xm(ii)
+           IF (period(ii) > 0.0d0) THEN
+             ! scaled lenght
+             xxm(ii,:) = xxm(ii,:)/period(ii)
+             ! Finds the smallest separation between the images of the vector elements
+             xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)) ! Minimum Image Convention
+             ! Rescale back the length
+             xxm(ii,:) = xxm(ii,:)*period(ii)
+           ENDIF  
+           xxmw(ii,:) = xxm(ii,:) * w/wnorm
          ENDDO
-         CALL DGEMM("N", "T", D, D, nsamples, 1.0d0, samplestmp, D, wstmp, D, 0.0d0, covm, D)
-         covm = covm / (1.0d0-SUM((weights/normweights)**2.0d0))   
-      END SUBROUTINE getweightedcov
+         CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
+         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))   
+      END SUBROUTINE cov
       
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
@@ -1876,62 +1879,44 @@
          ENDIF
       END FUNCTION
       
-      INTEGER FUNCTION qs_next(D,ngrid,idx,scl,lambda2,probnmm,distmm,y,Qiinv)
+      INTEGER FUNCTION qs_next(N,i,cut,l2,prob,M)
          ! Return the index of the closest point higher in P
          ! 
          ! Args:
-         !    ngrid: number of grid points
-         !    idx: current point
-         !    lambda: cut-off in the jump
-         !    probnmm: density estimations
-         !    distmm: distances matrix
+         !    N:     number of grid points
+         !    i:     index of current point
+         !    cut:   spherical cut-off in the jump
+         !    prob:  densities on grid
+         !    M:     distances matrix
+         !           upper triangular is mahalanobis distance using spherical covariance
+         !           lower triangular is mahalanobis distance using local covariance
 
-         INTEGER, INTENT(IN) :: D
-         INTEGER, INTENT(IN) :: ngrid
-         INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda2, scl
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
-         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
-         DOUBLE PRECISION, DIMENSION(D,D,ngrid), INTENT(IN) :: Qiinv
+         INTEGER, INTENT(IN) :: N
+         INTEGER, INTENT(IN) :: i
+         DOUBLE PRECISION, INTENT(IN) :: l2, cut
+         DOUBLE PRECISION, DIMENSION(N), INTENT(IN) :: prob
+         DOUBLE PRECISION, DIMENSION(N,N), INTENT(IN) :: M
          
          INTEGER j
-         DOUBLE PRECISION dmin, dd, Dm, dtmp
-         DOUBLE PRECISION, DIMENSION(D) :: t
-         DOUBLE PRECISION, DIMENSION(D,D) :: sphere
-
-         dmin = 1.0d100
+         DOUBLE PRECISION dmin
+         DOUBLE PRECISION linv2
          
-         qs_next = idx
-         DO j=1,ngrid
-            IF ( probnmm(j).GT.probnmm(idx) ) THEN
-!               ! find point on hypothetical spherical QS cutoff
-!               t = (y(:,j)-y(:,idx))/DSQRT(DOT_PRODUCT(y(:,j)-y(:,idx),y(:,j)-y(:,idx)))*lambda2
-!               Dm = DOT_PRODUCT(t,MATMUL(t,Qiinv(:,:,idx)))
-!               WRITE(*,*) "cutoff:                ", lambda2
-!               WRITE(*,*) "myself:                ", y(:,idx)
-!               WRITE(*,*) "target:                ", y(:,j)
-!               WRITE(*,*) "point on QS sphere :   ", t
-!               WRITE(*,*) "inv covariance matrix: ", Qiinv(:,:,idx)
-!               ! use current mdist distance of point looking to find a neighbor
-!               dtmp = DSQRT(DOT_PRODUCT(t,t))/Dm*lambda2
-!               dd = distmm(idx,j)
-!               IF (  (dd.LT.dmin) .AND. (dd.LT.dtmp) ) THEN
-!                 dmin = dd
-!                 qs_next = j
-!               ENDIF
-               sphere = IM/lambda2
-               dd = DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),sphere))
-               IF (dd.LT.scl) THEN
-                 dtmp=DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),Qiinv(:,:,j)))
-                 IF (dtmp.LT.dmin) THEN
-                   dmin = dtmp 
+         ! set dmin to highest possible 64-bit double
+         dmin = 1.0d308
+         ! inverse of the spherical cutoff
+         linv2 = 1.0d0/l2
+
+         qs_next = i
+         DO j=1,N
+            IF ( prob(j).GT.prob(i) ) THEN
+               IF (M(i,j).LT.cut) THEN
+                 IF (M(j,i).LT.dmin) THEN
+                   dmin = M(j,i) 
                    qs_next = j
                  ENDIF 
                ENDIF
             ENDIF
          ENDDO
-         WRITE(*,*) "QS: ",idx,qs_next,dmin
       END FUNCTION qs_next
       
       DOUBLE PRECISION FUNCTION fmultiVM(D,dlocal,period,x,y,icov,cov)
