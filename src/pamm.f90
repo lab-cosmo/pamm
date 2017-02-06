@@ -602,21 +602,16 @@
       
       IF(verbose) WRITE(*,*) &
         " Computing similarity matrix"
+      distmm=0.0d0  
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
-        ! diagonal elements must be zero
-        distmm(i,i)=0.0d0  
-        ! estimate a new distance matrix based on bhattacharya distance
-        DO j=1,i-1 
-          ! upper triangular is mahalanobis distance using spherical covariance
-!          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))/sigma2(i)
-          ! lower triangular is mahalanobis distance using true covariance
-!          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,i))
-!          distmm(j,i) = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-
-          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
-          distmm(j,i) = distmm(i,j)
+        DO j=1,ngrid
+          ! mahalanobis distance using true covariance
+          ! the row index is the reference, since all the Mahalanobis distances
+          ! in the same row are computed using the covariance matrix from
+          ! from the point with that specific row index
+          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv(:,:,i))
         ENDDO
       ENDDO
       
@@ -742,13 +737,16 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             ! find closest point higher in probability  
-            idxroot(qspath(counter)) = qs_next( &   
+            idxroot(qspath(counter)) = qs_next( D, &
+                                         period, &   
                                          ngrid, &
                                          qspath(counter), &
-                                         lambda2*sigma2(qspath(counter)), &
+                                         sigma2(qspath(counter)), &
                                          prob, &
-                                         distmm)
-                    
+                                         distmm, &
+                                         y, &
+                                         lambda2)
+                                         
 !            idxroot(qspath(counter)) = qs_next( &   
 !                                         ngrid, &
 !                                         qspath(counter), &
@@ -1886,55 +1884,100 @@
             linknoerr = mxab/min(mxa,mxb) 
          ENDIF
       END FUNCTION
-      
-      INTEGER FUNCTION qs_next(N,i,cutoff,prob,M)
+
+
+      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda2,probnmm,distmm,y,scl)
          ! Return the index of the closest point higher in P
          ! 
          ! Args:
-         !    N:     number of grid points
-         !    i:     index of current point
-         !    cut:   spherical cut-off in the jump
-         !    prob:  densities on grid
-         !    M:     distances matrix
-         !           upper triangular is mahalanobis distance using spherical covariance
-         !           lower triangular is mahalanobis distance using local covariance
+         !    ngrid: number of grid points
+         !    idx: current point
+         !    lambda: cut-off in the jump
+         !    probnmm: density estimations
+         !    distmm: distances matrix
 
-         INTEGER, INTENT(IN) :: N
-         INTEGER, INTENT(IN) :: i
-         DOUBLE PRECISION, INTENT(IN) :: cutoff
-         DOUBLE PRECISION, DIMENSION(N), INTENT(IN) :: prob
-         DOUBLE PRECISION, DIMENSION(N,N), INTENT(IN) :: M
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: period 
+         INTEGER, INTENT(IN) :: ngrid
+         INTEGER, INTENT(IN) :: idx
+         DOUBLE PRECISION, INTENT(IN) :: lambda2, scl
+         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
+         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
+         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
          
          INTEGER j
-         DOUBLE PRECISION dmin
-         
-         ! set dmin to highest possible 64-bit double
-         dmin = 1.0d308
-         ! inverse of the spherical cutoff
+         DOUBLE PRECISION dmin, dd, Dm, dtmp
+         DOUBLE PRECISION, DIMENSION(D) :: t
+         DOUBLE PRECISION, DIMENSION(D,D) :: sphere
 
-         qs_next = i
+         dmin = 1.0d100
+         
+         qs_next = idx
+         DO j=1,ngrid
+            IF ( probnmm(j).GT.probnmm(idx) ) THEN
+               IF (pammr2(D,period,y(:,j),y(:,idx))/lambda2.LT.scl) THEN
+                 IF (distmm(j,idx).LT.dmin) THEN
+                   dmin = dtmp 
+                   qs_next = j
+                 ENDIF 
+               ENDIF
+            ENDIF
+         ENDDO
+      END FUNCTION qs_next
+      
+!      INTEGER FUNCTION qs_next(D,period,N,i,cutoff,prob,M,y,multi)
+!         ! Return the index of the closest point higher in P
+!         ! 
+!         ! Args:
+!         !    N:     number of grid points
+!         !    i:     index of current point
+!         !    cut:   spherical cut-off in the jump
+!         !    prob:  densities on grid
+!         !    M:     distances matrix
+!         !           upper triangular is mahalanobis distance using spherical covariance
+!         !           lower triangular is mahalanobis distance using local covariance
+
+!         INTEGER, INTENT(IN) :: D
+!         DOUBLE PRECISION, INTENT(IN) :: period(D)
+!         INTEGER, INTENT(IN) :: N
+!         INTEGER, INTENT(IN) :: i
+!         DOUBLE PRECISION, INTENT(IN) :: cutoff
+!         DOUBLE PRECISION, DIMENSION(N), INTENT(IN) :: prob
+!         DOUBLE PRECISION, DIMENSION(N,N), INTENT(IN) :: M
+!         DOUBLE PRECISION, DIMENSION(D,N), INTENT(IN) :: y
+!         DOUBLE PRECISION, INTENT(IN) :: multi
+!         
+!         INTEGER j
+!         DOUBLE PRECISION dmin
+!         
+!         ! set dmin to highest possible 64-bit double
+!         dmin = 1.0d308
+!         ! inverse of the spherical cutoff
+
+!         qs_next = i
 !         DO j=1,N
 !            IF ( prob(j).GT.prob(i) ) THEN
-!               IF (M(j,i).LT.cutoff) THEN
+!               IF ((pammr2(D,period,y(i,:),y(j,:))/cutoff).LT.multi) THEN
 !                 IF (M(j,i).LT.dmin) THEN
+!                   WRITE(*,*) "QS: ", i,j, pammr2(D,period,y(i,:),y(j,:))/cutoff,M(j,i)
 !                   dmin = M(j,i) 
 !                   qs_next = j
 !                 ENDIF 
 !               ENDIF
 !            ENDIF
 !         ENDDO
-         
-         qs_next = i
-         DO j=1,N
-            IF ( prob(j).GT.prob(i) ) THEN
-               IF ( (M(j,i).LT.dmin) .AND. (M(j,i).LT.cutoff) ) THEN
-                  dmin = M(j,i) 
-                  qs_next = j
-               ENDIF
-            ENDIF
-         ENDDO
-         
-      END FUNCTION qs_next
+!         
+!!         qs_next = i
+!!         DO j=1,N
+!!            IF ( prob(j).GT.prob(i) ) THEN
+!!               IF ( (M(j,i).LT.dmin) .AND. (M(j,i).LT.cutoff) ) THEN
+!!                  dmin = M(j,i) 
+!!                  qs_next = j
+!!               ENDIF
+!!            ENDIF
+!!         ENDDO
+!         
+!      END FUNCTION qs_next
       
       DOUBLE PRECISION FUNCTION fmultiVM(D,dlocal,period,x,y,icov,cov)
          ! Return the multivariate gaussian density
