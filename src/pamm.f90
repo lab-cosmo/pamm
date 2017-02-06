@@ -616,17 +616,13 @@
       
       IF(verbose) WRITE(*,*) &
         " Computing similarity matrix"
+      distmm=0.0d0
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
-        ! diagonal elements must be zero
-        distmm(i,i)=0.0d0  
-        ! estimate a new distance matrix based on bhattacharya distance
-        DO j=1,i-1 
+        DO j=1,ngrid
           ! simply the squared euclidean norm
-          distmm(i,j) = DOT_PRODUCT(y(:,j)-y(:,i),y(:,j)-y(:,i))
-          ! matrix is symmetric
-          distmm(j,i) = distmm(i,j) 
+          distmm(i,j) = mdist(D,period,y(:,i),y(:,j),Qiinv(:,:,i))
         ENDDO
       ENDDO
       
@@ -784,7 +780,7 @@
 !                qs_next(ngrid,qspath(counter), & 
 !                   (lambda2*(1.0d0+prelerr(i)/maxrer)),prob,distmm)
             idxroot(qspath(counter))= &
-                qs_next(D,ngrid,qspath(counter),lambda2, & 
+                qs_next(D,period,ngrid,qspath(counter),lambda2, & 
                      sigma2(qspath(counter)),prob,distmm,y,Qiinv)
                      
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
@@ -1876,7 +1872,7 @@
          ENDIF
       END FUNCTION
       
-      INTEGER FUNCTION qs_next(D,ngrid,idx,scl,lambda2,probnmm,distmm,y,Qiinv)
+      INTEGER FUNCTION qs_next(D,period,ngrid,idx,scl,lambda2,probnmm,distmm,y,Qiinv)
          ! Return the index of the closest point higher in P
          ! 
          ! Args:
@@ -1887,6 +1883,7 @@
          !    distmm: distances matrix
 
          INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: period 
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
          DOUBLE PRECISION, INTENT(IN) :: lambda2, scl
@@ -1905,33 +1902,14 @@
          qs_next = idx
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
-!               ! find point on hypothetical spherical QS cutoff
-!               t = (y(:,j)-y(:,idx))/DSQRT(DOT_PRODUCT(y(:,j)-y(:,idx),y(:,j)-y(:,idx)))*lambda2
-!               Dm = DOT_PRODUCT(t,MATMUL(t,Qiinv(:,:,idx)))
-!               WRITE(*,*) "cutoff:                ", lambda2
-!               WRITE(*,*) "myself:                ", y(:,idx)
-!               WRITE(*,*) "target:                ", y(:,j)
-!               WRITE(*,*) "point on QS sphere :   ", t
-!               WRITE(*,*) "inv covariance matrix: ", Qiinv(:,:,idx)
-!               ! use current mdist distance of point looking to find a neighbor
-!               dtmp = DSQRT(DOT_PRODUCT(t,t))/Dm*lambda2
-!               dd = distmm(idx,j)
-!               IF (  (dd.LT.dmin) .AND. (dd.LT.dtmp) ) THEN
-!                 dmin = dd
-!                 qs_next = j
-!               ENDIF
-               sphere = IM/lambda2
-               dd = DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),sphere))
-               IF (dd.LT.scl) THEN
-                 dtmp=DOT_PRODUCT(y(:,j)-y(:,idx),MATMUL(y(:,j)-y(:,idx),Qiinv(:,:,j)))
-                 IF (dtmp.LT.dmin) THEN
+               IF (pammr2(D,period,y(:,j),y(:,idx))/lambda2.LT.scl) THEN
+                 IF (distmm(j,idx).LT.dmin) THEN
                    dmin = dtmp 
                    qs_next = j
                  ENDIF 
                ENDIF
             ENDIF
          ENDDO
-         WRITE(*,*) "QS: ",idx,qs_next,dmin
       END FUNCTION qs_next
       
       DOUBLE PRECISION FUNCTION fmultiVM(D,dlocal,period,x,y,icov,cov)
