@@ -369,7 +369,7 @@
          tmps2=0.0d0
          
          ! estimate Q from the grid
-         CALL cov(D,period,ngrid,normwj,wi,y,Q)
+         CALL covariance(D,period,ngrid,normwj,wi,y,Q)
          ! estimate localization from the global covariance
          ! using the Scott's Rule
          ! first we look for the highest value in the diagonal
@@ -473,10 +473,10 @@
       ! estimate global covariance matrix
       IF(accurate)THEN
         ! estimate Q from complete dataset
-        CALL cov(D,period,nsamples,normwj,wj,x,Q)
+        CALL covariance(D,period,nsamples,normwj,wj,x,Q)
       ELSE
         ! estimate Q from grid
-        CALL cov(D,period,ngrid,normwj,wi,y,Q)
+        CALL covariance(D,period,ngrid,normwj,wi,y,Q)
       ENDIF
       
       ! use biggest eigenvalue of Q as initial guess for bisectioning
@@ -547,10 +547,10 @@
         ! estimate covariance matrix locally
         IF(accurate)THEN          
           ! estimate Q from the complete dataset
-          CALL cov(D,period,nsamples,nlocal,wlocal,x,Qi(:,:,i))
+          CALL covariance(D,period,nsamples,nlocal,wlocal,x,Qi(:,:,i))
         ELSE
           ! estimate Q from the grid
-          CALL cov(D,period,ngrid,nlocal,wlocal,y,Qi(:,:,i))
+          CALL covariance(D,period,ngrid,nlocal,wlocal,y,Qi(:,:,i))
         ENDIF
         
         ! estimate local dimensionality
@@ -591,7 +591,7 @@
         
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
-
+        
         ! estimate the logarithmic normalization constants
         normkernel(i) = DBLE(D)*LOG(twopi) + logdet(D,Hi(:,:,i))
         
@@ -610,13 +610,15 @@
         ! estimate a new distance matrix based on bhattacharya distance
         DO j=1,i-1 
           ! upper triangular is mahalanobis distance using spherical covariance
-          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))/sigma2(i)
+!          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))/sigma2(i)
           ! lower triangular is mahalanobis distance using true covariance
-          CALL pammrij(D,period,y(:,j),y(:,i),dij)
-          distmm(j,i) = DOT_PRODUCT(dij,MATMUL(dij,Qiinv(:,:,j)))
+!          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,i))
+!          distmm(j,i) = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
+
+          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+          distmm(j,i) = distmm(i,j)
         ENDDO
       ENDDO
-      
       
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
@@ -637,17 +639,16 @@
           IF (dummd1.GT.36.0d0) THEN
             ! assume distribution in far away grid point is narrow
             ! and store sum of all contributions in grid point
-            ! exponent of the gaussian      
+            ! exponent of the gaussian        
             ! natural logarithm of kernel
             lnK(igrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wi(j))    
           ELSE
             ! cycle just inside the polyhedra using the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
-              ! self correction
+              ! this is the self correction
               IF(nlist(k).EQ.igrid(i)) CYCLE 
-              ! exponent of the gaussian       
-              CALL pammrij(D,period,x(:,nlist(k)),y(:,j),dij)  
-              dummd1 = DOT_PRODUCT(dij,MATMUL(dij,Hiinv(:,:,j)))
+              ! exponent of the gaussian    
+              dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
               ! weighted natural logarithm of kernel
               lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(nlist(k)))    
             ENDDO 
@@ -744,10 +745,16 @@
             idxroot(qspath(counter)) = qs_next( &   
                                          ngrid, &
                                          qspath(counter), &
-                                         lambda2, & 
-                                         sigma2(qspath(counter)), &
+                                         lambda2*sigma2(qspath(counter)), &
                                          prob, &
                                          distmm)
+                    
+!            idxroot(qspath(counter)) = qs_next( &   
+!                                         ngrid, &
+!                                         qspath(counter), &
+!                                         lambda2, &
+!                                         prob, &
+!                                         distmm)
                     
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1380,7 +1387,7 @@
          END DO
       END SUBROUTINE argsort
 
-      SUBROUTINE cov(D,period,N,wnorm,w,x,Q)
+      SUBROUTINE covariance(D,period,N,wnorm,w,x,Q)
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: N
          DOUBLE PRECISION, INTENT(IN) :: period(D)
@@ -1428,7 +1435,7 @@
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
          Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))   
-      END SUBROUTINE cov
+      END SUBROUTINE covariance
       
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
@@ -1880,7 +1887,7 @@
          ENDIF
       END FUNCTION
       
-      INTEGER FUNCTION qs_next(N,i,cut,l2,prob,M)
+      INTEGER FUNCTION qs_next(N,i,cutoff,prob,M)
          ! Return the index of the closest point higher in P
          ! 
          ! Args:
@@ -1894,30 +1901,39 @@
 
          INTEGER, INTENT(IN) :: N
          INTEGER, INTENT(IN) :: i
-         DOUBLE PRECISION, INTENT(IN) :: l2, cut
+         DOUBLE PRECISION, INTENT(IN) :: cutoff
          DOUBLE PRECISION, DIMENSION(N), INTENT(IN) :: prob
          DOUBLE PRECISION, DIMENSION(N,N), INTENT(IN) :: M
          
          INTEGER j
          DOUBLE PRECISION dmin
-         DOUBLE PRECISION linv2
          
          ! set dmin to highest possible 64-bit double
          dmin = 1.0d308
          ! inverse of the spherical cutoff
-         linv2 = 1.0d0/l2
 
+         qs_next = i
+!         DO j=1,N
+!            IF ( prob(j).GT.prob(i) ) THEN
+!               IF (M(j,i).LT.cutoff) THEN
+!                 IF (M(j,i).LT.dmin) THEN
+!                   dmin = M(j,i) 
+!                   qs_next = j
+!                 ENDIF 
+!               ENDIF
+!            ENDIF
+!         ENDDO
+         
          qs_next = i
          DO j=1,N
             IF ( prob(j).GT.prob(i) ) THEN
-               IF (M(i,j).LT.cut) THEN
-                 IF (M(j,i).LT.dmin) THEN
-                   dmin = M(j,i) 
-                   qs_next = j
-                 ENDIF 
+               IF ( (M(j,i).LT.dmin) .AND. (M(j,i).LT.cutoff) ) THEN
+                  dmin = M(j,i) 
+                  qs_next = j
                ENDIF
             ENDIF
          ENDDO
+         
       END FUNCTION qs_next
       
       DOUBLE PRECISION FUNCTION fmultiVM(D,dlocal,period,x,y,icov,cov)
