@@ -1906,18 +1906,17 @@
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
          
          INTEGER j
-         DOUBLE PRECISION dmin, dd, Dm, dtmp
-         DOUBLE PRECISION, DIMENSION(D) :: t
-         DOUBLE PRECISION, DIMENSION(D,D) :: sphere
-
+         DOUBLE PRECISION dmin,lambda2inv
+         
+         lambda2inv = 1.0d0/lambda2
          dmin = 1.0d100
          
          qs_next = idx
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
-               IF (pammr2(D,period,y(:,j),y(:,idx))/lambda2.LT.scl) THEN
+               IF (pammr2(D,period,y(:,j),y(:,idx))*lambda2inv.LT.scl) THEN
                  IF (distmm(j,idx).LT.dmin) THEN
-                   dmin = dtmp 
+                   dmin = distmm(j,idx) 
                    qs_next = j
                  ENDIF 
                ENDIF
