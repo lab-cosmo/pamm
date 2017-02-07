@@ -555,6 +555,9 @@
           ! estimate Q from the grid
           CALL covariance(D,period,ngrid,nlocal,wlocal,y,Qi(:,:,i))
         ENDIF
+
+        ! oracle shrinkage of covariance matrix
+        CALL oracle(D,nlocal,Qi(:,:,i))  
         
         ! estimate local dimensionality
         CALL eigval(Qi(:,:,i),D,pk) ! eigenvalues of the covariance matrix       
@@ -566,10 +569,7 @@
         ! since log(x) for x <= 0 is nan
         WHERE( pk .ne. pk ) pk = 0.0d0
         Di(i) = EXP(-SUM(pk))
-        
-        ! oracle shrinkage of covariance matrix
-        CALL oracle(D,nlocal,Q)  
-        
+
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
         
@@ -580,7 +580,7 @@
 !                  * nlocal**( -1.0d0 / (Di(i) + 4.0d0)) )**2.0d0 * Qi
         ! estimate bandwidth from normal reference rule
         Hi(:,:,i) = (4.0d0 / ( nlocal * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi(:,:,i)    
-        
+     
         IF(savecovs)THEN
           DO ii=1,D
             WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
@@ -600,6 +600,7 @@
         
         ! estimate logarithmic determinant of local Q's
         logdetHi(i) = logdet(D,Hi(:,:,i))
+        
       ENDDO
       IF(savecovs) CLOSE(UNIT=11) 
       
@@ -617,113 +618,55 @@
           distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv(:,:,i))
         ENDDO
       ENDDO
-
+      
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
       ! TODO: (1) if we have a mixture of non-periodic and periodic data one could split
       !       this procedure for each dimension...
-      !       (2) KDE for periodic data is not working
+      !       (2) using gaussians for periodic data 
+      !           a Gaussian distribution is approximately a van Mises distribution
+      !           if van Mises kernel is sufficiently small ...
       !       (3) These routines should be subfunctions
-      IF (periodic) THEN
-        !!! Kernel Density estimation for periodic data
-        prob = 0.0d0
-        DO i=1,ngrid
-          DO j=1,ngrid
-            ! renormalize the distance taking into accout the anisotropy of the multidimensional data 
-            IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))>16.0d0) THEN
-              ! assume distribution in far away grid point is narrow
-              prob(i) = prob(i) + wi(j) & 
-                      * fmultiVM(D,Di(j),period,y(:,i),y(:,j),Hiinv(:,:,j),Hi(:,:,j))
-            ELSE
-              ! cycle just inside the polyhedra using the neighbour list
-              DO k=pnlist(j)+1,pnlist(j+1)
-                prob(i) = prob(i) + wj(nlist(k)) & 
-                        * fmultiVM(D,Di(j),period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j),Hi(:,:,j))
-              ENDDO
-            ENDIF
-          ENDDO
+      ! logarithmic kernel density estimate
+      ! using log-sum-exp formula (see numerical recipies)
+      prob = 0.0d0
+      ! log the weights to increase speed
+      wi = LOG(wi)
+      wj = LOG(wj)
+      DO i=1,ngrid
+        IF(verbose .AND. (modulo(i,100).EQ.0)) & 
+          WRITE(*,*) i,"/",ngrid
+        ! setting lnK to the smallest possible number
+        lnK = -HUGE(0.0d0)
+        DO j=1,ngrid
+          ! renormalize the distance taking into accout the anisotropy of the multidimensional data
+          dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
+          IF (dummd1.GT.36.0d0) THEN
+            ! assume distribution in far away grid point is narrow
+            ! and store sum of all contributions in grid point
+            ! exponent of the gaussian        
+            ! natural logarithm of kernel
+            lnK(igrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + wi(j)
+          ELSE
+            ! cycle just inside the polyhedra using the neighbour list
+            DO k=pnlist(j)+1,pnlist(j+1)
+              ! this is the self correction
+              IF(nlist(k).EQ.igrid(i)) CYCLE 
+              ! exponent of the gaussian    
+              dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
+              ! weighted natural logarithm of kernel
+              lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
+            ENDDO 
+          ENDIF 
         ENDDO
-        prob=prob/normwj
-      ELSE
-        ! non-periodic logarithmic kernel density estimate
-        ! using log-sum-exp formula (see numerical recipies)
-        prob = 0.0d0
-        DO i=1,ngrid
-          lnK = -1.0d100
-          DO j=1,ngrid
-            ! renormalize the distance taking into accout the anisotropy of the multidimensional data
-            IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
-              ! assume distribution in far away grid point is narrow
-              ! and store sum of all contributions in grid point
-              ! exponent of the gaussian        
-              dummd1 = DOT_PRODUCT(y(:,i)-y(:,j),MATMUL(y(:,i)-y(:,j),Hiinv(:,:,j)))
-              ! natural logarithm of kernel
-              lnK(igrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wi(j))    
-            ELSE
-              ! cycle just inside the polyhedra using the neighbour list
-              DO k=pnlist(j)+1,pnlist(j+1)
-                ! this is the self correction
-                IF(nlist(k).EQ.igrid(i)) CYCLE 
-                ! exponent of the gaussian        
-                dummd1 = DOT_PRODUCT(y(:,i)-x(:,nlist(k)),MATMUL(y(:,i)-x(:,nlist(k)),Hiinv(:,:,j)))
-                ! weighted natural logarithm of kernel
-                lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(nlist(k)))    
-              ENDDO 
-            ENDIF
-          ENDDO
-          ! find max value on logarithmic kernel
-          dummd2 = MAXVAL(lnK)
-          prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
-        ENDDO
-        prob=prob-LOG(normwj)
-      ENDIF
-
-
-
-
-
-
-      
-!      IF(verbose) WRITE(*,*) &
-!        " Computing kernel density on reference points"
-!      ! TODO: (1) if we have a mixture of non-periodic and periodic data one could split
-!      !       this procedure for each dimension...
-!      !       (2) using gaussians for periodic data 
-!      !           a Gaussian distribution is approximately a van Mises distribution
-!      !           if van Mises kernel is sufficiently small ...
-!      !       (3) These routines should be subfunctions
-!      ! logarithmic kernel density estimate
-!      ! using log-sum-exp formula (see numerical recipies)
-!      prob = 0.0d0
-!      DO i=1,ngrid
-!        ! setting lnK to the smallest possible number
-!        lnK = -HUGE(0.0d0)
-!        DO j=1,ngrid
-!          ! renormalize the distance taking into accout the anisotropy of the multidimensional data
-!          dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-!          IF (dummd1.GT.36.0d0) THEN
-!            ! assume distribution in far away grid point is narrow
-!            ! and store sum of all contributions in grid point
-!            ! exponent of the gaussian        
-!            ! natural logarithm of kernel
-!            lnK(igrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wi(j))    
-!          ELSE
-!            ! cycle just inside the polyhedra using the neighbour list
-!            DO k=pnlist(j)+1,pnlist(j+1)
-!              ! this is the self correction
-!              IF(nlist(k).EQ.igrid(i)) CYCLE 
-!              ! exponent of the gaussian    
-!              dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
-!              ! weighted natural logarithm of kernel
-!              lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(nlist(k)))    
-!            ENDDO 
-!          ENDIF
-!        ENDDO
-!        ! find max value on logarithmic kernel
-!        dummd2 = MAXVAL(lnK)
-!        prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
-!      ENDDO
-!      prob=prob-LOG(normwj)  
+        ! find max value on logarithmic kernel
+        dummd2 = MAXVAL(wj*lnK)
+        prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
+      ENDDO
+      prob=prob-LOG(normwj)  
+      ! undo the log on the weights
+      wi = EXP(wi)
+      wj = EXP(wj)
       
       OPEN(UNIT=12,FILE=TRIM(outputfile)//".probstmp",STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
