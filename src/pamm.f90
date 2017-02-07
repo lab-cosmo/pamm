@@ -721,8 +721,9 @@
         ENDDO 
       ELSE
         DO i=1,ngrid  
-          prelerr(i)=DSQRT((((((twopi/2.0d0)**(-Di(i)/2.0d0))*(DSQRT(rgrid(i))**(-Di(i))) &
-                     *GAMMA(Di(i)/2.0d0))/prob(i))-1.0d0)/(normwj**2.0d0))
+          prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
+                                (twopi**(-Di(i)/2.0d0))/ &
+                                 prob(i) )-1.0d0)/normwj)
           ! I got here the relative error on Ni (point falling into the Voronoi i)
           ! that, propagating the error is equal to the relative error of prob(i).
           ! To get the absolute error we just need to do prelerr(i)*prob(i) 
