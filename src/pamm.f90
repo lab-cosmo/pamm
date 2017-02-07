@@ -496,7 +496,7 @@
         ! cannot go below number of points in current grid points
         nlim = max(ntarget, INT(wi(i))) 
         IF (ntarget.LT.wi(i)) WRITE(*,*) &
-          "*** WARNING *** target (",ntarget,") is smaller than points in voronoi(",INT(wi(i)),"), increase grid size"
+          "*** WARNING *** ntarget < nvoronoi, increase grid size! (", ntarget, "<", INT(wi(i)), ")"
         IF (wi(i).EQ.0.0d0) &
           STOP "*** ERROR *** voronoi has no points associated with"
             
@@ -547,9 +547,6 @@
           j = j+1  
         ENDDO 
 
-!        WRITE(*,*) "approached target: ", nlim, ntarget, nlocal
-        
-        
         ! estimate covariance matrix locally
         IF(accurate)THEN          
           ! estimate Q from the complete dataset
@@ -633,7 +630,8 @@
       ! using log-sum-exp formula (see numerical recipies)
       prob = 0.0d0
       DO i=1,ngrid
-        lnK = -1.0d100
+        ! setting lnK to the smallest possible number
+        lnK = -HUGE(0.0d0)
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
           dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
@@ -659,7 +657,7 @@
         dummd2 = MAXVAL(lnK)
         prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
       ENDDO
-      prob=prob-LOG(normwj)
+      prob=prob-LOG(normwj)  
       
       OPEN(UNIT=12,FILE=TRIM(outputfile)//".probstmp",STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
@@ -677,48 +675,58 @@
       ! if set use bootstrapping to estimate the error of our KDE
       IF(nbootstrap > 0) THEN
         STOP "*** not implemented yet *** (consistency check with log-sum-exp is still missing)"
-        probboot = 0.0d0
-        DO nn=1,nbootstrap
-          IF(verbose) WRITE(*,*) &
-                " Bootstrapping, run ", nn
-
-          ! rather than selecting nsel random points, we select a random 
-          ! number of points from each voronoi. this makes it possible 
-          ! to apply some simplifications and avoid computing distances 
-          ! from far-away voronoi
-          nbstot=0
-          DO j=1,ngrid
-            nbssample=random_binomial(nsamples, DBLE(nj(j))/DBLE(nsamples))
-            nbstot = nbstot+nbssample
-            DO i=1,ngrid     
-              ! container for kernel estimate     
-              ptmp=0.0d0
-              ! do not compute KDEs for points that belong to far away Voronoi
-              IF (mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j)).GT.36.0d0) THEN
-                ! assume distribution in far away grid point is narrow 
-                ptmp = fmultikernel(D,y(:,i),y(:,j),Hiinv(:,:,j),normkernel(j)) &
-                          * nbssample                        
-              ELSE
-                DO k=1,nbssample
-                  rndidx = int(nj(j)*random_uniform())+1
-                  rndidx = nlist(pnlist(j)+rndidx)
-                  ! self correction
-                  IF ( rndidx.EQ.igrid(i) ) CYCLE
-                  ptmp = ptmp + fmultikernel(D,y(:,i),x(:,rndidx), & 
-                                             Hiinv(:,:,j),normkernel(j))
-                ENDDO
-              ENDIF
-              probboot(i,nn) = probboot(i,nn) + ptmp
-            ENDDO
-          ENDDO
-          probboot(:,nn) = probboot(:,nn)/nbstot
-        ENDDO 
-        prelerr = 0.0d0
-        pabserr = 0.0d0
-        DO i=1,ngrid
-          pabserr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) )
-          prelerr(i) = pabserr(i) / prob(i)
-        ENDDO 
+!        probboot = 0.0d0
+!        DO nn=1,nbootstrap
+!          IF(verbose) WRITE(*,*) &
+!                " Bootstrapping, run ", nn
+!          ! rather than selecting nsel random points, we select a random 
+!          ! number of points from each voronoi. this makes it possible 
+!          ! to apply some simplifications and avoid computing distances 
+!          ! from far-away voronoi
+!          nbstot=0
+!          DO j=1,ngrid
+!            nbssample=random_binomial(nsamples, DBLE(nj(j))/DBLE(nsamples))
+!            nbstot = nbstot+nbssample
+!            DO i=1,ngrid     
+!              ! container for kernel estimate     
+!              ptmp=0.0d0
+!              ! renormalize the distance taking into accout the anisotropy of the multidimensional data
+!              dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
+!              IF (dummd1.GT.36.0d0) THEN
+!                ! assume distribution in far away grid point is narrow
+!                ! and store sum of all contributions in grid point
+!                ! exponent of the gaussian        
+!                ! natural logarithm of kernel
+!                lnK(igrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(nbssample)            
+!              ELSE
+!              ! cycle just inside the polyhedra using the neighbour list
+!                DO k=1,nbssample
+!                  rndidx = int(nj(j)*random_uniform())+1
+!                  rndidx = nlist(pnlist(j)+rndidx)
+!                  ! self correction
+!                  IF ( rndidx.EQ.igrid(i) ) CYCLE
+!                  ! exponent of the gaussian    
+!                  dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
+!                  ! weighted natural logarithm of kernel
+!                  lnK(rndidx) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(rndidx))    
+!                ENDDO 
+!              ENDIF
+!              ! find max value on logarithmic kernel
+!              dummd2 = MAXVAL(lnK)
+!              prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
+!              
+!              
+!              probboot(i,nn) = probboot(i,nn) + ptmp
+!            ENDDO
+!          ENDDO
+!          probboot(:,nn) = probboot(:,nn)/nbstot
+!        ENDDO 
+!        prelerr = 0.0d0
+!        pabserr = 0.0d0
+!        DO i=1,ngrid
+!          pabserr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) )
+!          prelerr(i) = pabserr(i) / prob(i)
+!        ENDDO 
       ELSE
         DO i=1,ngrid  
           prelerr(i)=DSQRT((((((twopi/2.0d0)**(-Di(i)/2.0d0))*(DSQRT(rgrid(i))**(-Di(i))) &
@@ -796,12 +804,13 @@
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
          !print out the squared absolute error
-         WRITE(11,"(A1,I4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
+         WRITE(11,"(A1,I4,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
                                               " " , dummyi1 ,   &
                                               " " , prob(i) ,   &
                                               " " , pabserr(i), &
                                               " " , prelerr(i), &
-                                              " ",  trmatrix(D,Hi(:,:,i))/DBLE(D) 
+                                              " " , sigma2(i),  &
+                                              " " , Di(i)
          ! accumulate the normalization factor for the pks
          normpks=normpks+prob(i)
       ENDDO
