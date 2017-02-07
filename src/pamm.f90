@@ -494,7 +494,11 @@
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
         ! cannot go below number of points in current grid points
-        nlim = max(ntarget, 2*int(wi(i))) 
+        nlim = max(ntarget, INT(wi(i))) 
+        IF (ntarget.LT.wi(i)) WRITE(*,*) &
+          "*** WARNING *** target (",ntarget,") is smaller than points in voronoi(",INT(wi(i)),"), increase grid size"
+        IF (wi(i).EQ.0.0d0) &
+          STOP "*** ERROR *** voronoi has no points associated with"
             
         ! initial estimate of nlocal using biggest eigenvalue of global Q
         IF (accurate) THEN          
@@ -518,7 +522,6 @@
           ENDDO
           
         ENDIF
-        
         ! fine tuning of localization approach optimal value using bisectioning
         j = 1
         DO WHILE(.TRUE.)  
@@ -542,8 +545,11 @@
           
           ! adjust scaling factor for new sigma
           j = j+1  
-        ENDDO
+        ENDDO 
 
+!        WRITE(*,*) "approached target: ", nlim, ntarget, nlocal
+        
+        
         ! estimate covariance matrix locally
         IF(accurate)THEN          
           ! estimate Q from the complete dataset
@@ -1910,7 +1916,7 @@
          
          lambda2inv = 1.0d0/lambda2
          dmin = 1.0d100
-         
+          
          qs_next = idx
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
