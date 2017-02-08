@@ -115,7 +115,7 @@
       
       ! heavy bandwidth matrix for kernel density estimation
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hiinv ! inversed bandwidth matrices
-    
+
       ! Array of Von Mises distributions
       TYPE(vm_type), ALLOCATABLE, DIMENSION(:) :: vmclusters
       ! Array of Gaussians containing the gaussians parameters
@@ -692,7 +692,7 @@
             idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
          ENDDO
       ENDDO
-      
+    
       IF(verbose) write(*,*) " Writing out"
       qspath=0
       qspath(1)=idxroot(1)
@@ -730,6 +730,11 @@
       ENDDO
       CLOSE(UNIT=11)
       
+      ! TO GET THE UNIQUE VALUES IN idxroot
+      ! call unique...
+      ! to count the number of occurences in an array 
+      ! WRITE(*,*) COUNT(idxroot.EQ.5)
+      ! 
       ! builds the cluster adjacency matrix
       IF(saveadj)THEN
          IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
@@ -1177,6 +1182,30 @@
          aa = bb
          bb = temp
       END SUBROUTINE swapi
+      
+      SUBROUTINE unique(ns,vin,vout)
+        INTEGER, INTENT(IN) :: ns
+        INTEGER, DIMENSION(:), INTENT(IN) :: vin
+        INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: vout
+        INTEGER :: kk,ii,jj,zz(ns)
+        kk = 1
+        zz(1) = vin(1)
+        outer: do ii=2,ns
+          do jj=1,k
+            if (zz(jj) == vin(ii)) then
+              ! Found a match so start looking again
+              cycle outer
+            end if
+          end do
+          ! No match found so add it to the output
+          kk = kk + 1
+          zz(kk) = vin(ii)
+        end do outer
+        
+        IF (ALLOCATED(vout)) DEALLOCATE(vout)
+        ALLOCATE(vout(kk))
+        vout(1:kk)=zz(1:kk)
+      END SUBROUTINE unique
       
       SUBROUTINE sort(x, nn)
          ! This subroutine receives an array x() and sorts it into ascending order.
