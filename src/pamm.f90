@@ -421,16 +421,10 @@
       ! estimate Q from grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
       
-      IF(fspread.GT.0) THEN
-        ! localization based on fraction of avg. variance
-        sigma2 = trmatrix(D,Q)/DBLE(D)*fspread
-      ELSE
-        ! localization based on ntarget 
-        !   use biggest eigenvalue of Q 
-        !   as initial guess for bisectioning
-        tune = maxeigval(Q,D)
-        sigma2 = tune
-      ENDIF
+      tune = maxeigval(Q,D)
+      sigma2 = tune
+      ! localization based on fraction of avg. variance
+      IF(fspread.GT.0) sigma2 = sigma2*fspread
       
       IF(verbose) WRITE(*,*) & 
         " Estimating localizations and bandwidths"
@@ -724,7 +718,7 @@
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
          !print out the squared absolute error
-         WRITE(11,"(A1,I4,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
+         WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
                                               " " , dummyi1 ,   &
                                               " " , prob(i) ,   &
                                               " " , pabserr(i), &
