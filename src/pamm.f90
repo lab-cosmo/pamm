@@ -161,7 +161,7 @@
             ccmd = 3
          ELSEIF (cmdbuffer == "-seed") THEN         ! seed for the random number genarator
             ccmd = 4
-         ELSEIF (cmdbuffer == "-qsscale") THEN      ! scale to differentiate clusters in quickshift
+         ELSEIF (cmdbuffer == "-qs") THEN           ! scale to differentiate cluster in quickshift
             ccmd = 5
          ELSEIF (cmdbuffer == "-nms") THEN          ! mean-shift steps
             ccmd = 6
