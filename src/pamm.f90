@@ -274,11 +274,10 @@
       ENDIF
       
       ! If not specified, set the qscut to be used in QS 
-      ! to four and set at the same time also the qscut square
       IF (qscut.LT.0) THEN
         qscut = 1.0d0
-        qscut2 = qscut * qscut
       ENDIF  
+      qscut2 = qscut * qscut
 
       ! POST-PROCESSING MODE
       ! This modality will run just specifying the -gf flag.
@@ -1718,6 +1717,7 @@
                ENDIF
             ENDIF
          ENDDO
+!         WRITE(*,*) idx,qs_next,cutoff
       END FUNCTION qs_next
       
 !      INTEGER FUNCTION qs_next(D,period,N,i,cutoff,prob,M,y,multi)
