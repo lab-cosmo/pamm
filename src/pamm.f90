@@ -81,7 +81,7 @@
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points 
       DOUBLE PRECISION fspread                                     ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
-      DOUBLE PRECISION lambda, lambda2                          ! cutoff for QS
+      DOUBLE PRECISION qscut, qscut2                          ! cutoff for QS
       DOUBLE PRECISION msw
       DOUBLE PRECISION alpha                                    ! cluster smearing
       DOUBLE PRECISION zeta                                     ! background for clustering
@@ -135,17 +135,17 @@
       ntarget = -1           ! number of sample points for localization
       seed = 12345           ! seed for the random number generator
       thrmerg = 0.8d0        ! merge different clusters
-      lambda = -1.0d0        ! quick shift cut-off
-      verbose = .false.      ! no verbosity
-      weighted = .false.     ! don't use the weights  
+      qscut = -1.0d0         ! quick shift cut-off
+      verbose = .FALSE.      ! no verbosity
+      weighted = .FALSE.     ! don't use the weights  
       nbootstrap = 0         ! do not use bootstrap
-      savevor  = .false.     ! don't print out the Voronoi
-      saveidxs = .false.     ! don't save the indexes of the grid points
-      saveadj = .false.      ! save adjacency
-      readgrid = .FALSE.    ! don't read the grid from the standard input
+      savevor  = .FALSE.     ! don't print out the Voronoi
+      saveidxs = .FALSE.     ! don't save the indexes of the grid points
+      saveadj = .FALSE.      ! save adjacency
+      readgrid = .FALSE.     ! don't read the grid from the standard input
             
       D=-1
-      periodic=.false.
+      periodic=.FALSE.
       CALL random_init(seed) ! initialize random number generator
       
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -180,19 +180,19 @@
          ELSEIF (cmdbuffer == "-z") THEN            ! add a background to the probability mixture
             ccmd = 13
          ELSEIF (cmdbuffer == "-saveidxs") THEN     ! save the indices of grid points
-            saveidxs= .true.
+            saveidxs= .TRUE.
          ELSEIF (cmdbuffer == "-readidxsgrid") THEN ! read the grid points from the standard input
-            readgrid= .true.
+            readgrid= .TRUE.
             ccmd = 14
          ELSEIF (cmdbuffer == "-savevoronois") THEN ! save the Voronoi associations
-            savevor= .true.
+            savevor= .TRUE.
          ELSEIF (cmdbuffer == "-adj") THEN          ! do cluster merging using adjacency criterion
-            saveadj= .true.
+            saveadj= .TRUE.
             ccmd = 15
          ELSEIF (cmdbuffer == "-w") THEN            ! use weights
-            weighted = .true.
+            weighted = .TRUE.
          ELSEIF (cmdbuffer == "-v") THEN            ! verbosity flag
-            verbose = .true.
+            verbose = .TRUE.
          ELSEIF (cmdbuffer == "-h") THEN            ! help flag
             CALL helpmessage
             CALL EXIT(-1)
@@ -212,8 +212,8 @@
             ELSEIF (ccmd == 4) THEN                 ! read the seed for the rng
                READ(cmdbuffer,*) seed
             ELSEIF (ccmd == 5) THEN                 ! read cutoff for quickshift
-               READ(cmdbuffer,*) lambda
-               IF (lambda<0) STOP &
+               READ(cmdbuffer,*) qscut
+               IF (qscut<0) STOP &
                  "The QS cutoff should be positive!"
             ELSEIF (ccmd == 6) THEN                 ! read the number of mean-shift refinement steps
                READ(cmdbuffer,*) nmsopt
@@ -273,11 +273,11 @@
          CALL EXIT(-1)
       ENDIF
       
-      ! If not specified, set the lambda to be used in QS 
-      ! to four and set at the same time also the lambda square
-      IF (lambda.LT.0) THEN
-        lambda = 1.0d0
-        lambda2 = lambda * lambda
+      ! If not specified, set the qscut to be used in QS 
+      ! to four and set at the same time also the qscut square
+      IF (qscut.LT.0) THEN
+        qscut = 1.0d0
+        qscut2 = qscut * qscut
       ENDIF  
 
       ! POST-PROCESSING MODE
@@ -651,7 +651,7 @@
                                          prob, &
                                          distmm, &
                                          y, &
-                                         lambda2)      
+                                         qscut2)      
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -827,10 +827,10 @@
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
                ! TODO: has to be adapted for mahalanobis distances ...
                IF(periodic)THEN
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(lambda2/16.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(qscut2/16.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(lambda2/16.0d0))
+                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(qscut2/16.0d0))
                   CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
                
@@ -894,7 +894,7 @@
          ! write the VM distributions
          ! write a 2-lines header containig a bit of information
          WRITE(comment,*) "# PAMMv2 clusters analysis. NSamples: ", nsamples, " NGrid: ", &
-                   ngrid, " QSLambda: ", lambda, ACHAR(10), & 
+                   ngrid, " QSLambda: ", qscut, ACHAR(10), & 
                    "# Dimensionality/NClusters//Pk/Mean/Covariance/Period"
 
          OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
@@ -905,7 +905,7 @@
          ! write the Gaussians       
          ! write a 2-lines header
          WRITE(comment,*) "# PAMMv2 clusters analysis. NSamples: ", nsamples, " NGrid: ", &
-                   ngrid, " QSLambda: ", lambda, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance"
+                   ngrid, " QSLambda: ", qscut, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance"
          
          OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
          
@@ -942,7 +942,7 @@
 
          WRITE(*,*) ""
          WRITE(*,*) " USAGE: pamm [-h] -d D [-p 6.28,6.28,...] [-w] [-o output] [-ngrid ngrid] "
-         WRITE(*,*) "             [-l lambda] [-kde err] [-z zeta_factor] [-a smoothing_factor] "
+         WRITE(*,*) "             [-l qscut] [-kde err] [-z zeta_factor] [-a smoothing_factor] "
          WRITE(*,*) "             [-seed seedrandom] [-rif -1,0,0,...] [-v] "
          WRITE(*,*) ""
          WRITE(*,*) " Applies the PAMM clustering to a high-dimensional data set. "
@@ -959,11 +959,11 @@
          WRITE(*,*) "   -o output         : Prefix for output files [out]. This will produce : "
          WRITE(*,*) "                         output.grid (clusterized grid points) "
          WRITE(*,*) "                         output.pamm (cluster parameters) "
-         WRITE(*,*) "   -qslambda lambda  : Quick shift cutoff [automatic] "
+         WRITE(*,*) "   -qscut cutoff     : Quick shift cutoff [automatic] "
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -bootstrap N      : Number of iteretions to do when using bootstrapping "
          WRITE(*,*) "                       to refine the KDE on the grid points"
-         WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width lambda/5 to "
+         WRITE(*,*) "   -nms nms          : Do nms mean-shift steps with a Gaussian width qscut/5 to "
          WRITE(*,*) "                       optimize cluster centers [0] "
          WRITE(*,*) "   -kderr target     : Target relative error in the KDE [0.1] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
@@ -1682,24 +1682,24 @@
       END FUNCTION
 
 
-      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda2,probnmm,distmm,y,scl)
+      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda2,probnmm,distmm,y,cutoff)
          ! Return the index of the closest point higher in P
          ! 
          ! Args:
          !    ngrid: number of grid points
          !    idx: current point
-         !    lambda: cut-off in the jump
+         !    qscut: cut-off in the jump
          !    probnmm: density estimations
          !    distmm: distances matrix
 
          INTEGER, INTENT(IN) :: D
-         DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: period 
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda2, scl
-         DOUBLE PRECISION, DIMENSION(ngrid), INTENT(IN) :: probnmm
-         DOUBLE PRECISION, DIMENSION(ngrid,ngrid), INTENT(IN) :: distmm
-         DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(IN) :: y
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: lambda2, cutoff
+         DOUBLE PRECISION, INTENT(IN) :: probnmm(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: y(D,ngrid)
          
          INTEGER j
          DOUBLE PRECISION dmin,lambda2inv
@@ -1710,7 +1710,7 @@
          qs_next = idx
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
-               IF (pammr2(D,period,y(:,j),y(:,idx))*lambda2inv.LT.scl) THEN
+               IF (pammr2(D,period,y(:,j),y(:,idx))*lambda2inv.LT.cutoff) THEN
                  IF (distmm(j,idx).LT.dmin) THEN
                    dmin = distmm(j,idx) 
                    qs_next = j
