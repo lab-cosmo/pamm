@@ -106,12 +106,15 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm   ! similarity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot ! bootstrap probabilities
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q        ! global covariance matrix
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Hinv     ! inverse of the bandwidth matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qi       ! local covariance matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qiinv    ! inversed local covariance matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Hi       ! bandwidth matrix
+
       ! cluster connectivity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
       
-      ! heavy matrices for bandwidth estimation
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Hi, Hiinv, Qiinv
+      ! heavy bandwidth matrix for kernel density estimation
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hiinv ! inversed bandwidth matrices
     
       ! Array of Von Mises distributions
       TYPE(vm_type), ALLOCATABLE, DIMENSION(:) :: vmclusters
@@ -365,7 +368,7 @@
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
                            y,nj,prob,probboot,idxroot,idcls,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                           wi,Q,Qi,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij, &
+                           wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,ineigh,rgrid,sigma2,tmps2,Di)
       
       ! Extract ngrid points on which the kernel density estimation is to be
@@ -481,43 +484,36 @@
         ENDIF
 
         ! estimate Q from the grid
-        CALL covariance(D,period,ngrid,nlocal,wlocal,y,Qi(:,:,i))
+        CALL covariance(D,period,ngrid,nlocal,wlocal,y,Qi)
 
         ! oracle shrinkage of covariance matrix
-        CALL oracle(D,nlocal,Qi(:,:,i))  
+        CALL oracle(D,nlocal,Qi)  
         
         ! estimate local dimensionality
-        Di(i) = effdim(D,Qi(:,:,i))
+        Di(i) = effdim(D,Qi)
 
         ! inverse local covariance matrix and store it
-        CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
+        CALL invmatrix(D,Qi,Qiinv)
         
         ! estimate bandwidth from normal reference rule
-        Hi(:,:,i) = (4.0d0 / ( nlocal * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi(:,:,i) 
+        Hi = (4.0d0 / ( nlocal * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi
         
         ! inverse of the bandwidth matrix
-        CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
+        CALL invmatrix(D,Hi,Hiinv(:,:,i))
         
         ! estimate the logarithmic normalization constants
-        normkernel(i) = DBLE(D)*DLOG(twopi) + logdet(D,Hi(:,:,i))
+        normkernel(i) = DBLE(D)*DLOG(twopi) + logdet(D,Hi)
         
         ! estimate logarithmic determinant of local Q's
-        logdetHi(i) = logdet(D,Hi(:,:,i))
-      ENDDO
-      
-      IF(verbose) WRITE(*,*) &
-        " Computing similarity matrix"
-      distmm=0.0d0  
-      DO i=1,ngrid
-        IF(verbose .AND. (modulo(i,100).EQ.0)) & 
-          WRITE(*,*) i,"/",ngrid
+        logdetHi(i) = logdet(D,Hi)
+        
         DO j=1,ngrid
           ! mahalanobis distance using true covariance
           ! the row index is the reference, since all the Mahalanobis distances
           ! in the same row are computed using the covariance matrix from
           ! from the point with that specific row index
-          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv(:,:,i))
-        ENDDO
+          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
+        ENDDO      
       ENDDO
       
       IF(verbose) WRITE(*,*) &
@@ -588,12 +584,16 @@
           ! from far-away voronoi
           nbstot = 0
           DO j=1,ngrid
+          
+            ! using the weights explicitly
             nbssample = random_binomial(nsamples, DBLE(nj(j))/DBLE(nsamples))
+            ! calculate a "scaled" weight for far away voronoi
+            dummd2 = DBLE(nbssample)/nj(j)*wi(j)
             nbstot = nbstot+nbssample
             DO i=1,ngrid
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
               IF (dummd1.GT.36.0d0) THEN
-                lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(DBLE(nbssample))   
+                lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(dummd2)   
                 IF(probboot(i,nn).GT.lnK) THEN
                   probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
                 ELSE
@@ -614,6 +614,37 @@
                 ENDDO 
               ENDIF 
             ENDDO
+
+          
+            ! using the weights implicitly in nbssample
+!            nbssample = random_binomial(normwj, wi(j)/normwj)
+!            nbstot = nbstot+nbssample
+!            DO i=1,ngrid
+!              dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
+!              IF (dummd1.GT.36.0d0) THEN
+!                lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(nbssample)   
+!                IF(probboot(i,nn).GT.lnK) THEN
+!                  probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
+!                ELSE
+!                  probboot(i,nn) = lnK + DLOG(1.0d0+DEXP(probboot(i,nn)-lnK))
+!                ENDIF
+!              ELSE
+!                DO k=1,nbssample
+!                  rndidx = int(nj(j)*random_uniform())+1
+!                  rndidx = nlist(pnlist(j)+rndidx)
+!                  IF ( rndidx.EQ.idxgrid(i) ) CYCLE
+!                  dummd1 = mahalanobis(D,period,y(:,i),x(:,rndidx),Hiinv(:,:,j)) 
+!                  lnK = -0.5d0 * (normkernel(j) + dummd1)
+!                  IF(probboot(i,nn).GT.lnK) THEN
+!                    probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
+!                  ELSE
+!                    probboot(i,nn) = lnK + DLOG(1.0d0+DEXP(probboot(i,nn)-lnK))
+!                  ENDIF
+!                ENDDO 
+!              ENDIF 
+!            ENDDO
+
+
           ENDDO
           probboot(:,nn) = probboot(:,nn)-DLOG(DBLE(nbstot))
         ENDDO
@@ -929,8 +960,9 @@
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
       DEALLOCATE(wlocal,ineigh)
+      DEALLOCATE(prelerr,pabserr)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
-      IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
+      IF(nbootstrap>0) DEALLOCATE(probboot)
 
       CALL EXIT(0)
       ! end of the main programs
@@ -1019,7 +1051,7 @@
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
                                  y,nj,prob,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                                 wi,Q,Qi,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij, &
+                                 wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
@@ -1028,9 +1060,9 @@
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hinv,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qi,Qiinv,Hi,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: y,distmm
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv,Qiinv
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hiinv
          
          
          IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
@@ -1052,7 +1084,6 @@
          IF (ALLOCATED(normkernel)) DEALLOCATE(normkernel)
          IF (ALLOCATED(Q))          DEALLOCATE(Q)
          IF (ALLOCATED(Qi))         DEALLOCATE(Qi)
-         IF (ALLOCATED(Hinv))       DEALLOCATE(Hinv)
          IF (ALLOCATED(logdetHi))   DEALLOCATE(logdetHi)
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
          IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
@@ -1076,8 +1107,8 @@
          ! bootstrap probability density array will be allocated if necessary
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
-         ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hinv(D,D))
-         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid))
+         ALLOCATE(Q(D,D),Qi(D,D))
+         ALLOCATE(Hi(D,D),Hiinv(D,D,ngrid),Qiinv(D,D))
          ALLOCATE(dij(D),Di(ngrid))
          ALLOCATE(idxgrid(ngrid),tmps2(ngrid))
          ALLOCATE(wlocal(ngrid))
