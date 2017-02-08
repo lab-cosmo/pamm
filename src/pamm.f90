@@ -79,7 +79,7 @@
       DOUBLE PRECISION maxrer                                   ! maximum relative error
       DOUBLE PRECISION nlocal                                   ! local numper of points
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points 
-      DOUBLE PRECISION fvar                                     ! or a fraction of the global avg. variance
+      DOUBLE PRECISION fspread                                     ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
       DOUBLE PRECISION lambda, lambda2                          ! cutoff for QS
       DOUBLE PRECISION msw
@@ -126,7 +126,8 @@
       fpost = .false.
       alpha = 1.0d0
       zeta = 0.0d0
-      fpoints = 0.15d0        ! fraction of points to be used as standard
+      fpoints = 0.15d0       ! fraction of points to be used as standard
+      fspread = -1.0d0          ! fraction of avg. variance to be used (default: off)
       ccmd = 0               ! no parameters specified
       Nk = 0                 ! number of gaussians
       nmsopt = 0             ! number of mean-shift refinements
@@ -170,7 +171,7 @@
             ccmd = 8
          ELSEIF (cmdbuffer == "-d") THEN            ! dimensionality
             ccmd = 9
-         ELSEIF (cmdbuffer == "-fvar") THEN         ! fraction of global variance used for bandwidth estimation
+         ELSEIF (cmdbuffer == "-fspread") THEN         ! fraction of global variance used for bandwidth estimation
             ccmd = 10
          ELSEIF (cmdbuffer == "-fpoints") THEN      ! fraction of points used for bandwidth estimation
             ccmd = 11
@@ -227,7 +228,7 @@
                ALLOCATE(period(D))
                period=-1.0d0
             ELSEIF (ccmd == 10) THEN                ! read fractional variance for bandwidth estimation
-               READ(cmdbuffer,*) fvar
+               READ(cmdbuffer,*) fspread
             ELSEIF (ccmd == 11) THEN                ! read fraction of points for bandwidth estimation
                READ(cmdbuffer,*) fpoints
             ELSEIF (ccmd == 12) THEN                ! read the periodicity in each dimension
@@ -358,6 +359,9 @@
       ! is set to the square of the total number of points
       ntarget = int(float(nsamples) * fpoints)
       
+      ! only one of the methods can be used at a time
+      IF (fspread.GT.0.0d0) fpoints = -1.0d0
+      
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
@@ -413,58 +417,70 @@
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,nj,iminij,pnlist,nlist)
       
-      IF(verbose) WRITE(*,*) & 
-        " Estimating localizations and bandwidths"
-      
       ! estimate Q from grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
       
-      ! use biggest eigenvalue of Q as initial guess for bisectioning
-      tune = maxeigval(Q,D)
-      ! set all localizations initially to tune
-      sigma2 = tune
+      IF(fspread.GT.0) THEN
+        ! localization based on fraction of avg. variance
+        sigma2 = trmatrix(D,Q)/DBLE(D)*fspread
+      ELSE
+        ! localization based on ntarget 
+        !   use biggest eigenvalue of Q 
+        !   as initial guess for bisectioning
+        tune = maxeigval(Q,D)
+        sigma2 = tune
+      ENDIF
+      
+      IF(verbose) WRITE(*,*) & 
+        " Estimating localizations and bandwidths"
 
       ! estimate the localization for each grid point
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
-        ! cannot go below number of points in current grid points
-        nlim = max(ntarget, 2*INT(wi(i))) 
-        IF (ntarget.LT.nlim) WRITE(*,*) &
-          " Warning: fraction of points too small, increase grid size!"
-            
-        ! initial estimate of nlocal using biggest eigenvalue of global Q
-        CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
-        
-        ! aproaching quickly ntarget
-        ! if nlocal is smaller than target value try to approach quickly to target value
-        ! typically the initial sigma is big enough not to do this, however, nobody knows...
-        IF (nlocal.LT.nlim) THEN
-          DO WHILE(nlocal.LT.nlim)
-            ! approach the desired value
-            sigma2(i)=sigma2(i)+tune
-            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
-          ENDDO
           
-        ENDIF
-        ! fine tuning of localization approach optimal value using bisectioning
-        j = 1
-        DO WHILE(.TRUE.)  
-          ! fine tuning 
-          IF(nlocal.GT.nlim) THEN
-            sigma2(i) = sigma2(i)-tune/2.0d0**j
-          ELSE
-            sigma2(i) = sigma2(i)+tune/2.0d0**j
-          ENDIF
-          
+        ! do bisectioning to find proper localization for ntarget points
+        IF(fpoints.GT.0) THEN
+          ! cannot go below number of points in current grid points
+          nlim = max(ntarget, 2*INT(wi(i))) 
+          IF (ntarget.LT.nlim) WRITE(*,*) &
+            " Warning: fraction of points too small, increase grid size!"
+              
+          ! initial estimate of nlocal using biggest eigenvalue of global Q
           CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
-
-          ! exit loop if sigma gives correct nlocal
-          IF (ANINT(nlocal).EQ.nlim) EXIT
           
-          ! adjust scaling factor for new sigma
-          j = j+1  
-        ENDDO 
+          ! aproaching quickly ntarget
+          ! if nlocal is smaller than target value try to approach quickly to target value
+          ! typically the initial sigma is big enough not to do this, however, nobody knows...
+          IF (nlocal.LT.nlim) THEN
+            DO WHILE(nlocal.LT.nlim)
+              ! approach the desired value
+              sigma2(i)=sigma2(i)+tune
+              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
+            ENDDO
+            
+          ENDIF
+          ! fine tuning of localization approach optimal value using bisectioning
+          j = 1
+          DO WHILE(.TRUE.)  
+            ! fine tuning 
+            IF(nlocal.GT.nlim) THEN
+              sigma2(i) = sigma2(i)-tune/2.0d0**j
+            ELSE
+              sigma2(i) = sigma2(i)+tune/2.0d0**j
+            ENDIF
+            
+            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
+
+            ! exit loop if sigma gives correct nlocal
+            IF (ANINT(nlocal).EQ.nlim) EXIT
+            
+            ! adjust scaling factor for new sigma
+            j = j+1  
+          ENDDO
+        ELSE
+          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
+        ENDIF
 
         ! estimate Q from the grid
         CALL covariance(D,period,ngrid,nlocal,wlocal,y,Qi(:,:,i))
