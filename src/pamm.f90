@@ -76,24 +76,23 @@
       DOUBLE PRECISION normwj                                   ! accumulator for wj
       DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
       DOUBLE PRECISION linkel
-      DOUBLE PRECISION maxrer                                   ! maximum relative error
       DOUBLE PRECISION nlocal                                   ! local numper of points
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points 
       DOUBLE PRECISION fspread                                     ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
-      DOUBLE PRECISION qscut, qscut2                          ! cutoff for QS
+      DOUBLE PRECISION qscut, qscut2                            ! cutoff and squared cutoff for QS
       DOUBLE PRECISION msw
       DOUBLE PRECISION alpha                                    ! cluster smearing
       DOUBLE PRECISION zeta                                     ! background for clustering
       DOUBLE PRECISION thrmerg                                  ! threshold for adjacency cluster merging
       DOUBLE PRECISION dummd1,dummd2                            ! dummy variables
+      DOUBLE PRECISION lnK                                      ! logarithm of kernel
       
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2     ! adaptive localizations
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wj         ! weight of each sample point
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wi         ! accumulator for wj in each voronoi
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal     ! local weights around grid point
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: Di         ! local dimensionality
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: lnK        ! container for ln(K(Y)) used in log-sum-exp
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: period     ! Periodic lenght in each dimension
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: prelerr    ! relative error of probability
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pabserr    ! absolute error of probability
@@ -364,7 +363,7 @@
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                           y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
+                           y,nj,prob,probboot,idxroot,idcls,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,Q,Qi,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -500,7 +499,7 @@
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
         
         ! estimate the logarithmic normalization constants
-        normkernel(i) = DBLE(D)*LOG(twopi) + logdet(D,Hi(:,:,i))
+        normkernel(i) = DBLE(D)*DLOG(twopi) + logdet(D,Hi(:,:,i))
         
         ! estimate logarithmic determinant of local Q's
         logdetHi(i) = logdet(D,Hi(:,:,i))
@@ -531,15 +530,14 @@
       !       (3) These routines should be subfunctions
       ! logarithmic kernel density estimate
       ! using log-sum-exp formula (see numerical recipies)
-      prob = 0.0d0
+      prob = -HUGE(0.0d0)
       ! log the weights to increase speed
-      wi = LOG(wi)
-      wj = LOG(wj)
+      wi = DLOG(wi)
+      wj = DLOG(wj)
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
         ! setting lnK to the smallest possible number
-        lnK = -HUGE(0.0d0)
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
           dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
@@ -548,7 +546,12 @@
             ! and store sum of all contributions in grid point
             ! exponent of the gaussian        
             ! natural logarithm of kernel
-            lnK(idxgrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + wi(j)
+            lnK = -0.5d0 * (normkernel(j) + dummd1) + wi(j)
+            IF(prob(i).GT.lnK) THEN
+              prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
+            ELSE
+              prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
+            ENDIF
           ELSE
             ! cycle just inside the polyhedra using the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
@@ -557,81 +560,84 @@
               ! exponent of the gaussian    
               dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
               ! weighted natural logarithm of kernel
-              lnK(nlist(k)) = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
+              lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
+              IF(prob(i).GT.lnK) THEN
+                prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
+              ELSE
+                prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
+              ENDIF
             ENDDO 
           ENDIF 
         ENDDO
-        ! find max value on logarithmic kernel
-        dummd2 = MAXVAL(lnK)
-        prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
       ENDDO
-      prob=prob-LOG(normwj)  
+      prob=prob-DLOG(normwj)  
       ! undo the log on the weights
-      wi = EXP(wi)
-      wj = EXP(wj)
+      wi = DEXP(wi)
+      wj = DEXP(wj)
           
       IF(nbootstrap > 0) THEN
-        wi = LOG(wi)
-        wj = LOG(wj)
-        probboot = 0.0d0
+        wi = DLOG(wi)
+        wj = DLOG(wj)
+        probboot = -HUGE(0.0d0)
         DO nn=1,nbootstrap
           IF(verbose) WRITE(*,*) &
                 " Bootstrapping, run ", nn
-          DO i=1,ngrid
-            ! setting lnK to the smallest possible number
-            lnK = -HUGE(0.0d0)
-            nbstot = 0
-            DO j=1,ngrid
-              ! rather than selecting nsel random points, we select a random 
-              ! number of points from each voronoi. this makes it possible 
-              ! to apply some simplifications and avoid computing distances 
-              ! from far-away voronoi
-              nbssample=random_binomial(nsamples, DBLE(nj(j))/DBLE(nsamples))
-              nbstot = nbstot+nbssample
-              ! renormalize the distance taking into accout 
-              ! anisotropy of the multidimensional data
+          ! rather than selecting nsel random points, we select a random 
+          ! number of points from each voronoi. this makes it possible 
+          ! to apply some simplifications and avoid computing distances 
+          ! from far-away voronoi
+          nbstot = 0
+          DO j=1,ngrid
+            nbssample = random_binomial(nsamples, DBLE(nj(j))/DBLE(nsamples))
+            nbstot = nbstot+nbssample
+            DO i=1,ngrid
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
               IF (dummd1.GT.36.0d0) THEN
-                lnK(idxgrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(DBLE(nbssample))   
+                lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(DBLE(nbssample))   
+                IF(probboot(i,nn).GT.lnK) THEN
+                  probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
+                ELSE
+                  probboot(i,nn) = lnK + DLOG(1.0d0+DEXP(probboot(i,nn)-lnK))
+                ENDIF
               ELSE
                 DO k=1,nbssample
                   rndidx = int(nj(j)*random_uniform())+1
                   rndidx = nlist(pnlist(j)+rndidx)
                   IF ( rndidx.EQ.idxgrid(i) ) CYCLE
-                  dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
-                  ! TODO: what happens if we have twice the same rndidx
-                  lnK(rndidx) = -0.5d0 * (normkernel(j) + dummd1) + wj(rndidx)
+                  dummd1 = mahalanobis(D,period,y(:,i),x(:,rndidx),Hiinv(:,:,j)) 
+                  lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(rndidx)
+                  IF(probboot(i,nn).GT.lnK) THEN
+                    probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
+                  ELSE
+                    probboot(i,nn) = lnK + DLOG(1.0d0+DEXP(probboot(i,nn)-lnK))
+                  ENDIF
                 ENDDO 
               ENDIF 
             ENDDO
-            ! find max value on logarithmic kernel
-            dummd2 = MAXVAL(lnK)
-            probboot(i,nn) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))-LOG(DBLE(nbstot))  
           ENDDO
+          probboot(:,nn) = probboot(:,nn)-DLOG(DBLE(nbstot))
         ENDDO
+        wi = DEXP(wi)
+        wj = DEXP(wj) 
         prelerr = 0.0d0
         pabserr = 0.0d0
         DO i=1,ngrid
-          pabserr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) )
-          prelerr(i) = pabserr(i) / prob(i)
+          pabserr(i) = DSQRT( SUM( (DEXP(probboot(i,:)) - DEXP(prob(i)))**2.0d0 ) / (nbootstrap-1.0d0) )
+          prelerr(i) = pabserr(i) / DEXP(prob(i))
         ENDDO 
-        wi = EXP(wi)
-        wj = EXP(wj)   
       ELSE
         DO i=1,ngrid  
-          ! TODO: is not numerically stable and needs to be overworked for log-exp-sum
           prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
                                 (twopi**(-Di(i)/2.0d0))/ &
-                                 EXP(prob(i)) )-1.0d0)/normwj)
+                                 DEXP(prob(i)) )-1.0d0)/normwj)
           ! I got here the relative error on Ni (point falling into the Voronoi i)
           ! that, propagating the error is equal to the relative error of prob(i).
           ! To get the absolute error we just need to do prelerr(i)*prob(i) 
-          pabserr(i)=prelerr(i)*EXP(prob(i))
+          pabserr(i)=prelerr(i)*DEXP(prob(i))
         ENDDO
       ENDIF
 
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
-      maxrer=MAXVAL(prelerr)
       idxroot=0
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
@@ -826,10 +832,10 @@
                ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
                ! TODO: has to be adapted for mahalanobis distances ...
                IF(periodic)THEN
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(qscut2/16.0d0))
+                  msw = prob(i)*DEXP(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(qscut2/16.0d0))
                   CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
                ELSE
-                  msw = prob(i)*exp(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(qscut2/16.0d0))
+                  msw = prob(i)*DEXP(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(qscut2/16.0d0))
                   CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
                ENDIF
                
@@ -918,7 +924,7 @@
       DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm,idxgrid)
       DEALLOCATE(pnlist,nlist,iminij)
-      DEALLOCATE(y,nj,prob,lnK,sigma2,rgrid,wi)
+      DEALLOCATE(y,nj,prob,sigma2,rgrid,wi)
       DEALLOCATE(msmu,tmpmsmu)
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
@@ -1011,7 +1017,7 @@
       END FUNCTION median
       
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                                 y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
+                                 y,nj,prob,probboot,idxroot,idcls,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,Q,Qi,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -1019,7 +1025,7 @@
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,lnK,msmu,tmpmsmu,wi,logdetHi
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hinv,probboot
@@ -1033,7 +1039,6 @@
          IF (ALLOCATED(y))          DEALLOCATE(y)
          IF (ALLOCATED(nj))         DEALLOCATE(nj)
          IF (ALLOCATED(prob))       DEALLOCATE(prob)
-         IF (ALLOCATED(lnK))        DEALLOCATE(lnK)
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
          IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
@@ -1063,7 +1068,7 @@
          ! Initialize the arrays, since now I know the number of
          ! points and the dimensionality
          ALLOCATE(iminij(nsamples))
-         ALLOCATE(pnlist(ngrid+1), nlist(nsamples), lnK(nsamples))
+         ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
          ALLOCATE(y(D,ngrid), nj(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
          ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
          ALLOCATE(msmu(D), tmpmsmu(D),logdetHi(ngrid))
@@ -1106,7 +1111,7 @@
          ENDDO
          ! estimate weights for localization as product from 
          ! spherical gaussian weights and weights in voronoi
-         wl = EXP(-0.5d0/s2*SUM(xy*xy,1))*w
+         wl = DEXP(-0.5d0/s2*SUM(xy*xy,1))*w
          ! estimate local number of sample points
          num = SUM(wl)
       END SUBROUTINE localization
@@ -1822,7 +1827,7 @@
             DO i = D, (D-effD), -1
                IF(DSQRT(ev(jj)).LT.0.6d0)THEN
                  fmultiVM = fmultiVM * (1.0d0/((twopi*ev(jj))**0.5d0))* &
-                       dexp(-0.5d0*(dv(jj)**2.0d0)/ev(jj))
+                       DEXP(-0.5d0*(dv(jj)**2.0d0)/ev(jj))
                ELSE
                  fmultiVM = fmultiVM * fvmkernel(1.0d0/ev(jj),dv(jj))
                ENDIF
@@ -1845,10 +1850,10 @@
          DOUBLE PRECISION dv(D),tmpv(D),xcx
          
          dv = x - y
-         tmpv = matmul(dv,icov)
-         xcx = -0.5d0 * dot_product(dv,tmpv)
+         tmpv = MATMUL(dv,icov)
+         xcx = -0.5d0 * DOT_PRODUCT(dv,tmpv)
 
-         fmultikernel = dexp(xcx) * norm
+         fmultikernel = DEXP(xcx) * norm
          
       END FUNCTION fmultikernel
 
