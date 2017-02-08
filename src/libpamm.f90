@@ -694,6 +694,22 @@
               DUMMY,1,VR,D,WORK,12*D,INFO)
       END SUBROUTINE eigval
       
+      DOUBLE PRECISION FUNCTION maxeigval(AB,D)
+         ! inversion of a square matrix using lapack
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D,D), INTENT(IN) :: AB
+
+         DOUBLE PRECISION, DIMENSION(D) :: WR         
+         INTEGER ii
+         
+         CALL eigval(AB,D,WR)
+
+         maxeigval = 0.0d0     
+         DO ii=1,D
+            IF (WR(ii).GT.maxeigval) maxeigval = WR(ii)
+         ENDDO 
+      END FUNCTION maxeigval
+      
       DOUBLE PRECISION FUNCTION pammr2(D,period,ri,rj)
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: period
@@ -769,6 +785,30 @@
          mahalanobis = xcx
       END FUNCTION mahalanobis
       
+      DOUBLE PRECISION FUNCTION effdim(D,Q)
+         ! returns dimensionality estimated from covariance matrix
+         !    see: Roy and Vetterli, European Signal Processing Conference,
+         !         p. 606-610, 2007
+         !  
+         ! Args:
+         !    ...
+         
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, INTENT(IN) :: Q(D,D)
+         
+         DOUBLE PRECISION pk(D)
+         
+         CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix       
+         pk = pk/SUM(pk)
+         pk = pk*LOG(pk)
+         ! we assume that 0*log(0) is zero
+         ! thus we need to check for nan values 
+         ! and set pk to zero for that value
+         ! since log(x) for x <= 0 is nan
+         WHERE( pk .ne. pk ) pk = 0.0d0
+         effdim = EXP(-SUM(pk))
+      END FUNCTION effdim
+
       SUBROUTINE oracle(D,N,Q)
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, INTENT(IN) :: N
@@ -796,7 +836,6 @@
          DO ii=1,D
            Q(ii,ii) = Q(ii,ii) + rho*trQ
          ENDDO
-         
       END SUBROUTINE oracle
 
       END MODULE libpamm

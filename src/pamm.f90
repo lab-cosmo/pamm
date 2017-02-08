@@ -35,80 +35,89 @@
       USE libpamm
       USE random
       IMPLICIT NONE
-      
-!      INTEGER, EXTERNAL :: OMP_GET_THREAD_NUM, OMP_GET_NUM_THREADS
 
-      CHARACTER(LEN=1024) :: outputfile, clusterfile          ! The output file prefix
-      CHARACTER(LEN=1024) :: gridfile                         ! The output file prefix
-      DOUBLE PRECISION, ALLOCATABLE :: period(:)              ! Periodic lenght in each dimension
-      LOGICAL periodic                                        ! flag for using periodic data
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm ! similarity matrix
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: diff     ! temp vector used to store distances
-
-      INTEGER D                                               ! Dimensionality of problem
-      INTEGER Nk                                              ! Number of gaussians in the mixture
-      INTEGER nsamples                                        ! Total number points
-      INTEGER ngrid                                           ! Number of samples extracted using minmax
-
-      INTEGER jmax
+      CHARACTER(LEN=1024) :: outputfile, clusterfile            ! The output file prefix
+      CHARACTER(LEN=1024) :: gridfile                           ! The output file prefix
+      CHARACTER(LEN=1024) :: cmdbuffer, comment                 ! String used for reading text lines from files
       
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2, rgrid, wj, prob, lnK, bigp, &
-                                                     msmu, tmpmsmu, pcluster, px, tmps2, &
-                                                     Di
-      DOUBLE PRECISION :: normwj                              ! accumulator for wj
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wi ! accumulator for wj in voronoi
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: nj, iminij, pnlist, nlist
-      INTEGER seed                                            ! seed for the random number generator
+      LOGICAL periodic                                          ! flag for using periodic data
+      LOGICAL verbose                                           ! flag for verbosity
+      LOGICAL fpost                                             ! flag for postprocessing
+      LOGICAL weighted                                          ! flag for using weigheted data
+      LOGICAL isthere                                           ! ...
+      LOGICAL savevor, saveadj, saveidxs, readgrid              ! additional IN/OUT logical flags
+       
+      INTEGER ccmd                                              ! Index used to control the PARSER input parameters
+      INTEGER endf                                              ! end file state for reading in data from file
+      INTEGER D                                                 ! Dimensionality of problem
+      INTEGER Nk                                                ! Number of gaussians in the mixture
+      INTEGER nsamples                                          ! Total number points
+      INTEGER ngrid                                             ! Number of samples extracted using minmax
+      INTEGER seed                                              ! seed for the random number generator
+      INTEGER ntarget, nlim                                     ! ntarget for adaptive bandwidth estimation
+      INTEGER nmsopt                                            ! number of mean-shift optimizations of the cluster centers
+      INTEGER nbootstrap                                        ! number of bootstrap cycles
+      INTEGER rndidx                                            ! random sample point index
+      INTEGER nbssample                                         ! number of sample points used for voronoi in bootstrap
+      INTEGER nbstot                                            ! accumulator for nbssample
+      INTEGER isep1, isep2, par_count                           ! temporary indices for parsing command line arguments
+      INTEGER i,j,jmax,k,ii,jj,nn,counter                       ! counters
+      INTEGER dummyi1                                           ! dummy variables
+
+      ! neighbor list number of points in voronoi, voronoi 
+      ! association, pointer, ..., sample point index of grid point
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: nj, iminij, pnlist, nlist, idxgrid
+      ! quick shift, roots and path to reach the root (used to speedup the calculation)
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
+      ! macrocluster
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
       
-      ! variable to set the covariance matrix
-      DOUBLE PRECISION tmppks,normpks,ptmp
+      DOUBLE PRECISION normwj                                   ! accumulator for wj
+      DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
+      DOUBLE PRECISION linkel
+      DOUBLE PRECISION maxrer                                   ! maximum relative error
+      DOUBLE PRECISION nlocal                                   ! local numper of points
+      DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points 
+      DOUBLE PRECISION fvar                                     ! or a fraction of the global avg. variance
+      DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
+      DOUBLE PRECISION lambda, lambda2                          ! cutoff for QS
+      DOUBLE PRECISION msw
+      DOUBLE PRECISION alpha                                    ! cluster smearing
+      DOUBLE PRECISION zeta                                     ! background for clustering
+      DOUBLE PRECISION thrmerg                                  ! threshold for adjacency cluster merging
+      DOUBLE PRECISION dummd1,dummd2                            ! dummy variables
+      
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2     ! adaptive localizations
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wj         ! weight of each sample point
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wi         ! accumulator for wj in each voronoi
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal     ! local weights around grid point
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: Di         ! local dimensionality
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: lnK        ! container for ln(K(Y)) used in log-sum-exp
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: period     ! Periodic lenght in each dimension
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: prelerr    ! relative error of probability
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: pabserr    ! absolute error of probability
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dij        ! distance vector between two points
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: normkernel ! normalization for ln(K(Y))
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: logdetHi   ! logarithm of bandwidth matrix determinant
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: prob       ! probabilities at grid points
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: rgrid, msmu, tmpmsmu, pcluster, px, tmps2
+      
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: x, y     ! Array containing the input data and grid points
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm   ! similarity matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot ! bootstrap probabilities
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q        ! global covariance matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Hinv     ! inverse of the bandwidth matrix
+      ! cluster connectivity matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
+      
+      ! heavy matrices for bandwidth estimation
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Hi, Hiinv, Qiinv
     
       ! Array of Von Mises distributions
       TYPE(vm_type), ALLOCATABLE, DIMENSION(:) :: vmclusters
       ! Array of Gaussians containing the gaussians parameters
       TYPE(gauss_type), ALLOCATABLE, DIMENSION(:) :: clusters
-      
-      ! Array containing the input data pints
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: x , y
-      ! quick shift, roots and path to reach the root (used to speedup the calculation)
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
-      ! cluster connectivity matrix
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: igrid
-      DOUBLE PRECISION linkel,maxrer
-      LOGICAL isthere
-      
-      ! BOOTSTRAP
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: prelerr, pabserr
-      INTEGER nbootstrap, rndidx, nn, nbssample, nbstot
-      DOUBLE PRECISION refcov
-      ! Variables for local bandwidth estimation
-      INTEGER ntarget, nlim
-      DOUBLE PRECISION nlocal, prefac , kderr, tune
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: dij, normkernel, logdetHi, wQ, pk
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q, Hmean, Hinv
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Qi, Hi, Hiinv, Qiinv
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: xtmp, xtmpw
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
-      
-      
-      ! additional IN/OUT logical flags
-      LOGICAL saveprobs, savevor, saveadj, saveidxs, readprobs, readjgrid, savecovs, accurate
-      
-      ! PARSER
-      CHARACTER(LEN=1024) :: cmdbuffer, comment   ! String used for reading text lines from files
-      INTEGER ccmd                                ! Index used to control the input parameters
-      INTEGER nmsopt                              ! number of mean-shift optimizations of the cluster centers
-      LOGICAL verbose, fpost                      ! flag for verbosity
-      LOGICAL weighted                            ! flag for using weigheted data
-      INTEGER isep1, isep2, par_count             ! temporary indices for parsing command line arguments
-      DOUBLE PRECISION lambda, msw, alpha, zeta, thrmerg, lambda2
-      ! Counters and dummy variable
-      INTEGER i,j,k,ii,jj,counter,dummyi1,endf
-      DOUBLE PRECISION dummd1,dummd2
 
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       outputfile = "out"
@@ -117,7 +126,7 @@
       fpost = .false.
       alpha = 1.0d0
       zeta = 0.0d0
-      kderr = -1.0d0
+      fpoints = 0.15d0        ! fraction of points to be used as standard
       ccmd = 0               ! no parameters specified
       Nk = 0                 ! number of gaussians
       nmsopt = 0             ! number of mean-shift refinements
@@ -128,16 +137,11 @@
       lambda = -1.0d0        ! quick shift cut-off
       verbose = .false.      ! no verbosity
       weighted = .false.     ! don't use the weights  
-      prefac = 0.0d0         ! prefector of gaussian for localization
       nbootstrap = 0         ! do not use bootstrap
-      saveprobs = .false.    ! don't print out the probs
       savevor  = .false.     ! don't print out the Voronoi
       saveidxs = .false.     ! don't save the indexes of the grid points
       saveadj = .false.      ! save adjacency
-      readprobs = .FALSE.    ! don't read the probabilities from the standard input
-      readjgrid = .FALSE.    ! don't read the grid from the standard input
-      savecovs  = .FALSE.
-      accurate  = .FALSE.    ! compute the covariance from the grid
+      readgrid = .FALSE.    ! don't read the grid from the standard input
             
       D=-1
       periodic=.false.
@@ -156,42 +160,34 @@
             ccmd = 3
          ELSEIF (cmdbuffer == "-seed") THEN         ! seed for the random number genarator
             ccmd = 4
-         ELSEIF (cmdbuffer == "-qslambda") THEN     ! cutoff to differentiate different clusters in QuickShift
+         ELSEIF (cmdbuffer == "-qsscale") THEN      ! scale to differentiate clusters in quickshift
             ccmd = 5
          ELSEIF (cmdbuffer == "-nms") THEN          ! mean-shift steps
             ccmd = 6
          ELSEIF (cmdbuffer == "-ngrid") THEN        ! N of grid points
             ccmd = 7
-         ELSEIF (cmdbuffer == "-bootstrap") THEN    ! estimate the error in the kde using bootstrapping
+         ELSEIF (cmdbuffer == "-bootstrap") THEN    ! estimate error of kde using bootstrap
             ccmd = 8
          ELSEIF (cmdbuffer == "-d") THEN            ! dimensionality
             ccmd = 9
-         ELSEIF (cmdbuffer == "-kderr") THEN          ! targete rerror in the kde estimate
+         ELSEIF (cmdbuffer == "-fvar") THEN         ! fraction of global variance used for bandwidth estimation
             ccmd = 10
-         ELSEIF (cmdbuffer == "-p") THEN            ! use periodicity
+         ELSEIF (cmdbuffer == "-fpoints") THEN      ! fraction of points used for bandwidth estimation
             ccmd = 11
-         ELSEIF (cmdbuffer == "-z") THEN            ! add a background to the probability mixture
+         ELSEIF (cmdbuffer == "-p") THEN            ! use periodicity
             ccmd = 12
-         ELSEIF (cmdbuffer == "-ntarget") THEN          ! refine adptively sigma
-             ccmd = 14
-         ELSEIF (cmdbuffer == "-readprobs") THEN    ! read the grid points from the standard input
-            readprobs= .true.
-         ELSEIF (cmdbuffer == "-accurate") THEN    ! read the grid points from the standard input
-            accurate= .true.
-         ELSEIF (cmdbuffer == "-readidxsgrid") THEN    ! read the grid points from the standard input
-            readjgrid= .true.
-            ccmd = 15
-         ELSEIF (cmdbuffer == "-saveprobs") THEN    ! save the KDE estimates in a file
-            saveprobs= .true.
+         ELSEIF (cmdbuffer == "-z") THEN            ! add a background to the probability mixture
+            ccmd = 13
+         ELSEIF (cmdbuffer == "-saveidxs") THEN     ! save the indices of grid points
+            saveidxs= .true.
+         ELSEIF (cmdbuffer == "-readidxsgrid") THEN ! read the grid points from the standard input
+            readgrid= .true.
+            ccmd = 14
          ELSEIF (cmdbuffer == "-savevoronois") THEN ! save the Voronoi associations
             savevor= .true.
-         ELSEIF (cmdbuffer == "-saveidxs") THEN ! save the Voronoi associations
-            saveidxs= .true.
-         ELSEIF (cmdbuffer == "-savecovs") THEN ! save the Voronoi associations
-            savecovs= .true.
-         ELSEIF (cmdbuffer == "-adj") THEN          ! save the Voronoi associations
+         ELSEIF (cmdbuffer == "-adj") THEN          ! do cluster merging using adjacency criterion
             saveadj= .true.
-            ccmd = 18
+            ccmd = 15
          ELSEIF (cmdbuffer == "-w") THEN            ! use weights
             weighted = .true.
          ELSEIF (cmdbuffer == "-v") THEN            ! verbosity flag
@@ -212,21 +208,12 @@
             ELSEIF (ccmd == 3) THEN                 ! model file
                fpost=.true.                        
                clusterfile=trim(cmdbuffer)       
-            ELSEIF (ccmd == 15) THEN                ! read the file containing the grid indexes                      
-               gridfile=trim(cmdbuffer)
-            ELSEIF (ccmd == 1) THEN                 ! read the cluster smearing
-               READ(cmdbuffer,*) alpha             
-            ELSEIF (ccmd == 18) THEN                ! read the threaslod for the cluster adjancency
-               READ(cmdbuffer,*) thrmerg
-            ELSEIF (ccmd ==5) THEN                  ! read the lambda
+            ELSEIF (ccmd == 4) THEN                 ! read the seed for the rng
+               READ(cmdbuffer,*) seed
+            ELSEIF (ccmd == 5) THEN                 ! read cutoff for quickshift
                READ(cmdbuffer,*) lambda
                IF (lambda<0) STOP &
                  "The QS cutoff should be positive!"
-               lambda2=lambda*lambda
-            ELSEIF (ccmd == 4) THEN                 ! read the seed for the rng
-               READ(cmdbuffer,*) seed
-            ELSEIF (ccmd == 14) THEN                ! read the localization parameter
-               READ(cmdbuffer,*) ntarget
             ELSEIF (ccmd == 6) THEN                 ! read the number of mean-shift refinement steps
                READ(cmdbuffer,*) nmsopt
             ELSEIF (ccmd == 7) THEN                 ! number of grid points
@@ -239,9 +226,11 @@
                READ(cmdbuffer,*) D
                ALLOCATE(period(D))
                period=-1.0d0
-            ELSEIF (ccmd == 10) THEN                 ! read the number of mean-shift refinement steps
-               READ(cmdbuffer,*) kderr
-            ELSEIF (ccmd == 11) THEN                 ! read the periodicity in each dimension
+            ELSEIF (ccmd == 10) THEN                ! read fractional variance for bandwidth estimation
+               READ(cmdbuffer,*) fvar
+            ELSEIF (ccmd == 11) THEN                ! read fraction of points for bandwidth estimation
+               READ(cmdbuffer,*) fpoints
+            ELSEIF (ccmd == 12) THEN                ! read the periodicity in each dimension
                IF (D<0) STOP &
                  "Dimensionality (-d) must precede the periodic lenghts (-p). "
                par_count = 1
@@ -262,8 +251,12 @@
                IF (period(par_count) == 3.14d0) period(par_count) = twopi/2.0d0
                periodic=.true.   
                IF (par_count/=D) STOP "Check the number of periodic dimensions (-p)!"
-            ELSEIF (ccmd == 12) THEN ! read zeta 
+            ELSEIF (ccmd == 13) THEN ! read zeta 
                READ(cmdbuffer,*) zeta
+            ELSEIF (ccmd == 14) THEN                ! read the file containing the grid indexes                      
+               gridfile=trim(cmdbuffer)
+            ELSEIF (ccmd == 15) THEN                ! read the threashold for cluster adjancency merging
+               READ(cmdbuffer,*) thrmerg
             ENDIF
          ENDIF
       ENDDO
@@ -351,59 +344,10 @@
       
       ! CLUSTERING MODE
       ! get the data from standard input
-      IF (readprobs) THEN
-         STOP "*** not implemented yet! *** (distance matrix is not calculated properly)"
-         CALL readinputprobs(D, ngrid, y, prob, pabserr, prelerr, rgrid)
-         ! setup what is needed (mostly to random things)
-         nsamples=ngrid
-         normwj=ngrid
-         CALL allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                               nj,probboot,idxroot,idcls,igrid,qspath, &
-                               distmm, diff,msmu,tmpmsmu,normkernel, &
-                               wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
-                               xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
-         wj=1.0d0
-         sigma2=rgrid
-         normkernel=1
-         wi=1
-         tmps2=0.0d0
-         
-         ! estimate Q from the grid
-         CALL covariance(D,period,ngrid,normwj,wi,y,Q)
-         ! estimate localization from the global covariance
-         ! using the Scott's Rule
-         ! first we look for the highest value in the diagonal
-         refcov=0.0d0
-         CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
-         DO ii=1,D
-             IF(pk(ii).GT.dummd1) refcov=pk(ii)
-         ENDDO
-
-         IF(verbose)THEN
-           WRITE(*,*) " Ngrids: ", ngrid
-           WRITE(*,*) " QS lambda: ", lambda
-         ENDIF
-         
-         IF(verbose) WRITE(*,*) " Computing similarity matrix"
-         DO i=1,ngrid
-            distmm(i,i)=0.0d0
-            IF(verbose .AND. (modulo(i,1000).EQ.0)) &
-               WRITE(*,*) i,"/",ngrid
-            DO j=1,i-1  
-               ! distance between two voronoi centers
-               ! also computes the nearest neighbor distance (squared) for each grid point
-               distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
-               distmm(j,i) = distmm(i,j)
-            ENDDO
-         ENDDO  
-         
-         GOTO 1111
-      ELSE 
-         CALL readinput(D, weighted, nsamples, x, normwj, wj)
-         ! "renormalizes" the weight so we can consider them sort of sample counts
-         IF (weighted) THEN  
-             wj = wj * nsamples/sum(wj)
-         ENDIF
+      CALL readinput(D, weighted, nsamples, x, normwj, wj)
+      ! "renormalizes" the weight so we can consider them sort of sample counts
+      IF (weighted) THEN  
+        wj = wj * nsamples/sum(wj)
       ENDIF
       
       ! If not specified, the number voronoi polyhedra
@@ -412,15 +356,15 @@
       
       ! If not specified, the target local number of sample points
       ! is set to the square of the total number of points
-      IF (ntarget.EQ.-1) ntarget = int(float(nsamples) / 7.0d0)
-
+      ntarget = int(float(nsamples) * fpoints)
+      
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
-      CALL allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                           y,nj,prob,lnK,probboot,idxroot,idcls,igrid,qspath, &
-                           distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                           wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
-                           xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
+      CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
+                           y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
+                           distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
+                           wi,Q,Qi,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij, &
+                           wlocal,ineigh,rgrid,sigma2,tmps2,Di)
       
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -430,7 +374,7 @@
          WRITE(*,*) " Selecting ", ngrid, " points using MINMAX"
       ENDIF
       
-      IF(readjgrid)THEN
+      IF(readgrid)THEN
          ! Read the grid 
          
          IF (gridfile.EQ."NULL") THEN
@@ -443,25 +387,27 @@
          OPEN(UNIT=12,FILE=gridfile,STATUS='OLD',ACTION='READ')
          ! read the grid from a file
          DO i=1,ngrid
-            READ(12,*) igrid(i)
+            READ(12,*) idxgrid(i)
          ENDDO
+         CLOSE(UNIT=12)
          
          WRITE(*,*) " Building the Voronoi associations"
          
          ! do the voronoi associations
-         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij,ineigh,wi,igrid)
+         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij,ineigh,wi,idxgrid)
       ELSE
          CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,nj,iminij,ineigh,wi, &
-                  saveidxs,igrid,outputfile)
+                  saveidxs,idxgrid,outputfile)
       ENDIF
+      
+      ! error check of voronoi association
+      DO i=1,ngrid
+        IF (wi(i).EQ.0.0d0) STOP &
+          " Error: voronoi has no points associated with"
+      ENDDO
       
       ! print out the voronois associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
-      
-      IF(savecovs)THEN
-        OPEN(UNIT=11,FILE=trim(outputfile)//".cov",STATUS='REPLACE',ACTION='WRITE')
-        WRITE(11,*) "#Local covariance (diagonal), Nlocal , Dlocal, y, localization"
-      ENDIF
       
       ! Generate the neighbour list
       IF(verbose) write(*,*) " Generating neighbour list"
@@ -470,42 +416,25 @@
       IF(verbose) WRITE(*,*) & 
         " Estimating localizations and bandwidths"
       
-      ! estimate global covariance matrix
-      IF(accurate)THEN
-        ! estimate Q from complete dataset
-        CALL covariance(D,period,nsamples,normwj,wj,x,Q)
-      ELSE
-        ! estimate Q from grid
-        CALL covariance(D,period,ngrid,normwj,wi,y,Q)
-      ENDIF
+      ! estimate Q from grid
+      CALL covariance(D,period,ngrid,normwj,wi,y,Q)
       
       ! use biggest eigenvalue of Q as initial guess for bisectioning
-      tune = 0.0d0
-      CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
-      DO ii=1,D
-        IF (pk(ii).GT.tune) tune = pk(ii)
-      ENDDO 
+      tune = maxeigval(Q,D)
+      ! set all localizations initially to tune
       sigma2 = tune
 
-      ! estimate the localization for each grid 
-      ! point based on the choice of ntarget
-
+      ! estimate the localization for each grid point
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
         ! cannot go below number of points in current grid points
         nlim = max(ntarget, 2*INT(wi(i))) 
         IF (ntarget.LT.nlim) WRITE(*,*) &
-          "*** WARNING *** ntarget < 2*nvoronoi, increase grid size! (", ntarget, "<", nlim, ")"
-        IF (wi(i).EQ.0.0d0) &
-          STOP "*** ERROR *** voronoi has no points associated with"
+          " Warning: fraction of points too small, increase grid size!"
             
         ! initial estimate of nlocal using biggest eigenvalue of global Q
-        IF (accurate) THEN          
-          CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal,nlocal)
-        ELSE
-          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
-        ENDIF  
+        CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
         
         ! aproaching quickly ntarget
         ! if nlocal is smaller than target value try to approach quickly to target value
@@ -514,11 +443,7 @@
           DO WHILE(nlocal.LT.nlim)
             ! approach the desired value
             sigma2(i)=sigma2(i)+tune
-            IF (accurate) THEN          
-              CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal,nlocal)
-            ELSE
-              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
-            ENDIF 
+            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
           ENDDO
           
         ENDIF
@@ -532,14 +457,8 @@
             sigma2(i) = sigma2(i)+tune/2.0d0**j
           ENDIF
           
-          IF (accurate) THEN  
-            ! estimate weights for localization
-            ! using a baloon estimator centered on each grid        
-            CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal,nlocal)
-          ELSE
-            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
-          ENDIF  
-          
+          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal)
+
           ! exit loop if sigma gives correct nlocal
           IF (ANINT(nlocal).EQ.nlim) EXIT
           
@@ -547,50 +466,20 @@
           j = j+1  
         ENDDO 
 
-        ! estimate covariance matrix locally
-        IF(accurate)THEN          
-          ! estimate Q from the complete dataset
-          CALL covariance(D,period,nsamples,nlocal,wlocal,x,Qi(:,:,i))
-        ELSE
-          ! estimate Q from the grid
-          CALL covariance(D,period,ngrid,nlocal,wlocal,y,Qi(:,:,i))
-        ENDIF
+        ! estimate Q from the grid
+        CALL covariance(D,period,ngrid,nlocal,wlocal,y,Qi(:,:,i))
 
         ! oracle shrinkage of covariance matrix
         CALL oracle(D,nlocal,Qi(:,:,i))  
         
         ! estimate local dimensionality
-        CALL eigval(Qi(:,:,i),D,pk) ! eigenvalues of the covariance matrix       
-        pk = pk/SUM(pk)
-        pk = pk*LOG(pk)
-        ! we assume that 0*log(0) is zero
-        ! thus we need to check for nan values 
-        ! and set pk to zero for that value
-        ! since log(x) for x <= 0 is nan
-        WHERE( pk .ne. pk ) pk = 0.0d0
-        Di(i) = EXP(-SUM(pk))
+        Di(i) = effdim(D,Qi(:,:,i))
 
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi(:,:,i),Qiinv(:,:,i))
         
-        ! estimate bandwidth from scotts rule
-!        Hi(:,:,i) = Qi * ( nlocal**(-1.0d0/(Di(i)+4.0d0)) )**2.0d0 
-        ! estimate bandwidth from scotts rule with dimensionality correction
-!        Hi(:,:,i) = ( (4.0d0 / (Di(i) + 2.0d0) )**(1.0d0 / (Di(i) + 4.0d0)) &
-!                  * nlocal**( -1.0d0 / (Di(i) + 4.0d0)) )**2.0d0 * Qi
         ! estimate bandwidth from normal reference rule
-        Hi(:,:,i) = (4.0d0 / ( nlocal * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi(:,:,i)    
-     
-        IF(savecovs)THEN
-          DO ii=1,D
-            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", Hi(ii,ii,i)
-          ENDDO
-          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",nlocal
-          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",Di(i)
-          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",y(:,i)
-          WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ",sigma2(i)
-          WRITE(11,*) " "
-        ENDIF
+        Hi(:,:,i) = (4.0d0 / ( nlocal * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi(:,:,i) 
         
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi(:,:,i),Hiinv(:,:,i))
@@ -600,9 +489,7 @@
         
         ! estimate logarithmic determinant of local Q's
         logdetHi(i) = logdet(D,Hi(:,:,i))
-        
       ENDDO
-      IF(savecovs) CLOSE(UNIT=11) 
       
       IF(verbose) WRITE(*,*) &
         " Computing similarity matrix"
@@ -646,12 +533,12 @@
             ! and store sum of all contributions in grid point
             ! exponent of the gaussian        
             ! natural logarithm of kernel
-            lnK(igrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + wi(j)
+            lnK(idxgrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + wi(j)
           ELSE
             ! cycle just inside the polyhedra using the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
               ! this is the self correction
-              IF(nlist(k).EQ.igrid(i)) CYCLE 
+              IF(nlist(k).EQ.idxgrid(i)) CYCLE 
               ! exponent of the gaussian    
               dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
               ! weighted natural logarithm of kernel
@@ -660,84 +547,64 @@
           ENDIF 
         ENDDO
         ! find max value on logarithmic kernel
-        dummd2 = MAXVAL(wj*lnK)
+        dummd2 = MAXVAL(lnK)
         prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
       ENDDO
       prob=prob-LOG(normwj)  
       ! undo the log on the weights
       wi = EXP(wi)
       wj = EXP(wj)
-      
-      OPEN(UNIT=12,FILE=TRIM(outputfile)//".probstmp",STATUS='REPLACE',ACTION='WRITE')
-      DO i=1,ngrid
-        WRITE(12,*) y(:,i),prob(i),SQRT(sigma2(i))
-      ENDDO
-      CLOSE(UNIT=12)
-      
-      IF(saveprobs)THEN 
-        comment=TRIM(outputfile)
-        CALL savegrid(D,ngrid,y,prob,pabserr,prelerr,rgrid,comment)
-      ENDIF
           
-       
-      !!! computing kernel density estimation error
-      ! if set use bootstrapping to estimate the error of our KDE
       IF(nbootstrap > 0) THEN
-        STOP "*** not implemented yet *** (consistency check with log-sum-exp is still missing)"
-!        probboot = 0.0d0
-!        DO nn=1,nbootstrap
-!          IF(verbose) WRITE(*,*) &
-!                " Bootstrapping, run ", nn
-!          ! rather than selecting nsel random points, we select a random 
-!          ! number of points from each voronoi. this makes it possible 
-!          ! to apply some simplifications and avoid computing distances 
-!          ! from far-away voronoi
-!          nbstot=0
-!          DO j=1,ngrid
-!            nbssample=random_binomial(nsamples, DBLE(nj(j))/DBLE(nsamples))
-!            nbstot = nbstot+nbssample
-!            DO i=1,ngrid     
-!              ! container for kernel estimate     
-!              ptmp=0.0d0
-!              ! renormalize the distance taking into accout the anisotropy of the multidimensional data
-!              dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-!              IF (dummd1.GT.36.0d0) THEN
-!                ! assume distribution in far away grid point is narrow
-!                ! and store sum of all contributions in grid point
-!                ! exponent of the gaussian        
-!                ! natural logarithm of kernel
-!                lnK(igrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(nbssample)            
-!              ELSE
-!              ! cycle just inside the polyhedra using the neighbour list
-!                DO k=1,nbssample
-!                  rndidx = int(nj(j)*random_uniform())+1
-!                  rndidx = nlist(pnlist(j)+rndidx)
-!                  ! self correction
-!                  IF ( rndidx.EQ.igrid(i) ) CYCLE
-!                  ! exponent of the gaussian    
-!                  dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
-!                  ! weighted natural logarithm of kernel
-!                  lnK(rndidx) = -0.5d0 * (normkernel(j) + dummd1) + LOG(wj(rndidx))    
-!                ENDDO 
-!              ENDIF
-!              ! find max value on logarithmic kernel
-!              dummd2 = MAXVAL(lnK)
-!              prob(i) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))
-!              
-!              
-!              probboot(i,nn) = probboot(i,nn) + ptmp
-!            ENDDO
-!          ENDDO
-!          probboot(:,nn) = probboot(:,nn)/nbstot
-!        ENDDO 
-!        prelerr = 0.0d0
-!        pabserr = 0.0d0
-!        DO i=1,ngrid
-!          pabserr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) )
-!          prelerr(i) = pabserr(i) / prob(i)
-!        ENDDO 
+        wi = LOG(wi)
+        wj = LOG(wj)
+        probboot = 0.0d0
+        DO nn=1,nbootstrap
+          IF(verbose) WRITE(*,*) &
+                " Bootstrapping, run ", nn
+          DO i=1,ngrid
+            ! setting lnK to the smallest possible number
+            lnK = -HUGE(0.0d0)
+            nbstot = 0
+            DO j=1,ngrid
+              ! rather than selecting nsel random points, we select a random 
+              ! number of points from each voronoi. this makes it possible 
+              ! to apply some simplifications and avoid computing distances 
+              ! from far-away voronoi
+              nbssample=random_binomial(nsamples, DBLE(nj(j))/DBLE(nsamples))
+              nbstot = nbstot+nbssample
+              ! renormalize the distance taking into accout 
+              ! anisotropy of the multidimensional data
+              dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
+              IF (dummd1.GT.36.0d0) THEN
+                lnK(idxgrid(j)) = -0.5d0 * (normkernel(j) + dummd1) + LOG(DBLE(nbssample))   
+              ELSE
+                DO k=1,nbssample
+                  rndidx = int(nj(j)*random_uniform())+1
+                  rndidx = nlist(pnlist(j)+rndidx)
+                  IF ( rndidx.EQ.idxgrid(i) ) CYCLE
+                  dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
+                  ! TODO: what happens if we have twice the same rndidx
+                  lnK(rndidx) = -0.5d0 * (normkernel(j) + dummd1) + wj(rndidx)
+                ENDDO 
+              ENDIF 
+            ENDDO
+            ! find max value on logarithmic kernel
+            dummd2 = MAXVAL(lnK)
+            probboot(i,nn) = dummd2 + LOG(SUM(EXP(lnK-dummd2)))-LOG(DBLE(nbstot))  
+          ENDDO
+        ENDDO
+        prelerr = 0.0d0
+        pabserr = 0.0d0
+        DO i=1,ngrid
+          pabserr(i) = DSQRT( SUM( (probboot(i,:) - prob(i))**2.0d0 ) / (nbootstrap-1.0d0) )
+          prelerr(i) = pabserr(i) / prob(i)
+        ENDDO 
+        wi = EXP(wi)
+        wj = EXP(wj)   
       ELSE
         DO i=1,ngrid  
+          ! TODO: is not numerically stable and needs to be overworked for log-exp-sum
           prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
                                 (twopi**(-Di(i)/2.0d0))/ &
                                  EXP(prob(i)) )-1.0d0)/normwj)
@@ -749,9 +616,8 @@
       ENDIF
 
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
-      
       maxrer=MAXVAL(prelerr)
-1111  idxroot=0
+      idxroot=0
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
@@ -769,15 +635,7 @@
                                          prob, &
                                          distmm, &
                                          y, &
-                                         lambda2)
-                                         
-!            idxroot(qspath(counter)) = qs_next( &   
-!                                         ngrid, &
-!                                         qspath(counter), &
-!                                         lambda2, &
-!                                         prob, &
-!                                         distmm)
-                    
+                                         lambda2)      
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -1043,13 +901,13 @@
       
       DEALLOCATE(x,wj,Di)
       DEALLOCATE(period)
-      DEALLOCATE(idxroot,qspath,distmm,igrid)
-      DEALLOCATE(pnlist,nlist,iminij,bigp)
+      DEALLOCATE(idxroot,qspath,distmm,idxgrid)
+      DEALLOCATE(pnlist,nlist,iminij)
       DEALLOCATE(y,nj,prob,lnK,sigma2,rgrid,wi)
-      DEALLOCATE(diff,msmu,tmpmsmu)
+      DEALLOCATE(msmu,tmpmsmu)
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
-      DEALLOCATE(dij,wQ,pk,tmps2)
-      DEALLOCATE(xtmp,xtmpw,wlocal,ineigh)
+      DEALLOCATE(dij,tmps2)
+      DEALLOCATE(wlocal,ineigh)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot,prelerr,pabserr)
 
@@ -1097,15 +955,10 @@
          WRITE(*,*) "   -savevoronois     : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
          WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
-         WRITE(*,*) "   -saveprobs        : Save the KDE estimation on a file"
-         WRITE(*,*) "   -readprobs        : Read the grid and the probabilities from the sdtin"
          WRITE(*,*) "   -readidxsgrid     : Read just the grid"
          WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [automatic] "
          WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
          WRITE(*,*) "                       write out the adjacency matrix [default: off] "
-         WRITE(*,*) "   -accurate         : Compute the covariances matrix from the entire dataset "
-         WRITE(*,*) "   -selfcorrection   : Remove the grid point from the samples when estimating "
-         WRITE(*,*) "                       the kde on itself "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
@@ -1142,21 +995,20 @@
          END IF
       END FUNCTION median
       
-      SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                                 y,nj,prob,lnK,probboot,idxroot,idcls,igrid,qspath, &
-                                 distmm, diff,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
-                                 xtmp,xtmpw,wlocal,ineigh,rgrid,sigma2,tmps2,Di)
+      SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
+                                 y,nj,prob,lnK,probboot,idxroot,idcls,idxgrid,qspath, &
+                                 distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
+                                 wi,Q,Qi,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij, &
+                                 wlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
-         LOGICAL, INTENT(IN) :: accurate
-         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,igrid,qspath
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,lnK,msmu,tmpmsmu,pk,bigp,wi,logdetHi
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wQ
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,dij,sigma2,rgrid,tmps2,Di
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,probboot
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,y,distmm
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,lnK,msmu,tmpmsmu,wi,logdetHi
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hinv,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv,Qiinv
          
          
@@ -1170,29 +1022,22 @@
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
          IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
-         IF (ALLOCATED(igrid))    DEALLOCATE(igrid)
+         IF (ALLOCATED(idxgrid))    DEALLOCATE(idxgrid)
          IF (ALLOCATED(distmm))     DEALLOCATE(distmm)
-         IF (ALLOCATED(diff))       DEALLOCATE(diff)
          IF (ALLOCATED(msmu))       DEALLOCATE(msmu)
          IF (ALLOCATED(tmpmsmu))    DEALLOCATE(tmpmsmu)
          IF (ALLOCATED(pabserr))    DEALLOCATE(pabserr)
          IF (ALLOCATED(prelerr))    DEALLOCATE(prelerr)
          IF (ALLOCATED(wi))         DEALLOCATE(wi)
          IF (ALLOCATED(normkernel)) DEALLOCATE(normkernel)
-         IF (ALLOCATED(bigp))       DEALLOCATE(bigp)
          IF (ALLOCATED(Q))          DEALLOCATE(Q)
          IF (ALLOCATED(Qi))         DEALLOCATE(Qi)
-         IF (ALLOCATED(Hmean))      DEALLOCATE(Hmean)
          IF (ALLOCATED(Hinv))       DEALLOCATE(Hinv)
          IF (ALLOCATED(logdetHi))   DEALLOCATE(logdetHi)
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
          IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
          IF (ALLOCATED(Qiinv))      DEALLOCATE(Qiinv)
          IF (ALLOCATED(dij))        DEALLOCATE(dij)
-         IF (ALLOCATED(pk))         DEALLOCATE(pk)
-         IF (ALLOCATED(wQ))         DEALLOCATE(wQ)
-         IF (ALLOCATED(xtmp))       DEALLOCATE(xtmp)
-         IF (ALLOCATED(xtmpw))      DEALLOCATE(xtmpw)
          IF (ALLOCATED(wlocal))     DEALLOCATE(wlocal)
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
          IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
@@ -1206,108 +1051,18 @@
          ALLOCATE(pnlist(ngrid+1), nlist(nsamples), lnK(nsamples))
          ALLOCATE(y(D,ngrid), nj(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
          ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
-         ALLOCATE(diff(D), msmu(D), tmpmsmu(D),logdetHi(ngrid))
-         ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),wi(ngrid),bigp(ngrid))
+         ALLOCATE(msmu(D), tmpmsmu(D),logdetHi(ngrid))
+         ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),wi(ngrid))
          ! bootstrap probability density array will be allocated if necessary
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
-         ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
+         ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hinv(D,D))
          ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid))
-         ALLOCATE(dij(D),pk(D),Di(ngrid))
-         ALLOCATE(wQ(nsamples),igrid(ngrid),tmps2(ngrid))
-         IF(accurate)THEN 
-            ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wlocal(nsamples))
-         ELSE
-            ALLOCATE(xtmp(D,ngrid),xtmpw(D,ngrid),wlocal(ngrid))
-         ENDIF
+         ALLOCATE(dij(D),Di(ngrid))
+         ALLOCATE(idxgrid(ngrid),tmps2(ngrid))
+         ALLOCATE(wlocal(ngrid))
          ALLOCATE(ineigh(ngrid))
       END SUBROUTINE allocatevectors
-      
-      SUBROUTINE allocatevectors2(D,nsamples,nbootstrap,ngrid,accurate,iminij,pnlist,nlist, &
-                                 nj,probboot,idxroot,idcls,igrid,qspath, &
-                                 distmm, diff,msmu,tmpmsmu,normkernel, &
-                                 wi,bigp,Q,Qi,Hmean,Hinv,logdetHi,Hi,Hiinv,Qiinv,dij,pk,wQ, &
-                                 xtmp,xtmpw,wlocal,ineigh,wj,sigma2,tmps2,Di)
-         INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
-         LOGICAL, INTENT(IN) :: accurate
-         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,igrid,qspath
-         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: msmu,tmpmsmu,pk,bigp,wi,logdetHi
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: normkernel,wlocal,wQ,wj
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: diff,dij,sigma2,tmps2,Di
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Hmean,Hinv,probboot
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: xtmp,xtmpw,distmm
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Qi,Hi,Hiinv,Qiinv
-         
-         
-         IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
-         IF (ALLOCATED(pnlist))     DEALLOCATE(pnlist)
-         IF (ALLOCATED(nlist))      DEALLOCATE(nlist)
-         IF (ALLOCATED(nj))         DEALLOCATE(nj)
-         IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
-         IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
-         IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
-         IF (ALLOCATED(igrid))    DEALLOCATE(igrid)
-         IF (ALLOCATED(distmm))     DEALLOCATE(distmm)
-         IF (ALLOCATED(diff))       DEALLOCATE(diff)
-         IF (ALLOCATED(msmu))       DEALLOCATE(msmu)
-         IF (ALLOCATED(tmpmsmu))    DEALLOCATE(tmpmsmu)
-         IF (ALLOCATED(wi))         DEALLOCATE(wi)
-         IF (ALLOCATED(normkernel)) DEALLOCATE(normkernel)
-         IF (ALLOCATED(bigp))       DEALLOCATE(bigp)
-         IF (ALLOCATED(Q))          DEALLOCATE(Q)
-         IF (ALLOCATED(Qi))         DEALLOCATE(Qi)
-         IF (ALLOCATED(Hmean))      DEALLOCATE(Hmean)
-         IF (ALLOCATED(Hinv))       DEALLOCATE(Hinv)
-         IF (ALLOCATED(logdetHi))   DEALLOCATE(logdetHi)
-         IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
-         IF (ALLOCATED(Hiinv))      DEALLOCATE(Hiinv)
-         IF (ALLOCATED(Qiinv))      DEALLOCATE(Qiinv)
-         IF (ALLOCATED(dij))        DEALLOCATE(dij)
-         IF (ALLOCATED(pk))         DEALLOCATE(pk)
-         IF (ALLOCATED(wQ))         DEALLOCATE(wQ)
-         IF (ALLOCATED(xtmp))       DEALLOCATE(xtmp)
-         IF (ALLOCATED(xtmpw))      DEALLOCATE(xtmpw)
-         IF (ALLOCATED(wlocal))     DEALLOCATE(wlocal)
-         IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
-         IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
-         IF (ALLOCATED(wj))         DEALLOCATE(wj)
-         IF (ALLOCATED(Di))         DEALLOCATE(Di)
-
-         
-         ! Initialize the arrays, since now I know the number of
-         ! points and the dimensionality
-         ALLOCATE(iminij(nsamples))
-         ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
-         ALLOCATE(nj(ngrid), sigma2(ngrid))
-         ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
-         ALLOCATE(diff(D), msmu(D), tmpmsmu(D))
-         ALLOCATE(normkernel(ngrid),wi(ngrid),bigp(ngrid))
-         ! bootstrap probability density array will be allocated if necessary
-         IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
-         ! Allocate variables for local bandwidth estimate
-         ALLOCATE(Q(D,D),Qi(D,D,ngrid),Hmean(D,D),Hinv(D,D))
-         ALLOCATE(Hi(D,D,ngrid),Hiinv(D,D,ngrid),Qiinv(D,D,ngrid))
-         ALLOCATE(dij(D),pk(D),tmps2(ngrid),Di(ngrid),logdetHi(ngrid))
-         ALLOCATE(wQ(nsamples),wj(nsamples),igrid(ngrid))
-         IF(accurate)THEN 
-            ALLOCATE(xtmp(D,nsamples),xtmpw(D,nsamples),wlocal(nsamples))
-         ELSE
-            ALLOCATE(xtmp(D,ngrid),xtmpw(D,ngrid),wlocal(ngrid))
-         ENDIF
-         ALLOCATE(ineigh(ngrid))
-      END SUBROUTINE allocatevectors2
-
-!      SUBROUTINE bhatta(D,N,xi,xj,Qi,Qj,dist)
-!         INTEGER, INTENT(IN) :: D
-!         DOUBLE PRECISION, INTENT(IN) :: xi(D),xi(D)
-!         DOUBLE PRECISION, INTENT(IN) :: Qi(D,D),Qj(D,D)
-!         DOUBLE PRECISION, INTENT(OUT) :: dist(N,N)
-!         
-!         DOUBLE PRECISION logdet(N)
-
-
-!      END SUBROUTINE distmat
 
       SUBROUTINE localization(D,period,N,s2,x,w,y,wl,num)
          INTEGER, INTENT(IN) :: D
@@ -1651,7 +1406,7 @@
       END SUBROUTINE readinputprobs
 
       SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,nj,iminij, &
-                        ineigh,wi,saveidx,igrid,ofile)
+                        ineigh,wi,saveidx,idxgrid,ofile)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          ! 
@@ -1675,7 +1430,7 @@
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi 
-         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: igrid
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: idxgrid
          CHARACTER(LEN=1024), INTENT(IN) :: ofile   
          LOGICAL, INTENT(IN) :: saveidx   
 
@@ -1687,7 +1442,7 @@
          nj=0
          ! choose randomly the first point
          irandom=int(RAND()*nsamples)
-         igrid(1)=irandom
+         idxgrid(1)=irandom
          IF(saveidx) THEN
             OPEN(UNIT=12,FILE=trim(ofile)//".idxs",STATUS='REPLACE',ACTION='WRITE')
             WRITE(12,"((I9))") irandom
@@ -1718,7 +1473,7 @@
             IF(saveidx) THEN
                WRITE(12,"((I9))") jmax
             ENDIF
-            igrid(i)=jmax
+            idxgrid(i)=jmax
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
          ENDDO
@@ -1748,7 +1503,7 @@
       END SUBROUTINE mkgrid
       
       SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij, &
-                         ineigh,wi,igrid)
+                         ineigh,wi,idxgrid)
          IMPLICIT NONE
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
@@ -1773,7 +1528,7 @@
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi   
-         INTEGER, DIMENSION(ngrid), INTENT(IN) :: igrid 
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: idxgrid 
 
          INTEGER i,j
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax, dneigh
@@ -1789,7 +1544,7 @@
             IF(modulo(i,1000).EQ.0) WRITE(*,*) i,"/",ngrid
             dmax = 0.0d0
             dneigh = 1.0d99
-            y(:,i)=x(:,igrid(i))
+            y(:,i)=x(:,idxgrid(i))
             DO j=1,nsamples
                dij = pammr2(D,period,y(:,i),x(:,j))
                IF (dminij(j)>dij) THEN
