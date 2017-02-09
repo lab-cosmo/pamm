@@ -70,7 +70,7 @@
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
       ! macrocluster
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl,clustercenters
       INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
       
       DOUBLE PRECISION normwj                                   ! accumulator for wj
@@ -608,37 +608,6 @@
                 ENDDO 
               ENDIF 
             ENDDO
-
-          
-            ! using the weights implicitly in nbssample
-!            nbssample = random_binomial(normwj, wi(j)/normwj)
-!            nbstot = nbstot+nbssample
-!            DO i=1,ngrid
-!              dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-!              IF (dummd1.GT.36.0d0) THEN
-!                lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(nbssample)   
-!                IF(probboot(i,nn).GT.lnK) THEN
-!                  probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
-!                ELSE
-!                  probboot(i,nn) = lnK + DLOG(1.0d0+DEXP(probboot(i,nn)-lnK))
-!                ENDIF
-!              ELSE
-!                DO k=1,nbssample
-!                  rndidx = int(nj(j)*random_uniform())+1
-!                  rndidx = nlist(pnlist(j)+rndidx)
-!                  IF ( rndidx.EQ.idxgrid(i) ) CYCLE
-!                  dummd1 = mahalanobis(D,period,y(:,i),x(:,rndidx),Hiinv(:,:,j)) 
-!                  lnK = -0.5d0 * (normkernel(j) + dummd1)
-!                  IF(probboot(i,nn).GT.lnK) THEN
-!                    probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
-!                  ELSE
-!                    probboot(i,nn) = lnK + DLOG(1.0d0+DEXP(probboot(i,nn)-lnK))
-!                  ENDIF
-!                ENDDO 
-!              ENDIF 
-!            ENDDO
-
-
           ENDDO
           probboot(:,nn) = probboot(:,nn)-DLOG(DBLE(nbstot))
         ENDDO
@@ -652,13 +621,17 @@
         ENDDO 
       ELSE
         DO i=1,ngrid  
-          prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
-                                (twopi**(-Di(i)/2.0d0))/ &
-                                 DEXP(prob(i)) )-1.0d0)/normwj)
+          ! get the log of the error
+          prelerr(i)=DLOG((sigma2(i)**(-Di(i)))*(twopi**(-Di(i)/2.0d0))/normwj) &
+                    -0.5d0*prob(i)
+          pabserr(i)=prelerr(i)+prob(i)
+          !prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
+                      !         (twopi**(-Di(i)/2.0d0))/ &
+                      !           DEXP(prob(i)) )-1.0d0)/normwj)
           ! I got here the relative error on Ni (point falling into the Voronoi i)
           ! that, propagating the error is equal to the relative error of prob(i).
           ! To get the absolute error we just need to do prelerr(i)*prob(i) 
-          pabserr(i)=prelerr(i)*DEXP(prob(i))
+          ! pabserr(i)=prelerr(i)*DEXP(prob(i))
         ENDDO
       ENDIF
 
@@ -692,41 +665,30 @@
             idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
          ENDDO
       ENDDO
-    
+
       IF(verbose) write(*,*) " Writing out"
-      qspath=0
-      qspath(1)=idxroot(1)
-      Nk=1
+      
+      CALL unique(ngrid,idxroot,clustercenters)
+      Nk=size(clustercenters)
+      
       normpks=0.0d0
       OPEN(UNIT=11,FILE=trim(outputfile)//".grid",STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
          ! write out the clusters
-         dummyi1=0
-         DO k=1,Nk
-            IF(idxroot(i).EQ.qspath(k))THEN
-               dummyi1=k
-               EXIT
-            ENDIF
-         ENDDO
-         IF(dummyi1.EQ.0)THEN
-            Nk=Nk+1
-            qspath(Nk)=idxroot(i)
-            dummyi1=Nk
-         ENDIF
-         idcls(i)=dummyi1 ! stores the cluster index
+         idcls(i)=MINLOC(ABS(clustercenters-idxroot(i)),1)
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
          !print out the squared absolute error
          WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
-                                              " " , dummyi1 ,   &
+                                              " " , idcls(i) ,   &
                                               " " , prob(i) ,   &
                                               " " , pabserr(i), &
                                               " " , prelerr(i), &
                                               " " , sigma2(i),  &
                                               " " , Di(i)
          ! accumulate the normalization factor for the pks
-         normpks=normpks+prob(i)
+         normpks=normpks+DEXP(prob(i))
       ENDDO
       CLOSE(UNIT=11)
       
@@ -735,6 +697,10 @@
       ! to count the number of occurences in an array 
       ! WRITE(*,*) COUNT(idxroot.EQ.5)
       ! 
+      ! to look for an element in an array
+      ! WRITE(*,*) idxroot
+      ! WHERE ((idxroot==53)) idxroot = 111111 
+      ! WRITE(*,*) idxroot
       ! builds the cluster adjacency matrix
       IF(saveadj)THEN
          IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
@@ -959,7 +925,7 @@
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
       DEALLOCATE(wlocal,ineigh)
-      DEALLOCATE(prelerr,pabserr)
+      DEALLOCATE(prelerr,pabserr,clustercenters)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot)
 
@@ -1022,7 +988,7 @@
          WRITE(*,*) "   -z zeta_factor    : Probabilities below this threshold are counted as 'no cluster' [default:0]"
          WRITE(*,*) ""
       END SUBROUTINE helpmessage
-      
+
       DOUBLE PRECISION FUNCTION median(ngrid,a)
          INTEGER, INTENT(IN) :: ngrid
          DOUBLE PRECISION, intent(in) :: a(ngrid)
