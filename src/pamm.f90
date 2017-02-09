@@ -927,13 +927,8 @@
       DEALLOCATE(msmu,tmpmsmu)
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
-<<<<<<< HEAD
       DEALLOCATE(wlocal,nlocal,ineigh)
       DEALLOCATE(prelerr,pabserr,clustercenters)
-=======
-      DEALLOCATE(wlocal,ineigh)
-      DEALLOCATE(prelerr,pabserr,clustercenters)
->>>>>>> 94aac3bdbd86fc61d5ee7dd8e6742efc324d910f
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot)
 
