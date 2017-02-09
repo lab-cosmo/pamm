@@ -46,6 +46,7 @@
       LOGICAL weighted                                          ! flag for using weigheted data
       LOGICAL isthere                                           ! ...
       LOGICAL savevor, saveadj, saveidxs, readgrid              ! additional IN/OUT logical flags
+      LOGICAL, ALLOCATABLE, DIMENSION(:) :: mergeornot
        
       INTEGER ccmd                                              ! Index used to control the PARSER input parameters
       INTEGER endf                                              ! end file state for reading in data from file
@@ -75,7 +76,7 @@
       
       DOUBLE PRECISION normwj                                   ! accumulator for wj
       DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
-      DOUBLE PRECISION linkel
+      DOUBLE PRECISION linkel,thrpcl
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points 
       DOUBLE PRECISION fspread                                     ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
@@ -128,6 +129,7 @@
       fpost = .false.
       alpha = 1.0d0
       zeta = 0.0d0
+      thrpcl = 0.0d0
       fpoints = 0.15d0       ! fraction of points to be used as standard
       fspread = -1.0d0          ! fraction of avg. variance to be used (default: off)
       ccmd = 0               ! no parameters specified
@@ -191,6 +193,8 @@
          ELSEIF (cmdbuffer == "-adj") THEN          ! do cluster merging using adjacency criterion
             saveadj= .TRUE.
             ccmd = 15
+         ELSEIF (cmdbuffer == "-merger") THEN       ! cluster with a pk loewr than this are merged with the NN 
+            ccmd = 16
          ELSEIF (cmdbuffer == "-w") THEN            ! use weights
             weighted = .TRUE.
          ELSEIF (cmdbuffer == "-v") THEN            ! verbosity flag
@@ -233,6 +237,8 @@
                READ(cmdbuffer,*) fspread
             ELSEIF (ccmd == 11) THEN                ! read fraction of points for bandwidth estimation
                READ(cmdbuffer,*) fpoints
+            ELSEIF (ccmd == 16) THEN
+               READ(cmdbuffer,*) thrpcl
             ELSEIF (ccmd == 12) THEN                ! read the periodicity in each dimension
                IF (D<0) STOP &
                  "Dimensionality (-d) must precede the periodic lenghts (-p). "
@@ -676,12 +682,51 @@
             idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
          ENDDO
       ENDDO
-
-      IF(verbose) write(*,*) " Writing out"
       
+      ! get the cluster centers
       CALL unique(ngrid,idxroot,clustercenters)
+      ! get the number of the clusters
       Nk=size(clustercenters)
-      normpks = -HUGE(0.0d0)
+      ! get sum of the probs, the normalization factor
+      normpks=logsumexp(ngrid,idxroot/idxroot,prob,1)
+      ! check if there are outliers that should be merged to the others
+      ALLOCATE(mergeornot(Nk))
+      DO k=1,Nk
+         ! compute the relative weight of the cluster
+         dummd1=DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
+         mergeornot(k)=dummd1.LT.thrpcl
+      ENDDO
+      ! merge the outliers
+      DO i=1,Nk
+        IF(.NOT.mergeornot(i)) CYCLE
+        dummyi1=clustercenters(i)
+        dummd1=HUGE(0.0d0) 
+        DO j=1,Nk
+          IF(mergeornot(j)) CYCLE
+          ! decomment to use the mahalanobis
+          dummd2=pammr2(D,period,y(:,idxroot(dummyi1)),&
+                          y(:,idxroot(clustercenters(j))))
+          IF(dummd2.LT.dummd1) THEN
+             dummd1=dummd2
+             clustercenters(i)=clustercenters(j)
+          ENDIF
+        ENDDO 
+        WHERE(idxroot.EQ.dummyi1) idxroot=clustercenters(i)
+      ENDDO
+      
+      IF(COUNT(mergeornot).GT.0)THEN
+         DEALLOCATE(clustercenters)
+         ! get the new cluster centers
+         CALL unique(ngrid,idxroot,clustercenters)
+         IF(verbose) WRITE(*,*) Nk-size(clustercenters), &
+                " clusters where merged into other clusters"
+         Nk=size(clustercenters)
+         
+         ! TODO: check if the cluster center is still the highest point
+         ! in the cluster
+      ENDIF
+      
+      IF(verbose) write(*,*) "Writing out"
       OPEN(UNIT=11,FILE=trim(outputfile)//".grid",STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
          ! write out the clusters
@@ -698,30 +743,10 @@
                                               " " , sigma2(i),  &
                                               " " , nlocal(i),  &
                                               " " , Di(i)
-         ! get the weights of the cluster
-         ! using the log-sum-exp trick
-         IF(normpks.GT.prob(i)) THEN
-            normpks = normpks + DLOG(1.0d0+DEXP(prob(i)-normpks))
-         ELSE
-            normpks = prob(i) + DLOG(1.0d0+DEXP(normpks-prob(i)))
-         ENDIF
       ENDDO
+      
       CLOSE(UNIT=11)
       
-      ! get the weights of the cluster
-      ! using the log-sum-exp trick
-      
-      
-      ! TO GET THE UNIQUE VALUES IN idxroot
-      ! call unique...
-      ! to count the number of occurences in an array 
-      ! WRITE(*,*) COUNT(idxroot.EQ.5)
-      ! 
-      ! to look for an element in an array
-      ! WRITE(*,*) idxroot
-      ! WHERE ((idxroot==53)) idxroot = 111111 
-      ! WRITE(*,*) idxroot
-      ! builds the cluster adjacency matrix
       IF(saveadj)THEN
          IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
          ALLOCATE(clsadj(Nk, Nk),clsadjel(Nk, Nk))
@@ -946,7 +971,7 @@
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
       DEALLOCATE(wlocal,nlocal,ineigh)
-      DEALLOCATE(prelerr,pabserr,clustercenters)
+      DEALLOCATE(prelerr,pabserr,clustercenters,mergeornot)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot)
 
@@ -998,6 +1023,8 @@
          WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [automatic] "
          WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
          WRITE(*,*) "                       write out the adjacency matrix [default: off] "
+         WRITE(*,*) "   -merger threshold : probability threshold below which a cluster should be merged "
+         WRITE(*,*) "                       to the closest neighbour [default: 0] "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
