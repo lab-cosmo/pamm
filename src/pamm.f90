@@ -681,8 +681,7 @@
       
       CALL unique(ngrid,idxroot,clustercenters)
       Nk=size(clustercenters)
-      
-      normpks=0.0d0
+      normpks = -HUGE(0.0d0)
       OPEN(UNIT=11,FILE=trim(outputfile)//".grid",STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
          ! write out the clusters
@@ -699,10 +698,19 @@
                                               " " , sigma2(i),  &
                                               " " , nlocal(i),  &
                                               " " , Di(i)
-         ! accumulate the normalization factor for the pks
-         normpks=normpks+DEXP(prob(i))
+         ! get the weights of the cluster
+         ! using the log-sum-exp trick
+         IF(normpks.GT.prob(i)) THEN
+            normpks = normpks + DLOG(1.0d0+DEXP(prob(i)-normpks))
+         ELSE
+            normpks = prob(i) + DLOG(1.0d0+DEXP(normpks-prob(i)))
+         ENDIF
       ENDDO
       CLOSE(UNIT=11)
+      
+      ! get the weights of the cluster
+      ! using the log-sum-exp trick
+      
       
       ! TO GET THE UNIQUE VALUES IN idxroot
       ! call unique...
@@ -1000,13 +1008,40 @@
          WRITE(*,*) "   -z zeta_factor    : Probabilities below this threshold are counted as 'no cluster' [default:0]"
          WRITE(*,*) ""
       END SUBROUTINE helpmessage
-
+      
+      DOUBLE PRECISION FUNCTION logsumexp(ngrid,v1,prob,clusterid)
+         INTEGER, INTENT(IN) :: ngrid,v1(ngrid),clusterid
+         DOUBLE PRECISION, INTENT(IN) :: prob(ngrid)
+         
+         INTEGER ii
+         DOUBLE PRECISION :: tmpv(ngrid)
+         
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         tmpv = prob
+         WHERE (v1 .EQ. clusterid)
+            tmpv = prob
+         ELSEWHERE
+            tmpv = -HUGE(0.0)
+         END WHERE
+         ! do log-sum-exp trick
+         logsumexp = -HUGE(0.0)
+         DO ii=1,ngrid
+            IF(prob(ii).EQ.-HUGE(0.0)) CYCLE
+            IF(logsumexp.GT.tmpv(ii)) THEN
+               logsumexp = logsumexp + DLOG(1.0d0+DEXP(tmpv(ii)-logsumexp))
+            ELSE
+               logsumexp = tmpv(ii) + DLOG(1.0d0+DEXP(logsumexp-tmpv(ii)))
+            ENDIF
+         ENDDO
+      END FUNCTION logsumexp
+      
       DOUBLE PRECISION FUNCTION median(ngrid,a)
          INTEGER, INTENT(IN) :: ngrid
-         DOUBLE PRECISION, intent(in) :: a(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: a(ngrid)
          
          INTEGER :: l
-         DOUBLE PRECISION, dimension(size(a,1)) :: ac
+         DOUBLE PRECISION, DIMENSION(SIZE(a,1)) :: ac
          
          IF ( SIZE(a,1) < 1 ) THEN
          ELSE
