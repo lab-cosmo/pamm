@@ -874,11 +874,10 @@
          ENDIF
          
          tmppks=0.0d0
-         
+ !!!!! TODO: DO PROPERLY THE COVARIANCE!
+ !!!!! REMEMBER THAT WE ARE USING LOG(Pi) NOW!        
          DO i=1,ngrid
             IF(idxroot(i).NE.qspath(k)) CYCLE
-            !! TODO : compute the covariance from the initial samples
-            ! use the routine covariance(D,nsamples,nlocal,wlocal,x,Qi)
             tmppks=tmppks+prob(i)
             dij=0.0d0
             IF(periodic)THEN
@@ -899,14 +898,16 @@
                ENDDO
             ENDDO
          ENDDO
-         
+          
          IF(periodic)THEN
             vmclusters(k)%cov=vmclusters(k)%cov/tmppks
-            vmclusters(k)%weight=tmppks/normpks
+            vmclusters(k)%weight= &
+             DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             vmclusters(k)%D=D
          ELSE
             clusters(k)%cov=clusters(k)%cov/tmppks
-            clusters(k)%weight=tmppks/normpks
+            clusters(k)%weight=&
+             DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             clusters(k)%D=D
          ENDIF
       ENDDO
