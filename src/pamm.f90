@@ -70,7 +70,7 @@
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
       ! macrocluster
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl,clustercenters
       INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
       
       DOUBLE PRECISION normwj                                   ! accumulator for wj
@@ -115,7 +115,7 @@
       
       ! heavy bandwidth matrix for kernel density estimation
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hiinv ! inversed bandwidth matrices
-    
+
       ! Array of Von Mises distributions
       TYPE(vm_type), ALLOCATABLE, DIMENSION(:) :: vmclusters
       ! Array of Gaussians containing the gaussians parameters
@@ -623,13 +623,17 @@
         ENDDO 
       ELSE
         DO i=1,ngrid  
-          prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
-                                (twopi**(-Di(i)/2.0d0))/ &
-                                 DEXP(prob(i)) )-1.0d0)/normwj)
+          ! get the log of the error
+          prelerr(i)=DLOG((sigma2(i)**(-Di(i)))*(twopi**(-Di(i)/2.0d0))/normwj) &
+                    -0.5d0*prob(i)
+          pabserr(i)=prelerr(i)+prob(i)
+          !prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
+                      !         (twopi**(-Di(i)/2.0d0))/ &
+                      !           DEXP(prob(i)) )-1.0d0)/normwj)
           ! I got here the relative error on Ni (point falling into the Voronoi i)
           ! that, propagating the error is equal to the relative error of prob(i).
           ! To get the absolute error we just need to do prelerr(i)*prob(i) 
-          pabserr(i)=prelerr(i)*DEXP(prob(i))
+          ! pabserr(i)=prelerr(i)*DEXP(prob(i))
         ENDDO
       ENDIF
 
@@ -663,34 +667,23 @@
             idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
          ENDDO
       ENDDO
-      
+
       IF(verbose) write(*,*) " Writing out"
-      qspath=0
-      qspath(1)=idxroot(1)
-      Nk=1
+      
+      CALL unique(ngrid,idxroot,clustercenters)
+      Nk=size(clustercenters)
+      
       normpks=0.0d0
       OPEN(UNIT=11,FILE=trim(outputfile)//".grid",STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
          ! write out the clusters
-         dummyi1=0
-         DO k=1,Nk
-            IF(idxroot(i).EQ.qspath(k))THEN
-               dummyi1=k
-               EXIT
-            ENDIF
-         ENDDO
-         IF(dummyi1.EQ.0)THEN
-            Nk=Nk+1
-            qspath(Nk)=idxroot(i)
-            dummyi1=Nk
-         ENDIF
-         idcls(i)=dummyi1 ! stores the cluster index
+         idcls(i)=MINLOC(ABS(clustercenters-idxroot(i)),1)
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
          !print out grid file with additional information on probability, errors, localization and dim
          WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
-                                              " " , dummyi1 ,   &
+                                              " " , idcls(i) ,   &
                                               " " , prob(i) ,   &
                                               " " , pabserr(i), &
                                               " " , prelerr(i), &
@@ -698,10 +691,19 @@
                                               " " , nlocal(i),  &
                                               " " , Di(i)
          ! accumulate the normalization factor for the pks
-         normpks=normpks+prob(i)
+         normpks=normpks+DEXP(prob(i))
       ENDDO
       CLOSE(UNIT=11)
       
+      ! TO GET THE UNIQUE VALUES IN idxroot
+      ! call unique...
+      ! to count the number of occurences in an array 
+      ! WRITE(*,*) COUNT(idxroot.EQ.5)
+      ! 
+      ! to look for an element in an array
+      ! WRITE(*,*) idxroot
+      ! WHERE ((idxroot==53)) idxroot = 111111 
+      ! WRITE(*,*) idxroot
       ! builds the cluster adjacency matrix
       IF(saveadj)THEN
          IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
@@ -925,8 +927,13 @@
       DEALLOCATE(msmu,tmpmsmu)
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
+<<<<<<< HEAD
       DEALLOCATE(wlocal,nlocal,ineigh)
-      DEALLOCATE(prelerr,pabserr)
+      DEALLOCATE(prelerr,pabserr,clustercenters)
+=======
+      DEALLOCATE(wlocal,ineigh)
+      DEALLOCATE(prelerr,pabserr,clustercenters)
+>>>>>>> 94aac3bdbd86fc61d5ee7dd8e6742efc324d910f
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot)
 
@@ -989,7 +996,7 @@
          WRITE(*,*) "   -z zeta_factor    : Probabilities below this threshold are counted as 'no cluster' [default:0]"
          WRITE(*,*) ""
       END SUBROUTINE helpmessage
-      
+
       DOUBLE PRECISION FUNCTION median(ngrid,a)
          INTEGER, INTENT(IN) :: ngrid
          DOUBLE PRECISION, intent(in) :: a(ngrid)
@@ -1151,6 +1158,30 @@
          aa = bb
          bb = temp
       END SUBROUTINE swapi
+      
+      SUBROUTINE unique(ns,vin,vout)
+        INTEGER, INTENT(IN) :: ns
+        INTEGER, DIMENSION(:), INTENT(IN) :: vin
+        INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: vout
+        INTEGER :: kk,ii,jj,zz(ns)
+        kk = 1
+        zz(1) = vin(1)
+        outer: do ii=2,ns
+          do jj=1,k
+            if (zz(jj) == vin(ii)) then
+              ! Found a match so start looking again
+              cycle outer
+            end if
+          end do
+          ! No match found so add it to the output
+          kk = kk + 1
+          zz(kk) = vin(ii)
+        end do outer
+        
+        IF (ALLOCATED(vout)) DEALLOCATE(vout)
+        ALLOCATE(vout(kk))
+        vout(1:kk)=zz(1:kk)
+      END SUBROUTINE unique
       
       SUBROUTINE sort(x, nn)
          ! This subroutine receives an array x() and sorts it into ascending order.
