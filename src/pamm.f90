@@ -623,9 +623,18 @@
         ENDDO 
       ELSE
         DO i=1,ngrid  
-          ! get the log of the error
-          prelerr(i)=DLOG((sigma2(i)**(-Di(i)))*(twopi**(-Di(i)/2.0d0))/normwj) &
+          prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
+                                (twopi**(-Di(i)/2.0d0))/ &
+                                 DEXP(prob(i)) )-1.0d0)/normwj)
+          IF(prelerr(i) .NE. prelerr(i))THEN
+            ! if we get a NaN then we compute directly the log of the relativer error
+            ! using a first order exapansion
+            prelerr(i)=DLOG((sigma2(i)**(-Di(i)))*(twopi**(-Di(i)/2.0d0))/normwj) &
                     -0.5d0*prob(i)
+          ELSE
+            prelerr(i)=DLOG(prelerr(i))
+          ENDIF 
+          
           pabserr(i)=prelerr(i)+prob(i)
           !prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
                       !         (twopi**(-Di(i)/2.0d0))/ &
