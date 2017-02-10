@@ -15,13 +15,13 @@ if len(sys.argv) < 2:
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
-    if s == '-d'  : D       = int(sys.argv[i+1])
-    if s == '-t'  : thresh  = float(sys.argv[i+1])
-    if s == '-e ' : errflag = True
-    if s == '-l'  : logflag = False
-    if s == '-adj': saveadj = True
-    if s == '-v'  : verbose = True
-    if s == '-h'  : 
+    if   s == '-d'  : D       = int(sys.argv[i+1])
+    elif s == '-t'  : thresh  = float(sys.argv[i+1])
+    elif s == '-e ' : errflag = True
+    elif s == '-l'  : logflag = False
+    elif s == '-adj': saveadj = True
+    elif s == '-v'  : verbose = True
+    elif s == '-h'  : 
       print "usage: merge -d dim [-t] [-v] [-h] grid"
       print " -d dim        : dimensionality"
       print " -t thresh     : threshold to merge cluster [0.9]"
@@ -31,6 +31,8 @@ else:
       print " -v            : turn verbosity on [false]"
       print " -h            : show this message"
       sys.exit()
+#    else:
+#      sys.exit("unrecognized input")
 
 print "                                            " 
 print " ****************************************** "

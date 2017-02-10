@@ -617,9 +617,18 @@
         prelerr = 0.0d0
         pabserr = 0.0d0
         DO i=1,ngrid
-          pabserr(i) = DSQRT( SUM( (DEXP(probboot(i,:)) - DEXP(prob(i)))**2.0d0 ) / (nbootstrap-1.0d0) )
-          prelerr(i) = pabserr(i) / DEXP(prob(i))
+          ! use approximation to get numerical stable bootstrap error from logarithmic probabilities
+          DO j=1,nbootstrap
+            dummd1 = 0.0d0
+            DO k=1,100
+              dummd1 = dummd1 + (probboot(i,j)**k - prob(i)**k)/factorial(k)
+            ENDDO
+            pabserr(i) = pabserr(i) + dummd1**2
+          ENDDO
+          prelerr(i) = DSQRT( SUM( (DEXP(probboot(i,:)) - DEXP(prob(i)))**2.0d0 ) / (nbootstrap-1.0d0))
         ENDDO 
+        pabserr = DSQRT(pabserr / (nbootstrap-1.0d0))
+        !prelerr = pabserr / DEXP(prob)
       ELSE
         DO i=1,ngrid  
           prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
