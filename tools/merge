@@ -28,11 +28,12 @@ try:
         pass
 except IOError as e:
     print "ERROR: Unable to open file"
-    
+gridfile = sys.argv[-1]
 
-print "                                  "
+print "        ******************        "
 print "        *** PAMM Tools ***        "
-print "                                  "
+print "        ******************        "
+print "                                  "   
 print " cluster merging                  "
 print "                                  "
 print " version: 1.0                     "
@@ -41,7 +42,7 @@ print " author : robert.meissner@epfl.ch "
 print "                                  "    
    
 
-data = loadtxt(sys.argv[-1])
+data = loadtxt(gridfile)
 
 X    = data[:,:D]
 cid  = array(map(int,data[:,D]))
@@ -95,7 +96,10 @@ if verbose: print " finding macrocluster"
 # get macrocluster ids
 Nm, m = connected_components(adj)
 
-# print out macrocluster
-for i in range(Nm):
-    cc = uc[m==i]
-    print " %d%s" % (i+1, ' '.join(map(str,cc)))
+# write macrocluster to file
+if gridfile[-4:] == 'grid': macrofile = gridfile[:-4] + 'macro'
+else : macrofile = 'macro'
+f = open(macrofile,'w')
+for i,c in enumerate(uc):
+  f.write("%d %d\n" % (c,m[i]+1))
+f.close()
