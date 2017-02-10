@@ -44,8 +44,8 @@
       LOGICAL verbose                                           ! flag for verbosity
       LOGICAL fpost                                             ! flag for postprocessing
       LOGICAL weighted                                          ! flag for using weigheted data
-      LOGICAL isthere                                           ! ...
       LOGICAL savevor, saveadj, saveidxs, readgrid              ! additional IN/OUT logical flags
+      LOGICAL, ALLOCATABLE, DIMENSION(:) :: mergeornot
        
       INTEGER ccmd                                              ! Index used to control the PARSER input parameters
       INTEGER endf                                              ! end file state for reading in data from file
@@ -61,21 +61,21 @@
       INTEGER nbssample                                         ! number of sample points used for voronoi in bootstrap
       INTEGER nbstot                                            ! accumulator for nbssample
       INTEGER isep1, isep2, par_count                           ! temporary indices for parsing command line arguments
-      INTEGER i,j,jmax,k,ii,jj,nn,counter                       ! counters
+      INTEGER i,j,jmax,k,nn,counter                             ! counters
       INTEGER dummyi1                                           ! dummy variables
 
       ! neighbor list number of points in voronoi, voronoi 
       ! association, pointer, ..., sample point index of grid point
       INTEGER, ALLOCATABLE, DIMENSION(:) :: nj, iminij, pnlist, nlist, idxgrid
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, idcls, qspath
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, qspath
       ! macrocluster
       INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl,clustercenters
       INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
       
       DOUBLE PRECISION normwj                                   ! accumulator for wj
       DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
-      DOUBLE PRECISION linkel
+      DOUBLE PRECISION thrpcl                                   ! parmeter controlling the merging of the outlier clusters
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points 
       DOUBLE PRECISION fspread                                     ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
@@ -109,9 +109,6 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qi       ! local covariance matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qiinv    ! inversed local covariance matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Hi       ! bandwidth matrix
-
-      ! cluster connectivity matrix
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: clsadj, clsadjel
       
       ! heavy bandwidth matrix for kernel density estimation
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:) :: Hiinv ! inversed bandwidth matrices
@@ -128,6 +125,7 @@
       fpost = .false.
       alpha = 1.0d0
       zeta = 0.0d0
+      thrpcl = 0.0d0
       fpoints = 0.15d0       ! fraction of points to be used as standard
       fspread = -1.0d0          ! fraction of avg. variance to be used (default: off)
       ccmd = 0               ! no parameters specified
@@ -183,7 +181,7 @@
             ccmd = 13
          ELSEIF (cmdbuffer == "-saveidxs") THEN     ! save the indices of grid points
             saveidxs= .TRUE.
-         ELSEIF (cmdbuffer == "-readidxsgrid") THEN ! read the grid points from the standard input
+         ELSEIF (cmdbuffer == "-grididxs") THEN ! read the grid points from the standard input
             readgrid= .TRUE.
             ccmd = 14
          ELSEIF (cmdbuffer == "-savevoronois") THEN ! save the Voronoi associations
@@ -191,6 +189,8 @@
          ELSEIF (cmdbuffer == "-adj") THEN          ! do cluster merging using adjacency criterion
             saveadj= .TRUE.
             ccmd = 15
+         ELSEIF (cmdbuffer == "-merger") THEN       ! cluster with a pk loewr than this are merged with the NN 
+            ccmd = 16
          ELSEIF (cmdbuffer == "-w") THEN            ! use weights
             weighted = .TRUE.
          ELSEIF (cmdbuffer == "-v") THEN            ! verbosity flag
@@ -233,6 +233,8 @@
                READ(cmdbuffer,*) fspread
             ELSEIF (ccmd == 11) THEN                ! read fraction of points for bandwidth estimation
                READ(cmdbuffer,*) fpoints
+            ELSEIF (ccmd == 16) THEN
+               READ(cmdbuffer,*) thrpcl
             ELSEIF (ccmd == 12) THEN                ! read the periodicity in each dimension
                IF (D<0) STOP &
                  "Dimensionality (-d) must precede the periodic lenghts (-p). "
@@ -366,7 +368,7 @@
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                           y,nj,prob,probboot,idxroot,idcls,idxgrid,qspath, &
+                           y,nj,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -518,9 +520,6 @@
       !       (2) using gaussians for periodic data 
       !           a Gaussian distribution is approximately a van Mises distribution
       !           if van Mises kernel is sufficiently small ...
-      !       (3) These routines should be subfunctions
-      ! logarithmic kernel density estimate
-      ! using log-sum-exp formula (see numerical recipies)
       
       ! setting initial probability to the smallest possible value
       prob = -HUGE(0.0d0)
@@ -636,13 +635,6 @@
           ENDIF 
           
           pabserr(i)=prelerr(i)+prob(i)
-          !prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
-                      !         (twopi**(-Di(i)/2.0d0))/ &
-                      !           DEXP(prob(i)) )-1.0d0)/normwj)
-          ! I got here the relative error on Ni (point falling into the Voronoi i)
-          ! that, propagating the error is equal to the relative error of prob(i).
-          ! To get the absolute error we just need to do prelerr(i)*prob(i) 
-          ! pabserr(i)=prelerr(i)*DEXP(prob(i))
         ENDDO
       ENDIF
 
@@ -676,137 +668,71 @@
             idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
          ENDDO
       ENDDO
-
-      IF(verbose) write(*,*) " Writing out"
       
+      ! get the cluster centers
       CALL unique(ngrid,idxroot,clustercenters)
+      ! get the number of the clusters
       Nk=size(clustercenters)
+      ! get sum of the probs, the normalization factor
+      normpks=logsumexp(ngrid,idxroot/idxroot,prob,1)
+      ! check if there are outliers that should be merged to the others
+      ALLOCATE(mergeornot(Nk))
+      DO k=1,Nk
+         ! compute the relative weight of the cluster
+         dummd1=DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
+         mergeornot(k)=dummd1.LT.thrpcl
+      ENDDO
+      ! merge the outliers
+      DO i=1,Nk
+        IF(.NOT.mergeornot(i)) CYCLE
+        dummyi1=clustercenters(i)
+        dummd1=HUGE(0.0d0) 
+        DO j=1,Nk
+          IF(mergeornot(j)) CYCLE
+          ! the mahalanobis does strange things. Let's use the L2norm.
+          dummd2=pammr2(D,period,y(:,idxroot(dummyi1)),&
+                          y(:,idxroot(clustercenters(j))))
+          IF(dummd2.LT.dummd1) THEN
+             dummd1=dummd2
+             clustercenters(i)=clustercenters(j)
+          ENDIF
+        ENDDO 
+        WHERE(idxroot.EQ.dummyi1) idxroot=clustercenters(i)
+      ENDDO
+      IF(COUNT(mergeornot).GT.0)THEN
+         DEALLOCATE(clustercenters)
+         ! get the new cluster centers
+         CALL unique(ngrid,idxroot,clustercenters)
+         IF(verbose) WRITE(*,*) Nk-size(clustercenters), &
+                " clusters where merged into other clusters"
+         Nk=size(clustercenters)
+         ! get the real maxima in the cluster, considering the errorbar
+         DO i=1,Nk
+            dummyi1=clustercenters(i)
+            clustercenters(i) = getidmax(ngrid,idxroot,prob,pabserr,clustercenters(i))
+            ! reassign the proper cluster root to each cluster points
+            WHERE(idxroot.EQ.dummyi1) idxroot=clustercenters(i)
+         ENDDO
+      ENDIF
       
-      normpks=0.0d0
+      IF(verbose) write(*,*) "Writing out"
       OPEN(UNIT=11,FILE=trim(outputfile)//".grid",STATUS='REPLACE',ACTION='WRITE')
       DO i=1,ngrid
-         ! write out the clusters
-         idcls(i)=MINLOC(ABS(clustercenters-idxroot(i)),1)
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
          !print out grid file with additional information on probability, errors, localization and dim
          WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
-                                              " " , idcls(i) ,   &
+             " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,   &
                                               " " , prob(i) ,   &
                                               " " , pabserr(i), &
                                               " " , prelerr(i), &
                                               " " , sigma2(i),  &
                                               " " , nlocal(i),  &
                                               " " , Di(i)
-         ! accumulate the normalization factor for the pks
-         normpks=normpks+DEXP(prob(i))
       ENDDO
+      
       CLOSE(UNIT=11)
-      
-      ! TO GET THE UNIQUE VALUES IN idxroot
-      ! call unique...
-      ! to count the number of occurences in an array 
-      ! WRITE(*,*) COUNT(idxroot.EQ.5)
-      ! 
-      ! to look for an element in an array
-      ! WRITE(*,*) idxroot
-      ! WHERE ((idxroot==53)) idxroot = 111111 
-      ! WRITE(*,*) idxroot
-      ! builds the cluster adjacency matrix
-      IF(saveadj)THEN
-         IF (verbose) WRITE(*,*) "Building cluster adjacency matrix"
-         ALLOCATE(clsadj(Nk, Nk),clsadjel(Nk, Nk))
-         ALLOCATE(macrocl(Nk))
-         clsadj   = 0.0d0
-         clsadjel = 0.0d0
-
-         DO i=1, Nk
-            IF(verbose .AND. (modulo(i,10).EQ.0)) WRITE(*,*) i,"/",Nk
-            ! initialize each cluster to itself in the macrocluster assignation 
-            macrocl(i)=i
-            DO j=1,i-1
-                clsadj(i,j) = cls_link(ngrid, idcls, distmm, prob, rgrid, i, j, &
-                                       pabserr, linkel)
-                clsadj(j,i) = clsadj(i,j)
-                ! adjacency without considering the error
-                clsadjel(i,j) = linkel
-                clsadjel(j,i) = linkel
-            ENDDO
-         ENDDO
-         
-         OPEN(UNIT=11,FILE=trim(outputfile)//".adj",STATUS='REPLACE',ACTION='WRITE')
-         OPEN(UNIT=12,FILE=trim(outputfile)//".adjel",STATUS='REPLACE',ACTION='WRITE')
-         DO i=1, Nk
-             DO j=1, Nk
-                 WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadj(i,j)
-                 WRITE(12,"((A1,ES15.4E4))",ADVANCE = "NO") " ", clsadjel(i,j)
-             ENDDO
-             WRITE(11,*) ""
-             WRITE(12,*) ""
-         ENDDO
-         CLOSE(11)
-         CLOSE(12)
-
-      
-         ! Let's print out the macroclusters
-         DO i=1, Nk
-            DO j=1, Nk
-               ! Put a threshold under which there is no link between the clusters
-               ! now it is just a default
-               IF(i.EQ.j) CYCLE ! discard yourself
-               IF(clsadjel(i,j) .GT. thrmerg) THEN 
-                  IF(macrocl(j).EQ.j) THEN
-                     ! the point is still initialized to himself 
-                     macrocl(j)=macrocl(i)
-                  ELSE
-                     ! it was already assigned
-                     ! lets change also all the values that I may have changed before
-                     DO k=1,j-1
-                       IF(k.EQ.i) CYCLE ! I'll fix it later 
-                       IF(macrocl(k).EQ.macrocl(i)) macrocl(k)=macrocl(j)
-                     ENDDO
-                     macrocl(i)=macrocl(j)
-                  ENDIF
-                  
-               ENDIF
-            ENDDO
-         ENDDO
-
-         ! Count unique macroclusters and order them
-         ALLOCATE(sortmacrocl(Nk))
-         sortmacrocl=0
-         dummyi1=0
-         DO i=1, Nk
-           isthere=.false.
-           DO j=1, Nk
-              IF( (.NOT.(sortmacrocl(j).EQ.0)) .AND. (macrocl(i).EQ.j)) THEN
-                 ! position j has already been set to something 
-                 ! and the value at the jth position corrispond to my cluster idx
-                 isthere=.true.
-                 macrocl(i)=sortmacrocl(macrocl(i))
-                 EXIT
-              ENDIF 
-           ENDDO
-           IF(.NOT. isthere) THEN
-              dummyi1=dummyi1+1
-              ! increase the number of macroclusters found
-              sortmacrocl(macrocl(i))=dummyi1
-              ! rewrite the macrocluster assignation with a proper index
-              macrocl(i)=sortmacrocl(macrocl(i))
-           ENDIF
-         ENDDO
-      
-         IF (verbose) WRITE(6,"((A6,I7,A15))") " Found ",dummyi1," macroclusters."
-         OPEN(UNIT=11,FILE=trim(outputfile)//".macrogrid",STATUS='REPLACE',ACTION='WRITE')
-         DO i=1,ngrid
-            DO j=1,D
-              WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
-            ENDDO
-            WRITE(11,"(A1,I4,A1,I4)") " ", idcls(i) , " ", macrocl(idcls(i))
-         ENDDO
-         CLOSE(UNIT=11)
-      ENDIF
       
       ! now we can procede and complete the definition of probability model
       ! now qspath contains the indexes of Nk gaussians
@@ -823,82 +749,75 @@
             ALLOCATE(vmclusters(k)%icov(D,D))
             ALLOCATE(vmclusters(k)%period(D))
             vmclusters(k)%period=period
-            vmclusters(k)%mean=y(:,qspath(k))
+            vmclusters(k)%mean=y(:,clustercenters(k))
          ELSE
             ALLOCATE(clusters(k)%mean(D))
             ALLOCATE(clusters(k)%cov(D,D))
             ALLOCATE(clusters(k)%icov(D,D))
-            clusters(k)%mean=y(:,qspath(k))
+            clusters(k)%mean=y(:,clustercenters(k))
          ENDIF
+         
          ! optionally do a few mean-shift steps to find a better estimate 
          ! of the cluster mode
+         
+              dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
+              ! weighted natural logarithm of kernel
+              lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
+              IF(prob(i).GT.lnK) THEN
+                prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
+              ELSE
+                prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
+              ENDIF 
+         
+         
          DO j=1,nmsopt
             msmu=0.0d0
-            tmppks=0.0d0
+            tmppks=-HUGE(0.0d0)
             
             DO i=1,ngrid
-               ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
-               ! TODO: has to be adapted for mahalanobis distances ...
-               IF(periodic)THEN
-                  msw = prob(i)*DEXP(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(qscut2/16.0d0))
-                  CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
-               ELSE
-                  msw = prob(i)*DEXP(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(qscut2/16.0d0))
-                  CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
-               ENDIF
+               dummd1 = mahalanobis(D,period,y(:,i),y(:,clustercenters(k)),&
+                                    Hiinv(:,:,clustercenters(k))) 
+               msw = -0.5d0 * (normkernel(clustercenters(k)) + dummd1) + prob(i)
+               CALL pammrij(D,period,y(:,i),y(:,clustercenters(k)),tmpmsmu)
                
-               msmu = msmu + msw*tmpmsmu
-               tmppks = tmppks + msw
+               msmu = msmu + DEXP(msw)*tmpmsmu
+               
+               ! log-sum-exp
+               IF(tmppks.GT.msw) THEN
+                tmppks = tmppks + DLOG(1.0d0+DEXP(msw-tmppks))
+               ELSE
+                tmppks = msw + DLOG(1.0d0+DEXP(tmppks-msw))
+               ENDIF 
             ENDDO
             
             IF(periodic)THEN
-               vmclusters(k)%mean = vmclusters(k)%mean + msmu / tmppks
+               vmclusters(k)%mean = vmclusters(k)%mean + msmu / DEXP(tmppks)
             ELSE
-               clusters(k)%mean = clusters(k)%mean + msmu / tmppks
+               clusters(k)%mean = clusters(k)%mean + msmu / DEXP(tmppks)
             ENDIF
          ENDDO
          
          ! compute the gaussians covariance from the data in the clusters
+          
          IF(periodic)THEN
-            vmclusters(k)%cov = 0.0d0
-         ELSE
-            clusters(k)%cov = 0.0d0
-         ENDIF
-         
-         tmppks=0.0d0
-         
-         DO i=1,ngrid
-            IF(idxroot(i).NE.qspath(k)) CYCLE
-            !! TODO : compute the covariance from the initial samples
-            ! use the routine covariance(D,nsamples,nlocal,wlocal,x,Qi)
-            tmppks=tmppks+prob(i)
-            dij=0.0d0
-            IF(periodic)THEN
-               CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,dij)
-            ELSE
-               CALL pammrij(D,period,y(:,i),clusters(k)%mean,dij)
+            CALL getlcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),vmclusters(k)%cov)
+            ! If we have a cluster with one point we compute the weighted covariance with
+            ! the points in the Voronoi
+            IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
+              CALL getcovcluster(D,period,nsamples,wi,x,iminij,clustercenters(k),vmclusters(k)%cov)
             ENDIF
-            
-            DO ii=1,D
-               DO jj=1,D
-                  IF(periodic)THEN
-                     vmclusters(k)%cov(ii,jj)= vmclusters(k)%cov(ii,jj)+prob(i)* &
-                                               dij(ii)*dij(jj)               
-                  ELSE
-                     clusters(k)%cov(ii,jj)=clusters(k)%cov(ii,jj)+prob(i)* &
-                                               dij(ii)*dij(jj)
-                  ENDIF
-               ENDDO
-            ENDDO
-         ENDDO
-         
-         IF(periodic)THEN
-            vmclusters(k)%cov=vmclusters(k)%cov/tmppks
-            vmclusters(k)%weight=tmppks/normpks
+            vmclusters(k)%weight= &
+             DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             vmclusters(k)%D=D
          ELSE
-            clusters(k)%cov=clusters(k)%cov/tmppks
-            clusters(k)%weight=tmppks/normpks
+            CALL getlcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),clusters(k)%cov)
+            ! If we have a cluster with one point we compute the weighted covariance with
+            ! the points in the Voronoi
+            IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
+              CALL getcovcluster(D,period,nsamples,wi,x,iminij,clustercenters(k),clusters(k)%cov)
+            ENDIF
+            clusters(k)%weight=&
+             DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             clusters(k)%D=D
          ENDIF
       ENDDO
@@ -937,7 +856,7 @@
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
       DEALLOCATE(wlocal,nlocal,ineigh)
-      DEALLOCATE(prelerr,pabserr,clustercenters)
+      DEALLOCATE(prelerr,pabserr,clustercenters,mergeornot)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot)
 
@@ -968,12 +887,18 @@
          WRITE(*,*) " For other options a default is defined.  "
          WRITE(*,*) ""
          WRITE(*,*) "   -h                : Print this message "
-         WRITE(*,*) "   -d D              : Dimensionality "
+         WRITE(*,*) "   -d  D             : Dimensionality "
          WRITE(*,*) "   -w                : Reads weights for the sample points [default: no weight] "
-         WRITE(*,*) "   -o output         : Prefix for output files [out]. This will produce : "
+         WRITE(*,*) "   -o  output        : Prefix for output files [out]. This will produce : "
          WRITE(*,*) "                         output.grid (clusterized grid points) "
          WRITE(*,*) "                         output.pamm (cluster parameters) "
-         WRITE(*,*) "   -qscut cutoff     : Quick shift cutoff [automatic] "
+         WRITE(*,*) "   -savevoronois     : Save Voronoi associations. This will produce:"
+         WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
+         WRITE(*,*) "   -saveidxs         : Save the indexes of the point selected as grid points "
+         WRITE(*,*) "                       This will produce the file output.idxs "
+         WRITE(*,*) "   -grididxs f.idxs  : Read from file the indexes of the points to be selected "
+         WRITE(*,*) "                       as grid points "
+         WRITE(*,*) "   -qs scaling       : Scaling factor used during the QS clustering "
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
          WRITE(*,*) "   -bootstrap N      : Number of iteretions to do when using bootstrapping "
          WRITE(*,*) "                       to refine the KDE on the grid points"
@@ -982,13 +907,14 @@
          WRITE(*,*) "   -kderr target     : Target relative error in the KDE [0.1] "
          WRITE(*,*) "   -seed seed        : Seed to initialize the random number generator. [12345]"
          WRITE(*,*) "   -p P1,...,PD      : Periodicity in each dimension [ (6.28,6.28,6.28,...) ]"
-         WRITE(*,*) "   -savevoronois     : Save Voronoi associations. This will produce:"
-         WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
-         WRITE(*,*) "                         output.voronois (Voronoi centers + info) "
-         WRITE(*,*) "   -readidxsgrid     : Read just the grid"
-         WRITE(*,*) "   -loc sigma        : Localization width for local bayesian run [automatic] "
-         WRITE(*,*) "   -adj threshold    : Set the threshold to merge adjcent clusters and "
-         WRITE(*,*) "                       write out the adjacency matrix [default: off] "
+         WRITE(*,*) "   -merger threshold : Probability threshold below which a cluster should be merged "
+         WRITE(*,*) "                       to the closest neighbour [0] "
+         WRITE(*,*) "   -fpoints fraction : Fraction of the total number of samples to be included in "
+         WRITE(*,*) "                       each local baloon during the localization step. This is activated"
+         WRITE(*,*) "                       by default and can't be used together with -fspread [0.14] "
+         WRITE(*,*) "   -fspread fraction : Fraction of the covariance of the total dataset to be used a the size for "
+         WRITE(*,*) "                       each local baloon during the localization step. This is deactivated"
+         WRITE(*,*) "                       by default and can't be used together with -fpoints [0.14] "
          WRITE(*,*) "   -v                : Verbose output "
          WRITE(*,*) ""
          WRITE(*,*) " Post-processing mode (-gf): this reads high-dim data and computes the "
@@ -999,14 +925,59 @@
          WRITE(*,*) "   -a                : Additional smearing of clusters "
          WRITE(*,*) "   -z zeta_factor    : Probabilities below this threshold are counted as 'no cluster' [default:0]"
          WRITE(*,*) ""
+         
       END SUBROUTINE helpmessage
-
+      
+      DOUBLE PRECISION FUNCTION logsumexp(ngrid,v1,prob,clusterid)
+         INTEGER, INTENT(IN) :: ngrid,v1(ngrid),clusterid
+         DOUBLE PRECISION, INTENT(IN) :: prob(ngrid)
+         
+         INTEGER ii
+         DOUBLE PRECISION :: tmpv(ngrid)
+         
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         tmpv = prob
+         WHERE (v1 .EQ. clusterid)
+            tmpv = prob
+         ELSEWHERE
+            tmpv = -HUGE(0.0d0)
+         END WHERE
+         ! do log-sum-exp trick
+         logsumexp = -HUGE(0.0d0)
+         DO ii=1,ngrid
+            IF(prob(ii).EQ.-HUGE(0.0d0)) CYCLE
+            IF(logsumexp.GT.tmpv(ii)) THEN
+               logsumexp = logsumexp + DLOG(1.0d0+DEXP(tmpv(ii)-logsumexp))
+            ELSE
+               logsumexp = tmpv(ii) + DLOG(1.0d0+DEXP(logsumexp-tmpv(ii)))
+            ENDIF
+         ENDDO
+      END FUNCTION logsumexp
+      
+      INTEGER FUNCTION getidmax(ngrid,v1,prob,abser,clusterid)
+         INTEGER, INTENT(IN) :: ngrid,v1(ngrid),clusterid
+         DOUBLE PRECISION, INTENT(IN) :: prob(ngrid),abser(ngrid)
+         
+         DOUBLE PRECISION :: tmpv(ngrid)
+         
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         tmpv = prob
+         WHERE (v1 .EQ. clusterid)
+            tmpv = DEXP(prob)+DEXP(abser)
+         ELSEWHERE
+            tmpv = -HUGE(0.0d0)
+         END WHERE
+         getidmax = MAXLOC(tmpv,1) 
+      END FUNCTION getidmax
+      
       DOUBLE PRECISION FUNCTION median(ngrid,a)
          INTEGER, INTENT(IN) :: ngrid
-         DOUBLE PRECISION, intent(in) :: a(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: a(ngrid)
          
          INTEGER :: l
-         DOUBLE PRECISION, dimension(size(a,1)) :: ac
+         DOUBLE PRECISION, DIMENSION(SIZE(a,1)) :: ac
          
          IF ( SIZE(a,1) < 1 ) THEN
          ELSE
@@ -1026,14 +997,14 @@
       END FUNCTION median
       
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                                 y,nj,prob,probboot,idxroot,idcls,idxgrid,qspath, &
+                                 y,nj,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
-         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,idcls,ineigh
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,nlocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di
@@ -1050,7 +1021,6 @@
          IF (ALLOCATED(prob))       DEALLOCATE(prob)
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
-         IF (ALLOCATED(idcls))      DEALLOCATE(idcls)
          IF (ALLOCATED(idxgrid))    DEALLOCATE(idxgrid)
          IF (ALLOCATED(distmm))     DEALLOCATE(distmm)
          IF (ALLOCATED(msmu))       DEALLOCATE(msmu)
@@ -1079,7 +1049,7 @@
          ALLOCATE(iminij(nsamples))
          ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
          ALLOCATE(y(D,ngrid), nj(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
-         ALLOCATE(idxroot(ngrid), idcls(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
+         ALLOCATE(idxroot(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
          ALLOCATE(msmu(D), tmpmsmu(D),logdetHi(ngrid))
          ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),wi(ngrid))
          ! bootstrap probability density array will be allocated if necessary
@@ -1268,6 +1238,53 @@
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
          Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))   
       END SUBROUTINE covariance
+      
+      SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
+      ! log version
+         INTEGER, INTENT(IN) :: D,N,idcl
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: prob(N)
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         INTEGER, INTENT(IN) :: clroots(N)
+         DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
+         
+         DOUBLE PRECISION :: ww(N),normww
+         
+         ! get the norm of the weights
+         normww = logsumexp(ngrid,clroots,prob,idcl)
+         
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         WHERE (clroots .EQ. idcl)
+            ww = DEXP(prob - normww)
+         ELSEWHERE
+            ww = 0.0d0
+         END WHERE
+         
+         CALL covariance(D,period,N,1.0d0,ww,x,Q)
+      END SUBROUTINE getlcovcluster
+      
+      SUBROUTINE getcovcluster(D,period,N,prob,x,clroots,idcl,Q)
+      ! non log version
+         INTEGER, INTENT(IN) :: D,N,idcl
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: prob(N)
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         INTEGER, INTENT(IN) :: clroots(N)
+         DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
+         
+         DOUBLE PRECISION :: ww(N)
+         
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         WHERE (clroots .EQ. idcl)
+            ww = prob
+         ELSEWHERE
+            ww = 0.0d0
+         END WHERE
+         
+         CALL covariance(D,period,N,SUM(ww),ww,x,Q)
+      END SUBROUTINE getcovcluster
       
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
