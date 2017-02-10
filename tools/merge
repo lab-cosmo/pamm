@@ -1,0 +1,97 @@
+#!/usr/bin/python
+from numpy import *
+from scipy.sparse.csgraph import connected_components
+import sys
+
+verbose = False   # default is no verbosity
+thresh = 0.9       # treshold to merge cluster
+
+if len(sys.argv) < 2:
+  print "usage: merge [-t] [-v] [-h] grid"
+  sys.exit("ERROR: no grid file specified")
+else:
+  for i,s in enumerate(sys.argv):
+    if s == '-t': thresh = float(sys.argv[i+1])
+    if s == '-v': verbose = True
+    if s == '-h': 
+      print "usage: merge [-t] [-v] [-h] grid"
+      print " -t thresh     : threshold to merge cluster [0.9]"
+      print " -v            : turn verbosity on [false]"
+      print " -h            : show this message"
+      sys.exit()
+
+# check if we can open grid file
+try:
+    with open(sys.argv[-1]) as file:
+        pass
+except IOError as e:
+    print "ERROR: Unable to open file"
+
+data = loadtxt(sys.argv[-1])
+
+X    = data[:,:2]
+cid  = array(map(int,data[:,2]))
+prob = data[:,3]
+
+Nc = len(unique(cid))
+uc = unique(cid)
+
+print "                                  "
+print "        *** PAMM Tools ***        "
+print "                                  "
+print " cluster merging                  "
+print "                                  "
+print " version: 1.0                     "
+print " date   : 02/10/17                "
+print " author : robert.meissner@epfl.ch "
+print "                                  "
+
+if verbose: print " finding connections between clusters"
+connections = zeros([Nc,X.shape[0]],dtype=int)
+for ic,c in enumerate(uc):   
+    for i,x in enumerate(X):
+        # loop over points in my cluster
+        if c != cid[i]: continue
+        mindist = inf
+        for j,y in enumerate(X):
+            # check if we are in same cluster
+            if c == cid[j]: continue
+            dist = linalg.norm(x-y) 
+            if dist < mindist:
+                mindist = dist
+                jmin = j
+        connections[ic,jmin] = 1
+    if verbose: print "  %d / %d" % (ic+1,Nc)
+
+if verbose: print " building adjacency matrix"
+adj = zeros([Nc,Nc])
+# loop over all connections for each cluster
+for i,ci in enumerate(uc):
+    for j,cj in enumerate(uc):
+        if i==j: continue
+        # first get all boarder points from clusters i and j
+        ij = (connections[i,:] > 0) & (cid==cj)
+        ji = (connections[j,:] > 0) & (cid==ci)
+        # check if clusters are adjacent
+        if (sum(ij) > 0) & (sum(ji) > 0):
+            # find max prob of each cluster
+            maxPci = exp(max(prob[cid==ci]))
+            maxPcj = exp(max(prob[cid==cj]))
+            # find max prob of boundary points for each cluster     
+            maxPi = exp(max(prob[ji]))
+            maxPj = exp(max(prob[ij]))
+            # calculate adjacency
+            adj[i,j] = (maxPi+maxPj)/(2.*min(maxPci,maxPcj))
+
+# rescale adjacency matrix to identify connected nodes
+adj[where(adj <= thresh)] = 0
+adj[where(adj >  thresh)] = 1
+
+if verbose: print " finding macrocluster"
+# get macrocluster ids
+Nm, m = connected_components(adj)
+
+# print out macrocluster
+for i in range(Nm):
+    cc = uc[m==i]
+    print " %d%s" % (i+1, ' '.join(map(str,cc)))
