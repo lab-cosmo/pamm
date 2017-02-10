@@ -3,23 +3,27 @@ from numpy import *
 from scipy.sparse.csgraph import connected_components
 import sys
 
-verbose = False    # default is no verbosity
-thresh = 0.9       # treshold to merge cluster
-D = -1
+verbose = False  # default is no verbosity
+saveadj = False  # write adjacency matrix to file
+thresh  = 0.9    # treshold to merge cluster
+D       = -1     # dimensionality needs to be specified
+
 
 if len(sys.argv) < 2:
-  print "usage: merge -d dim [-t] [-v] [-h] grid"
+  print "usage: merge -d dim [-t] [-v] [-h] [-adj] grid"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
-    if s == '-d': D = int(sys.argv[i+1])
-    if s == '-t': thresh = float(sys.argv[i+1])
-    if s == '-v': verbose = True
-    if s == '-h': 
+    if s == '-d'  : D       = int(sys.argv[i+1])
+    if s == '-t'  : thresh  = float(sys.argv[i+1])
+    if s == '-v'  : verbose = True
+    if s == '-adj': saveadj = True
+    if s == '-h'  : 
       print "usage: merge -d dim [-t] [-v] [-h] grid"
       print " -d dim        : dimensionality"
       print " -t thresh     : threshold to merge cluster [0.9]"
       print " -v            : turn verbosity on [false]"
+      print " -adj          : write out adjacency matrix [false]"
       print " -h            : show this message"
       sys.exit()
 if D < 0: sys.exit("ERROR: no dimension specified")
@@ -29,21 +33,32 @@ try:
 except IOError as e:
     print "ERROR: Unable to open file"
 gridfile = sys.argv[-1]
-print "                                  " 
-print " ******************************** "
-print " *                              * "
-print " *          PAMM Tools          * "
-print " *                              * "
-print " ******************************** "
-print "                                  "   
-print " adjacency based cluster merging  "
-print "                                  "
-print " version: 1.0                     "
-print " date   : 02/10/17                "
-print " author : robert.meissner@epfl.ch "
-print "                                  "    
-   
 
+
+print "                                            " 
+print " ****************************************** "
+print " *                                        * "
+print " *               PAMM Tools               * "
+print " *                                        * "
+print " ****************************************** "
+print "                                            "   
+print " Adjacency based cluster merging            "
+print "                                            "
+print " Version: 1.0                               "
+print " Date   : 02/10/17                          "
+print " Author : robert.meissner@epfl.ch           "
+print "                                            "    
+print "                                            "    
+
+
+
+# define output names
+if gridfile[-5:] == '.grid': basename = gridfile[:-5] 
+else : basename = gridfile
+macrofile = basename + '.macro'
+adjfile   = basename + '.adj'
+
+# load data
 data = loadtxt(gridfile)
 
 X    = data[:,:D]
@@ -53,7 +68,7 @@ prob = data[:,D+1]
 Nc = len(unique(cid))
 uc = unique(cid)
 
-if verbose: print " finding connections between clusters"
+if verbose: print " Finding connections between clusters"
 connections = zeros([Nc,X.shape[0]],dtype=int)
 for ic,c in enumerate(uc):   
     for i,x in enumerate(X):
@@ -70,7 +85,7 @@ for ic,c in enumerate(uc):
         connections[ic,jmin] = 1
     if verbose: print "  %d / %d" % (ic+1,Nc)
 
-if verbose: print " building adjacency matrix"
+if verbose: print " Building adjacency matrix"
 adj = zeros([Nc,Nc])
 # loop over all connections for each cluster
 for i,ci in enumerate(uc):
@@ -89,18 +104,19 @@ for i,ci in enumerate(uc):
             maxPj = exp(max(prob[ij]))
             # calculate adjacency
             adj[i,j] = (maxPi+maxPj)/(2.*min(maxPci,maxPcj))
+    if verbose: print "  %d / %d" % (i+1,Nc)
+    
+# write adjecency matrix to file if desired 
+if saveadj: savetxt(adjfile,adj)            
 
 # rescale adjacency matrix to identify connected nodes
 adj[where(adj <= thresh)] = 0
 adj[where(adj >  thresh)] = 1
 
-if verbose: print " finding macrocluster"
+if verbose: print " Finding macrocluster"
 # get macrocluster ids
 Nm, m = connected_components(adj)
 
-# write macrocluster to file
-if gridfile[-4:] == 'grid': macrofile = gridfile[:-4] + 'macro'
-else : macrofile = 'macro'
 f = open(macrofile,'w')
 f.write("# cluster macrocluster\n")
 for i,c in enumerate(uc):
