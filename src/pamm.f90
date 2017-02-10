@@ -756,31 +756,44 @@
             ALLOCATE(clusters(k)%icov(D,D))
             clusters(k)%mean=y(:,clustercenters(k))
          ENDIF
+         
          ! optionally do a few mean-shift steps to find a better estimate 
          ! of the cluster mode
+         
+              dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
+              ! weighted natural logarithm of kernel
+              lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
+              IF(prob(i).GT.lnK) THEN
+                prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
+              ELSE
+                prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
+              ENDIF 
+         
+         
          DO j=1,nmsopt
             msmu=0.0d0
-            tmppks=0.0d0
+            tmppks=-HUGE(0.0d0)
             
             DO i=1,ngrid
-               ! should correct the Gaussian evaluation with a Von Mises distrib in the case of periodic data
-               ! TODO: has to be adapted for mahalanobis distances ...
-               IF(periodic)THEN
-                  msw = prob(i)*DEXP(-0.5*pammr2(D,period,y(:,i),vmclusters(k)%mean)/(qscut2/16.0d0))
-                  CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,tmpmsmu)
-               ELSE
-                  msw = prob(i)*DEXP(-0.5*pammr2(D,period,y(:,i),clusters(k)%mean)/(qscut2/16.0d0))
-                  CALL pammrij(D,period,y(:,i),clusters(k)%mean,tmpmsmu)
-               ENDIF
+               dummd1 = mahalanobis(D,period,y(:,i),y(:,clustercenters(k)),&
+                                    Hiinv(:,:,clustercenters(k))) 
+               msw = -0.5d0 * (normkernel(clustercenters(k)) + dummd1) + prob(i)
+               CALL pammrij(D,period,y(:,i),y(:,clustercenters(k)),tmpmsmu)
                
-               msmu = msmu + msw*tmpmsmu
-               tmppks = tmppks + msw
+               msmu = msmu + DEXP(msw)*tmpmsmu
+               
+               ! log-sum-exp
+               IF(tmppks.GT.msw) THEN
+                tmppks = tmppks + DLOG(1.0d0+DEXP(msw-tmppks))
+               ELSE
+                tmppks = msw + DLOG(1.0d0+DEXP(tmppks-msw))
+               ENDIF 
             ENDDO
             
             IF(periodic)THEN
-               vmclusters(k)%mean = vmclusters(k)%mean + msmu / tmppks
+               vmclusters(k)%mean = vmclusters(k)%mean + msmu / DEXP(tmppks)
             ELSE
-               clusters(k)%mean = clusters(k)%mean + msmu / tmppks
+               clusters(k)%mean = clusters(k)%mean + msmu / DEXP(tmppks)
             ENDIF
          ENDDO
          
