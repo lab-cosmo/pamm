@@ -3,38 +3,32 @@ from numpy import *
 from scipy.sparse.csgraph import connected_components
 import sys
 
-verbose = False   # default is no verbosity
+verbose = False    # default is no verbosity
 thresh = 0.9       # treshold to merge cluster
+D = -1
 
 if len(sys.argv) < 2:
-  print "usage: merge [-t] [-v] [-h] grid"
+  print "usage: merge -d dim [-t] [-v] [-h] grid"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
+    if s == '-d': D = int(sys.argv[i+1])
     if s == '-t': thresh = float(sys.argv[i+1])
     if s == '-v': verbose = True
     if s == '-h': 
-      print "usage: merge [-t] [-v] [-h] grid"
+      print "usage: merge -d dim [-t] [-v] [-h] grid"
+      print " -d dim        : dimensionality"
       print " -t thresh     : threshold to merge cluster [0.9]"
       print " -v            : turn verbosity on [false]"
       print " -h            : show this message"
       sys.exit()
-
-# check if we can open grid file
+if D < 0: sys.exit("ERROR: no dimension specified")
 try:
     with open(sys.argv[-1]) as file:
         pass
 except IOError as e:
     print "ERROR: Unable to open file"
-
-data = loadtxt(sys.argv[-1])
-
-X    = data[:,:2]
-cid  = array(map(int,data[:,2]))
-prob = data[:,3]
-
-Nc = len(unique(cid))
-uc = unique(cid)
+    
 
 print "                                  "
 print "        *** PAMM Tools ***        "
@@ -44,7 +38,17 @@ print "                                  "
 print " version: 1.0                     "
 print " date   : 02/10/17                "
 print " author : robert.meissner@epfl.ch "
-print "                                  "
+print "                                  "    
+   
+
+data = loadtxt(sys.argv[-1])
+
+X    = data[:,:D]
+cid  = array(map(int,data[:,D]))
+prob = data[:,D+1]
+
+Nc = len(unique(cid))
+uc = unique(cid)
 
 if verbose: print " finding connections between clusters"
 connections = zeros([Nc,X.shape[0]],dtype=int)
