@@ -29,12 +29,14 @@ try:
 except IOError as e:
     print "ERROR: Unable to open file"
 gridfile = sys.argv[-1]
-
-print "        ******************        "
-print "        *** PAMM Tools ***        "
-print "        ******************        "
+print "                                  " 
+print " ******************************** "
+print " *                              * "
+print " *          PAMM Tools          * "
+print " *                              * "
+print " ******************************** "
 print "                                  "   
-print " cluster merging                  "
+print " adjacency based cluster merging  "
 print "                                  "
 print " version: 1.0                     "
 print " date   : 02/10/17                "
