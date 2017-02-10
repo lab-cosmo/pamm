@@ -62,7 +62,7 @@
       INTEGER nbssample                                         ! number of sample points used for voronoi in bootstrap
       INTEGER nbstot                                            ! accumulator for nbssample
       INTEGER isep1, isep2, par_count                           ! temporary indices for parsing command line arguments
-      INTEGER i,j,jmax,k,ii,jj,nn,counter                       ! counters
+      INTEGER i,j,jmax,k,nn,counter                             ! counters
       INTEGER dummyi1                                           ! dummy variables
 
       ! neighbor list number of points in voronoi, voronoi 
@@ -642,13 +642,6 @@
           ENDIF 
           
           pabserr(i)=prelerr(i)+prob(i)
-          !prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
-                      !         (twopi**(-Di(i)/2.0d0))/ &
-                      !           DEXP(prob(i)) )-1.0d0)/normwj)
-          ! I got here the relative error on Ni (point falling into the Voronoi i)
-          ! that, propagating the error is equal to the relative error of prob(i).
-          ! To get the absolute error we just need to do prelerr(i)*prob(i) 
-          ! pabserr(i)=prelerr(i)*DEXP(prob(i))
         ENDDO
       ENDIF
 
@@ -713,7 +706,6 @@
         ENDDO 
         WHERE(idxroot.EQ.dummyi1) idxroot=clustercenters(i)
       ENDDO
-      
       IF(COUNT(mergeornot).GT.0)THEN
          DEALLOCATE(clustercenters)
          ! get the new cluster centers
@@ -721,9 +713,13 @@
          IF(verbose) WRITE(*,*) Nk-size(clustercenters), &
                 " clusters where merged into other clusters"
          Nk=size(clustercenters)
-         
-         ! TODO: check if the cluster center is still the highest point
-         ! in the cluster
+         ! get the real maxima in the cluster, considering the errorbar
+         DO i=1,Nk
+            dummyi1=clustercenters(i)
+            clustercenters(i) = getidmax(ngrid,idxroot,prob,pabserr,clustercenters(i))
+            ! reassign the proper cluster root to each cluster points
+            WHERE(idxroot.EQ.dummyi1) idxroot=clustercenters(i)
+         ENDDO
       ENDIF
       
       IF(verbose) write(*,*) "Writing out"
@@ -856,12 +852,12 @@
             ALLOCATE(vmclusters(k)%icov(D,D))
             ALLOCATE(vmclusters(k)%period(D))
             vmclusters(k)%period=period
-            vmclusters(k)%mean=y(:,qspath(k))
+            vmclusters(k)%mean=y(:,clustercenters(k))
          ELSE
             ALLOCATE(clusters(k)%mean(D))
             ALLOCATE(clusters(k)%cov(D,D))
             ALLOCATE(clusters(k)%icov(D,D))
-            clusters(k)%mean=y(:,qspath(k))
+            clusters(k)%mean=y(:,clustercenters(k))
          ENDIF
          ! optionally do a few mean-shift steps to find a better estimate 
          ! of the cluster mode
@@ -892,45 +888,23 @@
          ENDDO
          
          ! compute the gaussians covariance from the data in the clusters
-         IF(periodic)THEN
-            vmclusters(k)%cov = 0.0d0
-         ELSE
-            clusters(k)%cov = 0.0d0
-         ENDIF
-         
-         tmppks=0.0d0
- !!!!! TODO: DO PROPERLY THE COVARIANCE!
- !!!!! REMEMBER THAT WE ARE USING LOG(Pi) NOW!        
-         DO i=1,ngrid
-            IF(idxroot(i).NE.qspath(k)) CYCLE
-            tmppks=tmppks+prob(i)
-            dij=0.0d0
-            IF(periodic)THEN
-               CALL pammrij(D,period,y(:,i),vmclusters(k)%mean,dij)
-            ELSE
-               CALL pammrij(D,period,y(:,i),clusters(k)%mean,dij)
-            ENDIF
-            
-            DO ii=1,D
-               DO jj=1,D
-                  IF(periodic)THEN
-                     vmclusters(k)%cov(ii,jj)= vmclusters(k)%cov(ii,jj)+prob(i)* &
-                                               dij(ii)*dij(jj)               
-                  ELSE
-                     clusters(k)%cov(ii,jj)=clusters(k)%cov(ii,jj)+prob(i)* &
-                                               dij(ii)*dij(jj)
-                  ENDIF
-               ENDDO
-            ENDDO
-         ENDDO
           
          IF(periodic)THEN
-            vmclusters(k)%cov=vmclusters(k)%cov/tmppks
+            CALL getcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),vmclusters(k)%cov)
+            ! If we have a cluster with one point we compute the weighted covariance with
+            ! the points in the Voronoi
+            IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) &
+            CALL getcovcluster(D,period,nsamples,wi,x,iminij,clustercenters(k),vmclusters(k)%cov)
             vmclusters(k)%weight= &
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             vmclusters(k)%D=D
          ELSE
-            clusters(k)%cov=clusters(k)%cov/tmppks
+            CALL getcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),clusters(k)%cov)
+            ! If we have a cluster with one point we compute the weighted covariance with
+            ! the points in the Voronoi
+            IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
+            CALL getcovcluster(D,period,nsamples,DLOG(wi),x,iminij,clustercenters(k),clusters(k)%cov)
+            ENDIF
             clusters(k)%weight=&
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             clusters(k)%D=D
@@ -1050,12 +1024,12 @@
          WHERE (v1 .EQ. clusterid)
             tmpv = prob
          ELSEWHERE
-            tmpv = -HUGE(0.0)
+            tmpv = -HUGE(0.0d0)
          END WHERE
          ! do log-sum-exp trick
-         logsumexp = -HUGE(0.0)
+         logsumexp = -HUGE(0.0d0)
          DO ii=1,ngrid
-            IF(prob(ii).EQ.-HUGE(0.0)) CYCLE
+            IF(prob(ii).EQ.-HUGE(0.0d0)) CYCLE
             IF(logsumexp.GT.tmpv(ii)) THEN
                logsumexp = logsumexp + DLOG(1.0d0+DEXP(tmpv(ii)-logsumexp))
             ELSE
@@ -1063,6 +1037,23 @@
             ENDIF
          ENDDO
       END FUNCTION logsumexp
+      
+      INTEGER FUNCTION getidmax(ngrid,v1,prob,abser,clusterid)
+         INTEGER, INTENT(IN) :: ngrid,v1(ngrid),clusterid
+         DOUBLE PRECISION, INTENT(IN) :: prob(ngrid),abser(ngrid)
+         
+         DOUBLE PRECISION :: tmpv(ngrid)
+         
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         tmpv = prob
+         WHERE (v1 .EQ. clusterid)
+            tmpv = DEXP(prob)+DEXP(abser)
+         ELSEWHERE
+            tmpv = -HUGE(0.0d0)
+         END WHERE
+         getidmax = MAXLOC(tmpv,1) 
+      END FUNCTION getidmax
       
       DOUBLE PRECISION FUNCTION median(ngrid,a)
          INTEGER, INTENT(IN) :: ngrid
@@ -1331,6 +1322,28 @@
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
          Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))   
       END SUBROUTINE covariance
+      
+      SUBROUTINE getcovcluster(D,period,N,prob,x,clroots,idcl,Q)
+         INTEGER, INTENT(IN) :: D,N,idcl
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: prob(N)
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         INTEGER, INTENT(IN) :: clroots(N)
+         DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
+         
+         DOUBLE PRECISION :: tmpprob(N)
+         
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         tmpprob = prob
+         WHERE (clroots .EQ. idcl)
+            tmpprob = DEXP(prob)
+         ELSEWHERE
+            tmpprob = 0.0d0
+         END WHERE
+         
+         CALL covariance(D,period,N,SUM(tmpprob),tmpprob,x,Q)
+      END SUBROUTINE getcovcluster
       
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
