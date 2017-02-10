@@ -617,18 +617,18 @@
         prelerr = 0.0d0
         pabserr = 0.0d0
         DO i=1,ngrid
-          ! use approximation to get numerical stable bootstrap error from logarithmic probabilities
+          ! use approximation to get numerical stable 
+          ! bootstrap error from logarithmic probabilities
           DO j=1,nbootstrap
             dummd1 = 0.0d0
             DO k=1,100
-              dummd1 = dummd1 + (probboot(i,j)**k - prob(i)**k)/factorial(k)
+              dummd1 = dummd1 + (probboot(i,j)**k - prob(i)**k)/DBLE(factorial(k))
             ENDDO
             pabserr(i) = pabserr(i) + dummd1**2
           ENDDO
-          prelerr(i) = DSQRT( SUM( (DEXP(probboot(i,:)) - DEXP(prob(i)))**2.0d0 ) / (nbootstrap-1.0d0))
+          pabserr(i) = DSQRT(pabserr(i) / (nbootstrap-1.0d0))
+          prelerr(i) = DEXP(DLOG(pabserr(i)) - prob(i))
         ENDDO 
-        pabserr = DSQRT(pabserr / (nbootstrap-1.0d0))
-        !prelerr = pabserr / DEXP(prob)
       ELSE
         DO i=1,ngrid  
           prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
@@ -642,11 +642,10 @@
           ELSE
             prelerr(i)=DLOG(prelerr(i))
           ENDIF 
-          
           pabserr(i)=prelerr(i)+prob(i)
         ENDDO
       ENDIF
-
+      
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       idxroot=0
       DO i=1,ngrid

@@ -711,7 +711,7 @@
       END FUNCTION maxeigval
       
       RECURSIVE FUNCTION factorial(n) RESULT(Fact)
-        INTEGER :: Fact
+        DOUBLE PRECISION :: Fact
         INTEGER, INTENT(IN) :: n
 
         IF (n == 0) THEN
@@ -720,7 +720,7 @@
            Fact = n * Factorial(n-1)
         END IF
       END FUNCTION Factorial
-      
+
       DOUBLE PRECISION FUNCTION pammr2(D,period,ri,rj)
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: period
