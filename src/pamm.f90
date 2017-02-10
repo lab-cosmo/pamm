@@ -890,20 +890,21 @@
          ! compute the gaussians covariance from the data in the clusters
           
          IF(periodic)THEN
-            CALL getcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),vmclusters(k)%cov)
+            CALL getlcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),vmclusters(k)%cov)
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
-            IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) &
-            CALL getcovcluster(D,period,nsamples,wi,x,iminij,clustercenters(k),vmclusters(k)%cov)
+            IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
+              CALL getcovcluster(D,period,nsamples,wi,x,iminij,clustercenters(k),vmclusters(k)%cov)
+            ENDIF
             vmclusters(k)%weight= &
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             vmclusters(k)%D=D
          ELSE
-            CALL getcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),clusters(k)%cov)
+            CALL getlcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),clusters(k)%cov)
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-            CALL getcovcluster(D,period,nsamples,DLOG(wi),x,iminij,clustercenters(k),clusters(k)%cov)
+              CALL getcovcluster(D,period,nsamples,wi,x,iminij,clustercenters(k),clusters(k)%cov)
             ENDIF
             clusters(k)%weight=&
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
@@ -1323,7 +1324,8 @@
          Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))   
       END SUBROUTINE covariance
       
-      SUBROUTINE getcovcluster(D,period,N,prob,x,clroots,idcl,Q)
+      SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
+      ! log version
          INTEGER, INTENT(IN) :: D,N,idcl
          DOUBLE PRECISION, INTENT(IN) :: period(D)
          DOUBLE PRECISION, INTENT(IN) :: prob(N)
@@ -1331,18 +1333,42 @@
          INTEGER, INTENT(IN) :: clroots(N)
          DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
          
-         DOUBLE PRECISION :: tmpprob(N)
+         DOUBLE PRECISION :: ww(N),normww
+         
+         ! get the norm of the weights
+         normww = logsumexp(ngrid,clroots,prob,idcl)
          
          ! select just the probabilities of the element
          ! that belongs to the cluster tgt
-         tmpprob = prob
          WHERE (clroots .EQ. idcl)
-            tmpprob = DEXP(prob)
+            ww = DEXP(prob - normww)
          ELSEWHERE
-            tmpprob = 0.0d0
+            ww = 0.0d0
          END WHERE
          
-         CALL covariance(D,period,N,SUM(tmpprob),tmpprob,x,Q)
+         CALL covariance(D,period,N,1.0d0,ww,x,Q)
+      END SUBROUTINE getlcovcluster
+      
+      SUBROUTINE getcovcluster(D,period,N,prob,x,clroots,idcl,Q)
+      ! non log version
+         INTEGER, INTENT(IN) :: D,N,idcl
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: prob(N)
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         INTEGER, INTENT(IN) :: clroots(N)
+         DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
+         
+         DOUBLE PRECISION :: ww(N)
+         
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         WHERE (clroots .EQ. idcl)
+            ww = prob
+         ELSEWHERE
+            ww = 0.0d0
+         END WHERE
+         
+         CALL covariance(D,period,N,SUM(ww),ww,x,Q)
       END SUBROUTINE getcovcluster
       
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
