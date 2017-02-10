@@ -100,6 +100,7 @@ Nm, m = connected_components(adj)
 if gridfile[-4:] == 'grid': macrofile = gridfile[:-4] + 'macro'
 else : macrofile = 'macro'
 f = open(macrofile,'w')
+f.write("# cluster macrocluster\n")
 for i,c in enumerate(uc):
   f.write("%d %d\n" % (c,m[i]+1))
 f.close()
