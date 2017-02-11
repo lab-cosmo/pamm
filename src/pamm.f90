@@ -436,48 +436,9 @@
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
           
-        ! do bisectioning to find proper localization for ntarget points
-        IF(fpoints.GT.0) THEN
-          ! cannot go below number of points in current grid points
-          nlim = max(ntarget, 2*INT(wi(i))) 
-          IF (ntarget.LT.nlim) WRITE(*,*) &
-            " Warning: fraction of points too small, increase grid size!"
-              
-          ! initial estimate of nlocal using biggest eigenvalue of global Q
-          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-          
-          ! aproaching quickly ntarget
-          ! if nlocal is smaller than target value try to approach quickly to target value
-          ! typically the initial sigma is big enough not to do this, however, nobody knows...
-          IF (nlocal(i).LT.nlim) THEN
-            DO WHILE(nlocal(i).LT.nlim)
-              ! approach the desired value
-              sigma2(i)=sigma2(i)+tune
-              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-            ENDDO
-            
-          ENDIF
-          ! fine tuning of localization approach optimal value using bisectioning
-          j = 1
-          DO WHILE(.TRUE.)  
-            ! fine tuning 
-            IF(nlocal(i).GT.nlim) THEN
-              sigma2(i) = sigma2(i)-tune/2.0d0**j
-            ELSE
-              sigma2(i) = sigma2(i)+tune/2.0d0**j
-            ENDIF
-            
-            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-
-            ! exit loop if sigma gives correct nlocal
-            IF (ANINT(nlocal(i)).EQ.nlim) EXIT
-            
-            ! adjust scaling factor for new sigma
-            j = j+1  
-          ENDDO
-        ELSE
-          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-        ENDIF
+        ! calculate covariance matrix for grid point i by 
+        ! using the distances to all other points as weight
+        CALL localization(D,period,ngrid,y,wi,y(:,i),wlocal,nlocal(i))
 
         ! estimate Q from the grid
         CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
@@ -1072,11 +1033,10 @@
          ALLOCATE(ineigh(ngrid))
       END SUBROUTINE allocatevectors
 
-      SUBROUTINE localization(D,period,N,s2,x,w,y,wl,num)
+      SUBROUTINE localization(D,period,N,x,w,y,wl,num)
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: N
          DOUBLE PRECISION, INTENT(IN) :: period(D)
-         DOUBLE PRECISION, INTENT(IN) :: s2
          DOUBLE PRECISION, INTENT(IN) :: x(D,N)
          DOUBLE PRECISION, INTENT(IN) :: y(D)
          DOUBLE PRECISION, INTENT(IN) :: w(N)
@@ -1085,6 +1045,8 @@
          
          INTEGER ii
          DOUBLE PRECISION xy(D,N)
+         DOUBLE PRECISION dxy(N)
+         
          
          DO ii=1,D
            xy(ii,:) = x(ii,:)-y(ii)
@@ -1097,9 +1059,11 @@
              xy(ii,:) = xy(ii,:)*period(ii)
            ENDIF  
          ENDDO
-         ! estimate weights for localization as product from 
-         ! spherical gaussian weights and weights in voronoi
-         wl = DEXP(-0.5d0/s2*SUM(xy*xy,1))*w
+         dxy = DSQRT(SUM(xy*xy,1))
+         
+         ! distance based weights
+         ! close points have higher weights than far away points
+         wl = (1.0d0 - dxy/MAXVAL(dxy))*w
          ! estimate local number of sample points
          num = SUM(wl)
       END SUBROUTINE localization
