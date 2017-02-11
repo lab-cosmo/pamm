@@ -453,7 +453,8 @@
         CALL invmatrix(D,Qi,Qiinv)
         
         ! estimate bandwidth from normal reference rule
-        Hi = (4.0d0 / ( nlocal(i) * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi
+        !Hi = (4.0d0 / ( nlocal(i) * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi
+        Hi = (4.0d0 / ( nsamples * (D+2.0d0) ) )**( 2.0d0 / (D+4.0d0) ) * Qi
         
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
@@ -1046,7 +1047,7 @@
          INTEGER ii
          DOUBLE PRECISION xy(D,N)
          DOUBLE PRECISION dxy(N)
-         
+         DOUBLE PRECISION dmax
          
          DO ii=1,D
            xy(ii,:) = x(ii,:)-y(ii)
@@ -1061,9 +1062,12 @@
          ENDDO
          dxy = DSQRT(SUM(xy*xy,1))
          
+!          dmax = MAXVAL(x)-MINVAL(x)
+         dmax = MAXVAL(dxy)
+         
          ! distance based weights
          ! close points have higher weights than far away points
-         wl = (1.0d0 - dxy/MAXVAL(dxy))*w
+         wl = (1.0d0 - dxy/dmax)**dmax
          ! estimate local number of sample points
          num = SUM(wl)
       END SUBROUTINE localization
