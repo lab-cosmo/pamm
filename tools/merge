@@ -6,30 +6,42 @@ import sys
 
 verbose = False  # no verbosity
 saveadj = False  # don't store adjacency
+savegrd = False  # don't store macrogrid
 errflag = False  # don't use errors
 logflag = True   # logarithm of probabilities as input
 thresh  = 0.9    # threshold to merge cluster
 D       = -1     # dimensionality needs to be specified
 
 if len(sys.argv) < 2:
-  print "usage: merge -d dim [-t] [-e] [-l] [-adj] [-v] [-h] grid"
+  print "usage: merge -d dim [-t] [-e] [-l] [-adj] [-m] [-v] [-h] grid"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
-    if   s == '-d'  : D       = int(sys.argv[i+1])
-    elif s == '-t'  : thresh  = float(sys.argv[i+1])
-    elif s == '-e ' : errflag = True
-    elif s == '-l'  : logflag = False
-    elif s == '-adj': saveadj = True
-    elif s == '-v'  : verbose = True
-    elif s == '-h'  : 
+    if   s == '-d'   : D       = int(sys.argv[i+1])
+    elif s == '-t'   : thresh  = float(sys.argv[i+1])
+    elif s == '-e '  : errflag = True
+    elif s == '-l'   : logflag = False
+    elif s == '-adj' : saveadj = True
+    elif s == '-m'   : savegrd = True
+    elif s == '-v'   : verbose = True
+    elif s == '-h'   : 
       print "usage: merge -d dim [-t] [-v] [-h] grid"
+      print " "
       print " -d dim        : dimensionality"
+      print " "
       print " -t thresh     : threshold to merge cluster [0.9]"
+      print " "
       print " -e            : use error of KDE in adjacency [false]"
+      print " "
       print " -l            : use logarithm of probabilities [true]"
+      print " "
       print " -adj          : write out adjacency matrix [false]"
+      print " "
+      print " -m            : write out gridfile containing"
+      print "                 new macrogrid [false]"
+      print " "
       print " -v            : turn verbosity on [false]"
+      print " "
       print " -h            : show this message"
       sys.exit()
 #    else:
@@ -71,6 +83,7 @@ gridfile = sys.argv[-1]
 # define output names
 if gridfile[-5:] == '.grid': basename = gridfile[:-5] 
 else : basename = gridfile
+mgridfile = basename + '.mgrid'
 macrofile = basename + '.macro'
 adjfile   = basename + '.adj'
 
@@ -133,6 +146,7 @@ for i,ci in enumerate(uc):
             # calculate adjacency
             if logflag:
               # use series expansionion of exponential
+              # error for k equal 100 is approx. 10**-25
               avgP = 0.
               for k in range(100):
                 avgP = avgP + (maxPi**k + maxPj**k) / factorial(k)
@@ -142,8 +156,16 @@ for i,ci in enumerate(uc):
               adj[i,j] = (maxPi+maxPj)/(2.*min(maxPci,maxPcj))
                
     if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,Nc)
+
+#######################################################################
+###                                                                 ###
+###                       output of program                         ###
+###                                                                 ###
+#######################################################################    
+
+if verbose: print " Write out"
     
-# write adjecency matrix to file if desired 
+# write adjacency matrix to file if desired 
 if saveadj: savetxt(adjfile,adj)            
 
 # rescale adjacency matrix to identify connected nodes
@@ -154,7 +176,18 @@ if verbose: print " Finding macrocluster"
 # get macrocluster ids
 Nm, m = connected_components(adj)
 
-if verbose: print " Write out"
+# write adjacency matrix to file if desired 
+if savegrd: 
+  fout = open(mgridfile,'w')
+  with open(gridfile) as fin:
+    for line in fin:
+      # skip comments
+      if '#' in line: continue
+      data = map(float,line.split()) 
+      data[D] = m[int(data[D])-1]+1
+      fout.write(' '.join(map(str,data))+'\n')
+    
+# write out cluster association to macrocluster
 f = open(macrofile,'w')
 f.write("# cluster macrocluster\n")
 for i,c in enumerate(uc):
