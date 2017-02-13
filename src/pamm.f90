@@ -625,9 +625,9 @@
             ENDDO
             pabserr(i) = pabserr(i) + dummd1**2
           ENDDO
+          pabserr(i) = pabserr(i) / (nbootstrap-1.0d0)
           prelerr(i) = DSQRT( SUM( (DEXP(probboot(i,:)) - DEXP(prob(i)))**2.0d0 ) / (nbootstrap-1.0d0))
         ENDDO 
-        pabserr = DSQRT(pabserr / (nbootstrap-1.0d0))
         !prelerr = pabserr / DEXP(prob)
       ELSE
         DO i=1,ngrid  

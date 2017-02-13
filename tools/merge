@@ -1,6 +1,7 @@
 #!/usr/bin/python
 from numpy import *
 from scipy.sparse.csgraph import connected_components
+from scipy.misc import factorial
 import sys
 
 verbose = False  # no verbosity
@@ -44,7 +45,7 @@ print "                                            "
 print " cluster merging based on:                  "
 print "   - adjacency                              "
 print "   - errors (not implemented yet)           "
-print "   - true log-sum-exp (not implemented yet) "
+print "   - true log-sum-exp                       "
 print "                                            "
 print " Version: 1.0                               "
 print " Date   : 02/10/17                          "
@@ -79,12 +80,6 @@ data = loadtxt(gridfile)
 X    = data[:,:D]
 cid  = array(map(int,data[:,D]))
 prob = data[:,D+1]
-
-# rescale probabilities
-if logflag: 
-  prob = exp(prob)
-  if sum(isnan(prob)): 
-    sys.exit("ERROR: numerical overflow in probabilities")
 
 Nc = len(unique(cid))
 uc = unique(cid)
@@ -136,7 +131,16 @@ for i,ci in enumerate(uc):
             maxPi = max(prob[ji])
             maxPj = max(prob[ij])
             # calculate adjacency
-            adj[i,j] = (maxPi+maxPj)/(2.*min(maxPci,maxPcj))
+            if logflag:
+              # use series expansionion of exponential
+              avgP = 0.
+              for k in range(100):
+                avgP = avgP + (maxPi**k + maxPj**k) / factorial(k)
+              adj[i,j] = exp(log(avgP) - min(maxPci,maxPcj) - log(2))
+            else:
+              # straightforward adjacency
+              adj[i,j] = (maxPi+maxPj)/(2.*min(maxPci,maxPcj))
+               
     if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,Nc)
     
 # write adjecency matrix to file if desired 
