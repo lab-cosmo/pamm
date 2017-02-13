@@ -145,12 +145,10 @@ for i,ci in enumerate(uc):
             maxPj = max(prob[ij])
             # calculate adjacency
             if logflag:
-              # use series expansionion of exponential
-              # error for k equal 100 is approx. 10**-25
-              avgP = 0.
-              for k in range(100):
-                avgP = avgP + (maxPi**k + maxPj**k) / factorial(k)
-              adj[i,j] = exp(log(avgP) - min(maxPci,maxPcj) - log(2))
+              # use micheles log-approximation for sums
+              if maxPi > maxPj: avgP = maxPi + log(1.+exp(maxPj-maxPi))
+              else:             avgP = maxPj + log(1.+exp(maxPi-maxPj))
+              adj[i,j] = exp(avgP - min(maxPci,maxPcj) - log(2))
             else:
               # straightforward adjacency
               adj[i,j] = (maxPi+maxPj)/(2.*min(maxPci,maxPcj))
@@ -176,13 +174,14 @@ if verbose: print " Finding macrocluster"
 # get macrocluster ids
 Nm, m = connected_components(adj)
 
-# write adjacency matrix to file if desired 
+# write out macrogrid file if desired 
 if savegrd: 
   fout = open(mgridfile,'w')
   with open(gridfile) as fin:
     for line in fin:
       # skip comments
       if '#' in line: continue
+      # convert cluster from grid to macrocluster and write out
       data = map(float,line.split()) 
       data[D] = m[int(data[D])-1]+1
       fout.write(' '.join(map(str,data))+'\n')
