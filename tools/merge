@@ -7,13 +7,14 @@ import sys
 verbose = False  # no verbosity
 saveadj = False  # don't store adjacency
 savegrd = False  # don't store macrogrid
+savebrd = False  # don't store boarder points
 errflag = False  # don't use errors
 logflag = True   # logarithm of probabilities as input
 thresh  = 0.9    # threshold to merge cluster
 D       = -1     # dimensionality needs to be specified
 
 if len(sys.argv) < 2:
-  print "usage: merge -d dim [-t] [-e] [-l] [-adj] [-m] [-v] [-h] grid"
+  print "usage: merge -d dim [-t] [-e] [-l] [-adj] [-m] [-b] [-v] [-h] grid"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
@@ -23,6 +24,7 @@ else:
     elif s == '-l'   : logflag = False
     elif s == '-adj' : saveadj = True
     elif s == '-m'   : savegrd = True
+    elif s == '-b'   : savebrd = True
     elif s == '-v'   : verbose = True
     elif s == '-h'   : 
       print "usage: merge -d dim [-t] [-v] [-h] grid"
@@ -39,6 +41,8 @@ else:
       print " "
       print " -m            : write out gridfile containing"
       print "                 new macrogrid [false]"
+      print " "
+      print " -b            : write out boarder points"
       print " "
       print " -v            : turn verbosity on [false]"
       print " "
@@ -86,6 +90,7 @@ else : basename = gridfile
 mgridfile = basename + '.mgrid'
 macrofile = basename + '.macro'
 adjfile   = basename + '.adj'
+brdfile   = basename + '.boarders'
 
 # load data
 data = loadtxt(gridfile)
@@ -185,6 +190,28 @@ if savegrd:
       data = map(float,line.split()) 
       data[D] = m[int(data[D])-1]+1
       fout.write(' '.join(map(str,data))+'\n')
+  fout.close()
+      
+# store boarder points in separate file if desired
+if savebrd: 
+  brd = zeros(X.shape[0])
+  for con in connections:
+    brd = brd + con
+  ib = where(brd > 0)[0]
+  fout = open(brdfile,'w')
+  with open(gridfile) as fin:
+    i = 0
+    for line in fin:
+      # skip comments
+      if '#' in line: continue
+      # convert cluster from grid to macrocluster and write out
+      data = map(float,line.split()) 
+      if i in ib: b = 1
+      else: b = 0
+      data.append(b)
+      fout.write(' '.join(map(str,data))+'\n')
+      i = i+1
+  fout.close()
     
 # write out cluster association to macrocluster
 f = open(macrofile,'w')
