@@ -616,15 +616,14 @@
         wj = DEXP(wj) 
         prelerr = 0.0d0
         pabserr = 0.0d0
-        DO i=1,ngrid
-          ! use approximation to get numerical stable 
-          ! bootstrap error from logarithmic probabilities
+        DO i=1,ngrid          
+          ! use micheles approx. to be numerical stable (and accurate)
           DO j=1,nbootstrap
-            dummd1 = 0.0d0
-            DO k=1,100
-              dummd1 = dummd1 + (probboot(i,j)**k - prob(i)**k)/DBLE(factorial(k))
-            ENDDO
-            pabserr(i) = pabserr(i) + dummd1**2
+            IF (probboot(i,j).GT.prob(i)) THEN
+              pabserr(i) = pabserr(i) + DEXP(2.0d0*(probboot(i,j)+DLOG(1.0d0-DEXP(prob(i)-probboot(i,j)))))
+            ELSE
+              pabserr(i) = pabserr(i) + DEXP(2.0d0*(prob(i)+DLOG(1.0d0-DEXP(probboot(i,j)-prob(i)))))
+            ENDIF
           ENDDO
           pabserr(i) = DSQRT(pabserr(i) / (nbootstrap-1.0d0))
           prelerr(i) = DEXP(DLOG(pabserr(i)) - prob(i))
