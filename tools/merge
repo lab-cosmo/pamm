@@ -107,6 +107,14 @@ multi = int(log10(Nc))-1
 if multi < 1: multi = 0
 steps = 10**multi
 
+# prepare adjacency matrix skeleton
+if logflag: 
+  thresh = log(thresh)
+  adj = ones([Nc,Nc])*-inf
+else:
+  adj = zeros([Nc,Nc])
+
+
 #######################################################################
 ###                                                                 ###
 ###                          main program                           ###
@@ -132,8 +140,6 @@ for ic,c in enumerate(uc):
     if verbose and (mod(ic+1,steps)==0): print "  %d / %d" % (ic+1,Nc)
 
 if verbose: print " Building adjacency matrix"
-if logflag: adj = ones([Nc,Nc])*-inf
-else:       adj = zeros([Nc,Nc])
 # loop over all connections for each cluster
 for i,ci in enumerate(uc):
     for j,cj in enumerate(uc):
@@ -161,6 +167,14 @@ for i,ci in enumerate(uc):
                
     if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,Nc)
 
+# rescale adjacency matrix to identify connected nodes
+if verbose: print " Finding macrocluster"
+# create boolean adjacency matrix
+adj_bool = zeros([Nc,Nc])
+adj_bool[where(adj >  thresh)] = 1
+# get macrocluster ids
+Nm, m = connected_components(adj_bool)
+
 #######################################################################
 ###                                                                 ###
 ###                       output of program                         ###
@@ -170,21 +184,9 @@ for i,ci in enumerate(uc):
 if verbose: print " Write out"
     
 # write adjacency matrix to file if desired 
-if saveadj: savetxt(adjfile,adj)            
-
-# rescale adjacency matrix to identify connected nodes
-if logflag: 
-  thresh = log(thresh)
-  tmp = zeros([Nc,Nc])
-  tmp[where(adj >  thresh)] = 1
-  tmp[where(adj <= thresh)] = 0
-  adj = tmp
-else:
-  adj[where(adj >  thresh)] = 1
-
-if verbose: print " Finding macrocluster"
-# get macrocluster ids
-Nm, m = connected_components(adj)
+if saveadj: 
+  if logflag: savetxt(adjfile,adj,header="adjacency matrix (log-scaled)") 
+  else:       savetxt(adjfile,adj,header="adjacency matrix")              
 
 # write out macrogrid file and boarder points if desired 
 if savegrd: 
