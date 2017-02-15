@@ -132,7 +132,8 @@ for ic,c in enumerate(uc):
     if verbose and (mod(ic+1,steps)==0): print "  %d / %d" % (ic+1,Nc)
 
 if verbose: print " Building adjacency matrix"
-adj = zeros([Nc,Nc])
+if logflag: adj = ones([Nc,Nc])*-inf
+else:       adj = zeros([Nc,Nc])
 # loop over all connections for each cluster
 for i,ci in enumerate(uc):
     for j,cj in enumerate(uc):
@@ -172,9 +173,14 @@ if verbose: print " Write out"
 if saveadj: savetxt(adjfile,adj)            
 
 # rescale adjacency matrix to identify connected nodes
-if logflag: thresh = log(thresh)
-adj[where(adj <= thresh)] = 0
-adj[where(adj >  thresh)] = 1
+if logflag: 
+  thresh = log(thresh)
+  tmp = zeros([Nc,Nc])
+  tmp[where(adj >  thresh)] = 1
+  tmp[where(adj <= thresh)] = 0
+  adj = tmp
+else:
+  adj[where(adj >  thresh)] = 1
 
 if verbose: print " Finding macrocluster"
 # get macrocluster ids
