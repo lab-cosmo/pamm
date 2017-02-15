@@ -153,7 +153,7 @@ for i,ci in enumerate(uc):
               # use micheles log-approximation for sums
               if maxPi > maxPj: avgP = maxPi + log(1.+exp(maxPj-maxPi))
               else:             avgP = maxPj + log(1.+exp(maxPi-maxPj))
-              adj[i,j] = exp(avgP - min(maxPci,maxPcj) - log(2))
+              adj[i,j] = avgP - min(maxPci,maxPcj) - log(2)
             else:
               # straightforward adjacency
               adj[i,j] = (maxPi+maxPj)/(2.*min(maxPci,maxPcj))
@@ -172,6 +172,7 @@ if verbose: print " Write out"
 if saveadj: savetxt(adjfile,adj)            
 
 # rescale adjacency matrix to identify connected nodes
+if logflag: thresh = log(thresh)
 adj[where(adj <= thresh)] = 0
 adj[where(adj >  thresh)] = 1
 
@@ -179,26 +180,15 @@ if verbose: print " Finding macrocluster"
 # get macrocluster ids
 Nm, m = connected_components(adj)
 
-# write out macrogrid file if desired 
+# write out macrogrid file and boarder points if desired 
 if savegrd: 
+  # if desired store boarder points
+  if savebrd: 
+    brd = zeros(X.shape[0])
+    for con in connections:
+      brd = brd + con
+    ib = where(brd > 0)[0]
   fout = open(mgridfile,'w')
-  with open(gridfile) as fin:
-    for line in fin:
-      # skip comments
-      if '#' in line: continue
-      # convert cluster from grid to macrocluster and write out
-      data = map(float,line.split()) 
-      data[D] = m[int(data[D])-1]+1
-      fout.write(' '.join(map(str,data))+'\n')
-  fout.close()
-      
-# store boarder points in separate file if desired
-if savebrd: 
-  brd = zeros(X.shape[0])
-  for con in connections:
-    brd = brd + con
-  ib = where(brd > 0)[0]
-  fout = open(brdfile,'w')
   with open(gridfile) as fin:
     i = 0
     for line in fin:
@@ -206,13 +196,16 @@ if savebrd:
       if '#' in line: continue
       # convert cluster from grid to macrocluster and write out
       data = map(float,line.split()) 
-      if i in ib: b = 1
-      else: b = 0
-      data.append(b)
+      data[D] = m[int(data[D])-1]+1
+      # append flag to identify boarder points if desired
+      if savebrd: 
+        if i in ib: b = 1
+        else: b = 0
+        data.append(b)
+        i = i+1
       fout.write(' '.join(map(str,data))+'\n')
-      i = i+1
   fout.close()
-    
+      
 # write out cluster association to macrocluster
 f = open(macrofile,'w')
 f.write("# cluster macrocluster\n")
