@@ -179,9 +179,9 @@
             ccmd = 12
          ELSEIF (cmdbuffer == "-z") THEN            ! add a background to the probability mixture
             ccmd = 13
-         ELSEIF (cmdbuffer == "-saveidxs") THEN     ! save the indices of grid points
+         ELSEIF (cmdbuffer == "-savegrid") THEN     ! save the indices of grid points
             saveidxs= .TRUE.
-         ELSEIF (cmdbuffer == "-grididxs") THEN ! read the grid points from the standard input
+         ELSEIF (cmdbuffer == "-readgrid") THEN     ! read the grid points from the standard input
             readgrid= .TRUE.
             ccmd = 14
          ELSEIF (cmdbuffer == "-savevoronois") THEN ! save the Voronoi associations
@@ -655,16 +655,8 @@
          qspath(1)=i
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-            ! find closest point higher in probability  
-            idxroot(qspath(counter)) = qs_next( D, &
-                                         period, &   
-                                         ngrid, &
-                                         qspath(counter), &
-                                         sigma2(qspath(counter)), &
-                                         prob, &
-                                         distmm, &
-                                         y, &
-                                         qscut2)      
+            ! find closest point higher in probability
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -901,9 +893,9 @@
          WRITE(*,*) "                         output.pamm (cluster parameters) "
          WRITE(*,*) "   -savevoronois     : Save Voronoi associations. This will produce:"
          WRITE(*,*) "                         output.voronoislinks (points + associated Voronoi) "
-         WRITE(*,*) "   -saveidxs         : Save the indexes of the point selected as grid points "
+         WRITE(*,*) "   -savegrid         : Save the indexes of the point selected as grid points "
          WRITE(*,*) "                       This will produce the file output.idxs "
-         WRITE(*,*) "   -grididxs f.idxs  : Read from file the indexes of the points to be selected "
+         WRITE(*,*) "   -readgrid g.idxs  : Read from file the indexes of the points to be selected "
          WRITE(*,*) "                       as grid points "
          WRITE(*,*) "   -qs scaling       : Scaling factor used during the QS clustering "
          WRITE(*,*) "   -ngrid ngrid      : Number of grid points to evaluate KDE [sqrt(nsamples)]"
@@ -1744,7 +1736,7 @@
       END FUNCTION
 
 
-      INTEGER FUNCTION qs_next(D,period,ngrid,idx,lambda2,probnmm,distmm,y,cutoff)
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,lambda)
          ! Return the index of the closest point higher in P
          ! 
          ! Args:
@@ -1754,33 +1746,26 @@
          !    probnmm: density estimations
          !    distmm: distances matrix
 
-         INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: period(D)
-         DOUBLE PRECISION, INTENT(IN) :: lambda2, cutoff
+         DOUBLE PRECISION, INTENT(IN) :: lambda
          DOUBLE PRECISION, INTENT(IN) :: probnmm(ngrid)
          DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid)
-         DOUBLE PRECISION, INTENT(IN) :: y(D,ngrid)
          
          INTEGER j
-         DOUBLE PRECISION dmin,lambda2inv
-         
-         lambda2inv = 1.0d0/lambda2
-         dmin = 1.0d100
+         DOUBLE PRECISION dmin
+
+         dmin = HUGE(0.0d0)
           
          qs_next = idx
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
-               IF (pammr2(D,period,y(:,j),y(:,idx))*lambda2inv.LT.cutoff) THEN
-                 IF (distmm(j,idx).LT.dmin) THEN
-                   dmin = distmm(j,idx) 
-                   qs_next = j
-                 ENDIF 
-               ENDIF
+               IF ((distmm(j,idx).LT.dmin) .AND. (distmm(j,idx).LT.lambda)) THEN
+                 dmin = distmm(j,idx) 
+                 qs_next = j
+               ENDIF 
             ENDIF
          ENDDO
-!         WRITE(*,*) idx,qs_next,cutoff
       END FUNCTION qs_next
       
 !      INTEGER FUNCTION qs_next(D,period,N,i,cutoff,prob,M,y,multi)

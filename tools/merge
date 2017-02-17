@@ -147,6 +147,9 @@ gneighs = zeros([N,N], dtype=bool)
 for i in range(N):
     # matrix is symmetric, loop over upper triangular
     for j in range(i-1):        
+        # if i and j are in the same cluster skip operation
+        if cid[i] == cid[j]: continue
+        
         flag = distsq[i,j] > distsq[i,:] + distsq[j,:]
         
         if not flag.any():     
@@ -156,6 +159,7 @@ for i in range(N):
 
     if verbose and (mod(i+1,gsteps)==0): print "  %d / %d" % (i+1,N)
     
+
 if verbose: print " Building adjacency matrix"
 # create array to store border points
 brd = zeros(N,dtype=bool)
