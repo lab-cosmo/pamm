@@ -59,12 +59,13 @@ print " *                                        * "
 print " ****************************************** "
 print "                                            "   
 print " cluster merging based on:                  "
-print "   - adjacency                              "
+print "   - gabriel neighbors                      "
+print "   - adjacency criterion                    "
 print "   - errors (not implemented yet)           "
 print "   - true log-sum-exp                       "
 print "                                            "
 print " Version: 1.0                               "
-print " Date   : 02/10/17                          "
+print " Date   : 02/17/17                          "
 print " Author : robert.meissner@epfl.ch           "
 print "                                            "    
 print "                                            "    
@@ -99,13 +100,19 @@ X    = data[:,:D]
 cid  = array(map(int,data[:,D]))
 prob = data[:,D+1]
 
+N  = X.shape[0]
 Nc = len(unique(cid))
 uc = unique(cid)
 
-# output every this many steps (estimated automatically)
-multi = int(log10(Nc))-1
+# output every this many steps if looped over cluster
+multi = ceil(log10(Nc))-1
 if multi < 1: multi = 0
-steps = 10**multi
+csteps = 10**multi
+
+# output every this many steps if looped over grid
+multi = ceil(log10(N))-1
+if multi < 1: multi = 0
+gsteps = 10**multi
 
 # prepare adjacency matrix skeleton
 if logflag: 
@@ -121,51 +128,81 @@ else:
 ###                                                                 ###
 #######################################################################
 
-if verbose: print " Finding connections between clusters"
-connections = zeros([Nc,X.shape[0]],dtype=int)
-for ic,c in enumerate(uc):   
-    for i,x in enumerate(X):
-        # loop over points in my cluster
-        if c != cid[i]: continue
-        mindist = inf
-        jmin = -1
-        for j,y in enumerate(X):
-            # check if we are in same cluster
-            if c == cid[j]: continue
-            dist = linalg.norm(x-y) 
-            if dist < mindist:
-                mindist = dist
-                jmin = j
-        if jmin > -1: connections[ic,jmin] = 1
-    if verbose and (mod(ic+1,steps)==0): print "  %d / %d" % (ic+1,Nc)
+if verbose: print " Building Gabriel Graph"
+# find gabriel neighbors of i
+gneighs = zeros([N,N], dtype=bool)
+for i,xi in enumerate(X):
+    # matrix is symmetric, loop over upper triangular
+    for j in range(i-1):
+        xj = X[j,:]
+        
+        # create center point
+        xij = xi + (xj-xi)/2.    
 
+        # distance between points
+        r = linalg.norm(xi-xj)
+        
+        # if another point is in n-ball between i and j
+        # points are no gabriel neighbors
+        flag = True
+        for k,xk in enumerate(X):
+            xk = X[k,:]
+            if (k==j) | (k==i): continue
+            if linalg.norm(xij-xk) < r/2.:
+                flag = False
+                break
+        if flag: 
+            gneighs[i,j] = True
+            # matrix is symmetric
+            gneighs[j,i] = True
+
+    if verbose and (mod(i+1,gsteps)==0): print "  %d / %d" % (i+1,N)
+    
 if verbose: print " Building adjacency matrix"
-# loop over all connections for each cluster
-for i,ci in enumerate(uc):
-    for j,cj in enumerate(uc):
-        if i==j: continue
-        # first get all boarder points from clusters i and j
-        ij = (connections[i,:] > 0) & (cid==cj)
-        ji = (connections[j,:] > 0) & (cid==ci)
-        # check if clusters are adjacent
-        if (sum(ij) > 0) & (sum(ji) > 0):
-            # find max prob of each cluster
-            maxPci = max(prob[cid==ci])
+# create array to store border points
+brd = zeros(N,dtype=bool)
+# loop over all cluster
+for ii,ci in enumerate(uc):
+
+    # max prob of cluster ci
+    maxPci = max(prob[cid==ci])
+    
+    # loop over points in my cluster
+    for i in range(N):
+        if ci != cid[i]: continue
+        
+        # loop over all other cluster
+        for jj,cj in enumerate(uc):
+            if ci==cj: continue
+            
+            # max prob of cluster cj
             maxPcj = max(prob[cid==cj])
-            # find max prob of boundary points for each cluster     
-            maxPi = max(prob[ji])
-            maxPj = max(prob[ij])
-            # calculate adjacency
-            if logflag:
-              # use micheles log-approximation for sums
-              if maxPi > maxPj: avgP = maxPi + log(1.+exp(maxPj-maxPi))
-              else:             avgP = maxPj + log(1.+exp(maxPi-maxPj))
-              adj[i,j] = avgP - min(maxPci,maxPcj) - log(2)
-            else:
-              # straightforward adjacency
-              adj[i,j] = (maxPi+maxPj)/(2.*min(maxPci,maxPcj))
-               
-    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,Nc)
+
+            # loop over points in other cluster
+            for j in range(N):
+                if cj != cid[j]: continue
+                
+                # cluster ci and cj are connected if points i and j are gabriel neighbors
+                if gneighs[i,j]:
+                    # mark points as boarder points
+                    brd[i] = True
+                    brd[j] = True
+                    # store highest adjacency between cluster 
+                    if logflag:
+                      # use micheles log-approximation for sums
+                      if prob[i] > prob[j]: avgP = prob[i] + log(1.+exp(prob[j]-prob[i]))
+                      else:                 avgP = prob[j] + log(1.+exp(prob[i]-prob[j]))
+                      tmp = avgP - min(maxPci,maxPcj) - log(2)
+                      
+                      if tmp > adj[ii,jj] : adj[ii,jj] = tmp
+                      
+                    else:
+                      # straightforward adjacency
+                      tmp = (prob[i]+prob[j])/(2.*min(maxPci,maxPcj))
+                      
+                      if tmp > adj[ii,jj] : adj[ii,jj] = tmp
+
+    if verbose and (mod(i+1,csteps)==0): print "  %d / %d" % (i+1,Nc)
 
 # rescale adjacency matrix to identify connected nodes
 if verbose: print " Finding macrocluster"
@@ -190,12 +227,6 @@ if saveadj:
 
 # write out macrogrid file and boarder points if desired 
 if savegrd: 
-  # if desired store boarder points
-  if savebrd: 
-    brd = zeros(X.shape[0])
-    for con in connections:
-      brd = brd + con
-    ib = where(brd > 0)[0]
   fout = open(mgridfile,'w')
   with open(gridfile) as fin:
     i = 0
@@ -207,7 +238,7 @@ if savegrd:
       data[D] = m[int(data[D])-1]+1
       # append flag to identify boarder points if desired
       if savebrd: 
-        if i in ib: b = 1
+        if brd[i]: b = 1
         else: b = 0
         data.append(b)
         i = i+1
