@@ -128,33 +128,37 @@ else:
 ###                                                                 ###
 #######################################################################
 
+if verbose: print " Compute Distance Matrix"
+# we need squared distances for gabriel graph
+distsq = zeros([N,N])
+for i,xi in enumerate(X):
+    # matrix is symmetric, loop over upper triangular
+    distsq[i,:] = linalg.norm(xi-X,axis=1)**2
+    
+    # distance to myself is far away
+    distsq[i,i] = inf
+  
+    if verbose and (mod(i+1,gsteps)==0): print "  %d / %d" % (i+1,N)
+
+
 if verbose: print " Building Gabriel Graph"
 # find gabriel neighbors of i
 gneighs = zeros([N,N], dtype=bool)
-for i,xi in enumerate(X):
+
+for i in range(N):
     # matrix is symmetric, loop over upper triangular
     for j in range(i-1):
-        xj = X[j,:]
+        # squared distance between points i and j
+        dij  = distsq[i,j]
+        # sum of squared distance between points i and k and j and k
+        dijk = distsq[i,:] + distsq[j,:]
         
-        # create center point
-        xij = xi + (xj-xi)/2.    
-
-        # distance between points
-        r = linalg.norm(xi-xj)
+        flag = dij > dijk
         
-        # if another point is in n-ball between i and j
-        # points are no gabriel neighbors
-        flag = True
-        for k,xk in enumerate(X):
-            xk = X[k,:]
-            if (k==j) | (k==i): continue
-            if linalg.norm(xij-xk) < r/2.:
-                flag = False
-                break
-        if flag: 
-            gneighs[i,j] = True
-            # matrix is symmetric
-            gneighs[j,i] = True
+        if not flag.any():     
+          gneighs[i,j] = True
+          # matrix is symmetric
+          gneighs[j,i] = True
 
     if verbose and (mod(i+1,gsteps)==0): print "  %d / %d" % (i+1,N)
     
@@ -202,7 +206,7 @@ for ii,ci in enumerate(uc):
                       
                       if tmp > adj[ii,jj] : adj[ii,jj] = tmp
 
-    if verbose and (mod(i+1,csteps)==0): print "  %d / %d" % (i+1,Nc)
+    if verbose and (mod(i+1,csteps)==0): print "  %d / %d" % (ii+1,Nc)
 
 # rescale adjacency matrix to identify connected nodes
 if verbose: print " Finding macrocluster"
