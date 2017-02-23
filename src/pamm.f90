@@ -1140,7 +1140,7 @@
         kk = 1
         zz(1) = vin(1)
         outer: do ii=2,ns
-          do jj=1,k
+          do jj=1,kk
             if (zz(jj) == vin(ii)) then
               ! Found a match so start looking again
               cycle outer
