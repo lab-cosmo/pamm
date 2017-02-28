@@ -1276,14 +1276,9 @@
          
          ! select just the probabilities of the element
          ! that belongs to the cluster tgt
-!!  WRITE(*,*) clroots
-  WRITE(*,*) idcl
-  WRITE(*,*) clroots
-  WRITE(*,*) "@@@@@@@@@@@@@@@@@@@@@@@@@@"
+         ww=0.0d0
          WHERE (clroots .EQ. idcl)
             ww = prob
-         ELSEWHERE
-            ww = 0.0d0
          END WHERE
          
          CALL covariance(D,period,N,SUM(ww),ww,x,Q)
