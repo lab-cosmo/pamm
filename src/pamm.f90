@@ -803,7 +803,7 @@
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-              CALL getcovcluster(D,period,nsamples,wi,x,iminij,clustercenters(k),vmclusters(k)%cov)
+              CALL getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov)
             ENDIF
             vmclusters(k)%weight= &
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
@@ -813,7 +813,7 @@
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-              CALL getcovcluster(D,period,nsamples,wi,x,iminij,clustercenters(k),clusters(k)%cov)
+              CALL getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov)
             ENDIF
             clusters(k)%weight=&
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
@@ -1276,6 +1276,10 @@
          
          ! select just the probabilities of the element
          ! that belongs to the cluster tgt
+!!  WRITE(*,*) clroots
+  WRITE(*,*) idcl
+  WRITE(*,*) clroots
+  WRITE(*,*) "@@@@@@@@@@@@@@@@@@@@@@@@@@"
          WHERE (clroots .EQ. idcl)
             ww = prob
          ELSEWHERE
