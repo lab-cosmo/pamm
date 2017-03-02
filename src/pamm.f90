@@ -283,7 +283,7 @@
       ENDIF  
       qscut2 = qscut * qscut
 
-      ! POST-PROCESSING MODE
+      ! #####################  POST-PROCESSING MODE  ###################
       ! This modality will run just specifying the -gf flag.
       ! The program will just compute the pamm probalities 
       ! for each given point 
@@ -346,20 +346,21 @@
          CALL EXIT(-1)
       ENDIF
       
-      ! CLUSTERING MODE
+      ! #####################  CLUSTERING MODE  ###################
       ! get the data from standard input
       CALL readinput(D, weighted, nsamples, x, normwj, wj)
+      
       ! "renormalizes" the weight so we can consider them sort of sample counts
       IF (weighted) THEN  
         wj = wj * nsamples/sum(wj)
       ENDIF
       
-      ! If not specified, the number voronoi polyhedra
-      ! are set to the square of the total number of points
+      ! If not specified, the number of voronoi polyhedra
+      ! are set to the square root of the total number of points
       IF (ngrid.EQ.-1) ngrid = int(sqrt(float(nsamples)))
       
-      ! If not specified, the target local number of sample points
-      ! is set to the square of the total number of points
+      ! Now sets the localization. It can be set either in terms of a fraction of the
+      ! number samples, or directly as a fraction of the variance of the data        
       ntarget = int(float(nsamples) * fpoints)
       
       ! only one of the methods can be used at a time
@@ -410,7 +411,7 @@
       ! error check of voronoi association
       DO i=1,ngrid
         IF (wi(i).EQ.0.0d0) STOP &
-          " Error: voronoi has no points associated with"
+          " Error: voronoi has no points associated with - probably two points are perfectly overlapping"
       ENDDO
       
       ! print out the voronois associations
@@ -742,6 +743,7 @@
       ENDIF
       
       DO k=1,Nk
+         write(*,*) k, "/", Nk
          IF(periodic)THEN
             ALLOCATE(vmclusters(k)%mean(D))
             ALLOCATE(vmclusters(k)%cov(D,D))
@@ -759,14 +761,15 @@
          ! optionally do a few mean-shift steps to find a better estimate 
          ! of the cluster mode
          
-              dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
-              ! weighted natural logarithm of kernel
-              lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
-              IF(prob(i).GT.lnK) THEN
-                prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
-              ELSE
-                prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
-              ENDIF 
+         !What the fuck is this?
+         !dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
+         ! weighted natural logarithm of kernel
+         !lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
+         !IF(prob(i).GT.lnK) THEN
+         !    prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
+         !ELSE
+         !    prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
+         !ENDIF 
          
          
          DO j=1,nmsopt
