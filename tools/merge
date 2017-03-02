@@ -14,7 +14,7 @@ thresh  = 0.9    # threshold to merge cluster
 D       = -1     # dimensionality needs to be specified
 
 if len(sys.argv) < 2:
-  print "usage: merge -d dim [-t] [-e] [-l] [-adj] [-m] [-b] [-v] [-h] grid"
+  print "usage: merge -d dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-v] [-h] grid"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
@@ -27,7 +27,7 @@ else:
     elif s == '-b'   : savebrd = True
     elif s == '-v'   : verbose = True
     elif s == '-h'   : 
-      print "usage: merge -d dim [-t] [-v] [-h] grid"
+      print "usage: merge -d dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-v] [-h] grid"
       print " "
       print " -d dim        : dimensionality"
       print " "
@@ -48,8 +48,6 @@ else:
       print " "
       print " -h            : show this message"
       sys.exit()
-#    else:
-#      sys.exit("unrecognized input")
 
 print "                                            " 
 print " ****************************************** "
