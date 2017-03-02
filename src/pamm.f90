@@ -672,7 +672,7 @@
       ! get the cluster centers
       CALL unique(ngrid,idxroot,clustercenters)
       ! get the number of the clusters
-      Nk=size(clustercenters)
+      Nk=SIZE(clustercenters)
       ! get sum of the probs, the normalization factor
       normpks=logsumexp(ngrid,idxroot/idxroot,prob,1)
       ! check if there are outliers that should be merged to the others
@@ -1520,12 +1520,12 @@
             WRITE(12,"((I9))") irandom
          ENDIF
          y(:,1)=x(:,irandom)
-         dminij = 1.0d99
+         dminij = HUGE(0.0d0)
          iminij = 1     
          ineigh = 0    
          DO i=2,ngrid
             dmax = 0.0d0
-            dneigh = 1.0d99
+            dneigh = HUGE(0.0d0)
             DO j=1,nsamples
                dij = pammr2(D,period,y(:,i-1),x(:,j))
                IF (dminij(j)>dij) THEN
@@ -1551,7 +1551,7 @@
          ENDDO
 
          ! finishes Voronoi attribution
-         dneigh = 1.0d99
+         dneigh = HUGE(0.0d0)
          DO j=1,nsamples
             dij = pammr2(D,period,y(:,ngrid),x(:,j))
             IF (dminij(j)>dij) THEN
@@ -1567,7 +1567,7 @@
          ! Assign neighbor list pointer of voronois
          ! Number of points in each voronoi polyhedra
          nj = 0
-         wi  = 0.0d0
+         wi = 0.0d0
          DO j=1,nsamples
             nj(iminij(j))=nj(iminij(j))+1
             wi(iminij(j))=wi(iminij(j))+wj(iminij(j))
@@ -1577,6 +1577,7 @@
       SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij, &
                          ineigh,wi,idxgrid)
          IMPLICIT NONE
+         
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
          ! 
@@ -1602,41 +1603,59 @@
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi   
          INTEGER, DIMENSION(ngrid), INTENT(IN) :: idxgrid 
 
-         INTEGER i,j
+         INTEGER i,j,irandom
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax, dneigh
 
          iminij=0
          y=0.0d0
          nj=0
-         ! choose randomly the first point
-         
-         dminij = 1.0d99
-         iminij = 1         
-         DO i=1,ngrid
-            IF(modulo(i,1000).EQ.0) WRITE(*,*) i,"/",ngrid
+
+         ! start from first point of user provided grid
+         irandom=idxgrid(1)
+         y(:,1)=x(:,irandom)
+         dminij = HUGE(0.0d0)
+         iminij = 1     
+         ineigh = 0    
+         DO i=2,ngrid
             dmax = 0.0d0
-            dneigh = 1.0d99
-            y(:,i)=x(:,idxgrid(i))
+            dneigh = HUGE(0.0d0)
             DO j=1,nsamples
-               dij = pammr2(D,period,y(:,i),x(:,j))
+               dij = pammr2(D,period,y(:,i-1),x(:,j))
                IF (dminij(j)>dij) THEN
                   dminij(j) = dij
-                  iminij(j) = i ! also keeps track of the Voronoi attribution
+                  iminij(j) = i-1 ! also keeps track of the Voronoi attribution
                ENDIF
                IF (dminij(j) > dmax) THEN
                   dmax = dminij(j)
                ENDIF
                IF ((dneigh > dij) .and. (dij .ne. 0.0d0)) THEN
                   dneigh = dij
-                  ineigh(i) = j ! store index of closest sample neighbor to grid point
+                  ineigh(i-1) = j ! store index of closest sample neighbor to grid point
                ENDIF
             ENDDO           
+            y(:,i) = x(:, idxgrid(i))
+            IF(verbose .AND. (modulo(i,1000).EQ.0)) &
+               write(*,*) i,"/",ngrid
+         ENDDO
+
+         ! finishes Voronoi attribution
+         dneigh = HUGE(0.0d0)
+         DO j=1,nsamples
+            dij = pammr2(D,period,y(:,ngrid),x(:,j))
+            IF (dminij(j)>dij) THEN
+               dminij(j) = dij
+               iminij(j) = ngrid
+            ENDIF
+            IF ((dneigh > dij) .and. (dij .ne. 0.0d0)) THEN
+               dneigh = dij
+               ineigh(ngrid) = j ! store index of closest sample neighbor to grid point
+            ENDIF
          ENDDO
 
          ! Assign neighbor list pointer of voronois
          ! Number of points in each voronoi polyhedra
          nj = 0
-         wi  = 0.0d0
+         wi = 0.0d0
          DO j=1,nsamples
             nj(iminij(j))=nj(iminij(j))+1
             wi(iminij(j))=wi(iminij(j))+wj(iminij(j))
