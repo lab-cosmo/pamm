@@ -75,9 +75,9 @@
       
       DOUBLE PRECISION normwj                                   ! accumulator for wj
       DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
-      DOUBLE PRECISION thrpcl                                   ! parmeter controlling the merging of the outlier clusters
+      DOUBLE PRECISION thrpcl                                   ! threshold for merging outlier clusters
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points 
-      DOUBLE PRECISION fspread                                     ! or a fraction of the global avg. variance
+      DOUBLE PRECISION fspread                                  ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
       DOUBLE PRECISION qscut, qscut2                            ! cutoff and squared cutoff for QS
       DOUBLE PRECISION msw
@@ -233,8 +233,6 @@
                READ(cmdbuffer,*) fspread
             ELSEIF (ccmd == 11) THEN                ! read fraction of points for bandwidth estimation
                READ(cmdbuffer,*) fpoints
-            ELSEIF (ccmd == 16) THEN
-               READ(cmdbuffer,*) thrpcl
             ELSEIF (ccmd == 12) THEN                ! read the periodicity in each dimension
                IF (D<0) STOP &
                  "Dimensionality (-d) must precede the periodic lenghts (-p). "
@@ -262,6 +260,8 @@
                gridfile=trim(cmdbuffer)
             ELSEIF (ccmd == 15) THEN                ! read the threashold for cluster adjancency merging
                READ(cmdbuffer,*) thrmerg
+            ELSEIF (ccmd == 16) THEN
+               READ(cmdbuffer,*) thrpcl
             ENDIF
          ENDIF
       ENDDO
@@ -510,7 +510,10 @@
           ! Mahalanobis distances in the same row are 
           ! computed using the covariance matrix from
           ! the point with that specific row index
-          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
+          !distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
+          
+          ! using euclidean distances
+          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
         ENDDO      
       ENDDO
       
@@ -657,7 +660,10 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             ! find closest point higher in probability
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2)   
+            !idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2)   
+            
+            ! using euclidean distances and localization as cutoff
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,sigma2(qspath(counter)))
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -743,7 +749,7 @@
       ENDIF
       
       DO k=1,Nk
-         write(*,*) k, "/", Nk
+         WRITE(*,*) k, "/", Nk
          IF(periodic)THEN
             ALLOCATE(vmclusters(k)%mean(D))
             ALLOCATE(vmclusters(k)%cov(D,D))
@@ -760,18 +766,6 @@
          
          ! optionally do a few mean-shift steps to find a better estimate 
          ! of the cluster mode
-         
-         !What the fuck is this?
-         !dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
-         ! weighted natural logarithm of kernel
-         !lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
-         !IF(prob(i).GT.lnK) THEN
-         !    prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
-         !ELSE
-         !    prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
-         !ENDIF 
-         
-         
          DO j=1,nmsopt
             msmu=0.0d0
             tmppks=-HUGE(0.0d0)
