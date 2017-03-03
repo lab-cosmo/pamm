@@ -14,9 +14,11 @@ minsize = 1      # show cluster with one member
 flip    = False  # ascending order of cluster size
 pflag   = False  # no print out of probabilities
 psort   = False  # don't sort according to probabilities
+lo      = []     # use min/max of probability as limits for prob plot
+hi      = []     # use min/max of probability as limits for prob plot
 
 if len(sys.argv) < 2:
-  print "usage: pamm2prj [-d dim] [-min min] [-n N] [-f] [-p] [-ps] [-v] [-h] pamm proj idxs"
+  print "usage: pamm2prj [-d dim] [-min min] [-n N] [-f] [-ps] [-p] [-lo lo] [-hi hi] [-v] [-h] pamm proj idxs"
   sys.exit("ERROR: not enough input provided")
 else:
   for i,s in enumerate(sys.argv):
@@ -24,11 +26,13 @@ else:
     elif s == '-min' : minsize = int(sys.argv[i+1])
     elif s == '-n'   : nplot   = int(sys.argv[i+1])
     elif s == '-f'   : flip    = True
-    elif s == '-p'   : pflag   = True
     elif s == '-ps'  : psort   = True
+    elif s == '-p'   : pflag   = True
+    elif s == '-lo'  : lo      = int(sys.argv[i+1])
+    elif s == '-hi'  : hi      = int(sys.argv[i+1])
     elif s == '-v'   : verbose = True
     elif s == '-h'   : 
-      print "usage: pamm2prj [-d dim] [-min min] [-n N] [-f] [-p] [-ps] [-v] [-h] pamm proj idxs"
+      print "usage: pamm2prj [-d dim] [-min min] [-n N] [-f] [-ps] [-p] [-lo lo] [-hi hi] [-v] [-h] pamm proj idxs"
       print " "
       print " pamm          : pamm grid file"
       print " "
@@ -46,9 +50,13 @@ else:
       print " "
       print " -f            : flip sorting [false]"
       print " "
+      print " -ps           : sort according to probabilities [false]"
+      print " "
       print " -p            : plot probabilities on sketchmap [false]"
       print " "
-      print " -ps           : sort according to probabilities [false]"
+      print " -lo lo        : lower limit for probability plot [min(prob)]"
+      print " "
+      print " -hi hi        : upper limit for probability plot [max(prob)]"
       print " "
       print " -v            : turn verbosity on [false]"
       print " "
@@ -115,6 +123,11 @@ X = smap[:N,:2]
 cls = pamm[:,15]
 p = pamm[:,16]
 
+if not lo:
+  lo = min(p)
+if not hi:
+  hi = max(p)
+
 # get unique cluster and number of members in each
 uc, mc = unique(cls,return_counts=True)
 # total number of unique cluster
@@ -171,6 +184,7 @@ if pflag:
   P.figure()
   P.scatter(X[argsort(p),0],X[argsort(p),1],c=p[argsort(p)],edgecolor='None')
   P.colorbar()
+  P.clim([lo,hi])
 
 P.show()
 
