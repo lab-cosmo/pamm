@@ -1,0 +1,203 @@
+#!/usr/bin/python
+# multivariate bayesian bandwidth estimation
+
+from numpy import *
+from matplotlib import cm
+
+import matplotlib.pyplot as P
+import sys
+
+verbose = False  # no verbosity
+D       = 2      # use two-dimensional projection
+nplot   = -1     # show all cluster
+minsize = 1      # show cluster with one member
+flip    = False  # ascending order of cluster size
+pflag   = False  # no print out of probabilities
+psort   = False  # don't sort according to probabilities
+
+if len(sys.argv) < 2:
+  print "usage: pamm2prj [-d dim] [-min min] [-n N] [-f] [-p] [-ps] [-v] [-h] pamm proj idxs"
+  sys.exit("ERROR: not enough input provided")
+else:
+  for i,s in enumerate(sys.argv):
+    if   s == '-d'   : D       = int(sys.argv[i+1])
+    elif s == '-min' : minsize = int(sys.argv[i+1])
+    elif s == '-n'   : nplot   = int(sys.argv[i+1])
+    elif s == '-f'   : flip    = True
+    elif s == '-p'   : pflag   = True
+    elif s == '-ps'  : psort   = True
+    elif s == '-v'   : verbose = True
+    elif s == '-h'   : 
+      print "usage: pamm2prj [-d dim] [-min min] [-n N] [-f] [-p] [-ps] [-v] [-h] pamm proj idxs"
+      print " "
+      print " pamm          : pamm grid file"
+      print " "
+      print " proj          : projection of data (pca, sketchmap or ...)"
+      print " "
+      print " idxs          : association to projection"
+      print " "
+      print " optional:"
+      print " "
+      print " -d dim        : dimensionality of projection [2]"
+      print " "
+      print " -min min      : minimum size of cluster to plot [1]"
+      print " "
+      print " -n N          : plot only N cluster [all]"
+      print " "
+      print " -f            : flip sorting [false]"
+      print " "
+      print " -p            : plot probabilities on sketchmap [false]"
+      print " "
+      print " -ps           : sort according to probabilities [false]"
+      print " "
+      print " -v            : turn verbosity on [false]"
+      print " "
+      print " -h            : show this message"
+      sys.exit()
+
+print "                                            " 
+print " ****************************************** "
+print " *                                        * "
+print " *               PAMM Tools               * "
+print " *                                        * "
+print " ****************************************** "
+print "                                            "   
+print " plot results of PAMM on projection         "
+print "                                            "
+print " Version: 1.0                               "
+print " Date   : 03/02/17                          "
+print " Author : robert.meissner@epfl.ch           "
+print "                                            "    
+print "                                            "   
+
+#######################################################################
+###                                                                 ###
+###                          input control                          ###
+###                                                                 ###
+#######################################################################
+
+if D > 2: sys.exit("ERROR: can't plot more than two dimensions")
+
+# try to open input files
+try:
+    with open(sys.argv[-3]) as file:
+        pass
+except IOError as e:
+    sys.exit("ERROR: Unable to open grid file")
+gridfile = sys.argv[-3]
+try:
+    with open(sys.argv[-2]) as file:
+        pass
+except IOError as e:
+    sys.exit("ERROR: Unable to open proj file")
+projfile = sys.argv[-2]
+try:
+    with open(sys.argv[-1]) as file:
+        pass
+except IOError as e:
+    sys.exit("ERROR: Unable to open idxs file")
+idxsfile = sys.argv[-1]
+
+#######################################################################
+###                                                                 ###
+###                          main program                           ###
+###                                                                 ###
+#######################################################################
+
+idxs = loadtxt(idxsfile,dtype=int)
+smap = loadtxt(projfile)
+smap = smap[idxs-1,:2]
+pamm = loadtxt(gridfile)
+
+N = pamm.shape[0]
+
+X = smap[:N,:2]
+cls = pamm[:,15]
+p = pamm[:,16]
+
+# get unique cluster and number of members in each
+uc, mc = unique(cls,return_counts=True)
+# total number of unique cluster
+ntot = len(uc)
+
+# if nplot is not set, set it to total number of clusters
+if nplot < 0: nplot = len(uc)
+
+if psort:
+  # sort cluster according to their maximum probability
+  cp = zeros(ntot)
+  for i,c in enumerate(uc):
+    cp[i] = max(p[cls == c])
+  uc = uc[argsort(cp)]
+else:
+  # sort cluster according to their size
+  uc = uc[where(mc >= minsize)]
+  mc = mc[where(mc >= minsize)]
+  uc = uc[argsort(mc)]
+
+# show smallest (or lowest probable) cluster first
+if flip: uc = flipud(uc)
+
+pc = uc[-nplot:]
+
+print " Cluster Analysis"
+print "   %d clusters in total " % (ntot)
+
+#print "   %d" % (len(pc)),
+#if psort:
+#  if flip: print "most probable clusters are shown"
+#  else:    print "lowest probable clusters are shown"
+#else:
+#  if flip: print "biggest clusters are shown" 
+#  else:    print "smallest clusters are shown"
+
+#print "   minimum size: %d" % minsize
+
+
+P.figure()
+
+# clusters smaller than minsize are printed in gray
+P.scatter(X[where(~in1d(cls, pc))[0],0],X[where(~in1d(cls, pc))[0],1],c='gray',edgecolor='None')
+
+# print all other cluster bigger than minsize
+for i,c in enumerate(pc):
+  P.scatter(X[c==cls,0],X[c==cls,1],c=cm.jet(i/float(len(pc))),edgecolor='None')
+
+# mark points with highest probability
+for i,c in enumerate(pc):
+  P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',color=cm.jet(i/float(len(pc))))
+
+if pflag:
+  P.figure()
+  P.scatter(X[argsort(p),0],X[argsort(p),1],c=p[argsort(p)],edgecolor='None')
+  P.colorbar()
+
+P.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
