@@ -1,0 +1,148 @@
+#!/usr/bin/python
+from numpy import *
+import sys
+
+verbose = False  # no verbosity
+N       = -1     # grid size equals sample size
+outfile = []     # use input data file as basename for outpur
+rndflag = False  # use minmax
+cosflag = True   # use cosine distance 
+
+print """ 
+ ****************************************** 
+ *                                        * 
+ *               PAMM Tools               * 
+ *                                        * 
+ ****************************************** 
+                                               
+ grid creation based on:                    
+   - minmax criterion (default)             
+     or random points                       
+   - cosine distance (default)              
+     or euclidean distance                  
+                                            
+ Version: 1.0                               
+ Date   : 03/08/17                          
+ Author : robert.meissner@epfl.ch 
+"""    
+
+if len(sys.argv) < 1:
+  print "usage: grid [-n N] [-o name] [-rand] [-cos] [-v] [-h] data"
+  sys.exit("ERROR: no data file specified")
+else:
+  for i,s in enumerate(sys.argv):
+    if   s == '-n'   : N       = int(sys.argv[i+1])
+    if   s == '-o'   : outfile = sys.argv[i+1]
+    if   s == '-rand': rndflag = True
+    if   s == '-cos' : cosflag = False
+    elif s == '-v'   : verbose = True
+    elif s == '-h'   : 
+      print """
+usage: grid [-n N] [-o name] [-rand] [-cos] [-v] [-h] data
+ 
+ required: 
+  
+   data        : input data
+   
+ optional:
+
+   -n N          : grid size [all]
+ 
+   -o name       : filename of grid [data + .idxs]
+
+   -rand         : random selection of grid points [false]
+   
+   -cos          : use cosine similarity distance [true]
+
+   -v            : turn verbosity on [false]
+
+   -h            : show this message"""
+      sys.exit()
+
+#######################################################################
+###                                                                 ###
+###                       function definitions                      ###
+###                                                                 ###
+#######################################################################
+
+def mm(x,idxs,n=-1,cosflag=True,verbose=False,steps=10):
+   "creates grid points using minmax criterion"
+   # if n not set
+   if n < 0: n = int(x.shape[0]**(1.0/2.0))
+   x = array(x)[idxs]
+   d = 1
+   if (x.ndim > 1): d = x.shape[1]
+   y = empty((n,d))
+   igrid = []
+   x.reshape(-1,d)
+   
+   dmin = ones(x.shape[0])*inf
+   
+   # choosing a random point
+   y[0,:] = x[random.randint(0,x.shape[0]),:]
+   for i in range(1,n):
+     if verbose and (mod(i+1,steps)==0): 
+       print "  %d/%d" % (i+1,n)
+     if cosflag: dx = 1. - sum(x*y[i-1,:],axis=1)    \
+                         / ( linalg.norm(x,axis=1)   \
+                         *   linalg.norm(y[i-1,:]) )
+     else: dx = linalg.norm(x-y[i-1,:],axis=1)
+     dmin[dmin > dx] = dx[dmin > dx]
+     iy = argmax(dmin)
+     y[i,:] = x[iy,:]
+     igrid.append(idxs[iy])
+   return y,igrid
+
+
+#######################################################################
+###                                                                 ###
+###                          input control                          ###
+###                                                                 ###
+#######################################################################
+
+try:
+    with open(sys.argv[-1]) as file:
+        pass
+except IOError as e:
+    print "ERROR: unable to open data file"
+datafile = sys.argv[-1]
+
+X = loadtxt(datafile)
+
+if not outfile: outfile = datafile + '.idxs'
+
+#######################################################################
+###                                                                 ###
+###                          main program                           ###
+###                                                                 ###
+#######################################################################
+
+# check for duplicate entries and get only indexes of unique points
+if verbose:  print "  analysing input ..."
+_,idxs = unique(map(str,X),return_index=True)
+
+if N < 0: N = idxs.shape[0]
+if N>idxs.shape[0]: sys.exit("ERROR: grid size too big")
+
+# output every this many steps if looped over grid
+multi = round(log10(N))-1
+if multi < 1: multi = 0
+if multi > 4: multi = 4
+# multiplier whenever something over a grid is calculated
+steps = 10**multi
+
+if rndflag:
+  if verbose: print "  selecting %d random points ..." % N
+  random.shuffle(idxs)
+  idxs = idxs[:N]
+else:
+  if verbose: print "  selecting %d points using minmax ..." % N
+  _,idxs = mm(X,idxs,N,cosflag,verbose,steps)
+
+#######################################################################
+###                                                                 ###
+###                       output of program                         ###
+###                                                                 ###
+#######################################################################  
+
+savetxt(outfile,idxs,fmt='%d')
