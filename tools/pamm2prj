@@ -142,7 +142,7 @@ if psort:
   lnw = zeros(ntot)
   for i,c in enumerate(uc):
     lnw[i] = logsumexp(p[cls == c])-logsumexp(p)
-    print c,lnw[i]
+    print c,exp(lnw[i])
   uc = uc[argsort(lnw)]
 else:
   # sort cluster according to their size
