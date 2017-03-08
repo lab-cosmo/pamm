@@ -8,13 +8,14 @@ verbose = False  # no verbosity
 saveadj = False  # don't store adjacency
 savegrd = False  # don't store macrogrid
 savebrd = False  # don't store boarder points
+savegrp = False  # don't store gabriel graph
 errflag = False  # don't use errors
 logflag = True   # logarithm of probabilities as input
 thresh  = 0.9    # threshold to merge cluster
 D       = -1     # dimensionality needs to be specified
 
 if len(sys.argv) < 2:
-  print "usage: merge -d dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-v] [-h] grid"
+  print "usage: merge -d dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
@@ -25,9 +26,10 @@ else:
     elif s == '-adj' : saveadj = True
     elif s == '-m'   : savegrd = True
     elif s == '-b'   : savebrd = True
+    elif s == '-g'   : savegrp = True
     elif s == '-v'   : verbose = True
     elif s == '-h'   : 
-      print "usage: merge -d dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-v] [-h] grid"
+      print "usage: merge -d dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
       print " "
       print " -d dim        : dimensionality"
       print " "
@@ -43,6 +45,8 @@ else:
       print "                 new macrogrid [false]"
       print " "
       print " -b            : write out boarder points"
+      print " "
+      print " -b            : write out gapriel graph connecting points"
       print " "
       print " -v            : turn verbosity on [false]"
       print " "
@@ -90,6 +94,7 @@ mgridfile = basename + '.mgrid'
 macrofile = basename + '.macro'
 adjfile   = basename + '.adj'
 brdfile   = basename + '.boarders'
+neighfile = basename + '.gabriel'
 
 # load data
 data = loadtxt(gridfile)
@@ -110,6 +115,7 @@ csteps = 10**multi
 # output every this many steps if looped over grid
 multi = round(log10(N))-1
 if multi < 1: multi = 0
+# multiplier whenever something over a grid is calculated
 gsteps = 10**multi
 
 # prepare adjacency matrix skeleton
@@ -148,7 +154,7 @@ for i in range(N):
         # if i and j are in the same cluster skip operation
         if cid[i] == cid[j]: continue
         
-        flag = distsq[i,j] > distsq[i,:] + distsq[j,:]
+        flag = distsq[i,j] > (distsq[i,:] + distsq[j,:])
         
         if not flag.any():     
           gneighs[i,j] = True
@@ -171,12 +177,13 @@ for i in range(N):
         
         # cluster ci and cj are connected if points i and j are gabriel neighbors
         if gneighs[i,j]:
-            # max prob of cluster cj
-            maxPcj = max(prob[cid==cid[j]])
-            
             # mark points as boarder points
             brd[i] = True
             brd[j] = True
+        
+            # max prob of cluster cj
+            maxPcj = max(prob[cid==cid[j]])
+            
             # store highest adjacency between cluster 
             if logflag:
                 # use micheles log-approximation for sums
@@ -186,12 +193,13 @@ for i in range(N):
                 
                 if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
             else:
-                # straightforward adjacency
+                # straightforward adjacency without log-exp-prob
                 tmp = (prob[i]+prob[j])/(2.*min(maxPci,maxPcj))
                 
                 if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
               
     if verbose and (mod(i+1,gsteps)==0): print "  %d / %d" % (i+1,N)
+
 
 # rescale adjacency matrix to identify connected nodes
 if verbose: print " Finding macrocluster"
@@ -208,6 +216,9 @@ Nm, m = connected_components(adj_bool)
 #######################################################################    
 
 if verbose: print " Write out"
+
+# write gabriel graph to file if desired
+if savegrp: savetxt(neighfile,gneighs,header="gabriel graph",fmt='%d')
     
 # write adjacency matrix to file if desired 
 if saveadj: 
@@ -236,7 +247,7 @@ if savegrd:
       
 # write out cluster association to macrocluster
 f = open(macrofile,'w')
-f.write("# cluster macrocluster\n")
+f.write("# cluster macrocluster adjacency\n")
 for i,c in enumerate(uc):
   f.write("%d %d\n" % (c,m[i]+1))
 f.close()

@@ -424,6 +424,8 @@
       ! estimate Q from grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
       
+      WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
+      
       tune = maxeigval(Q,D)
       sigma2 = tune
       ! localization based on fraction of avg. variance
@@ -431,7 +433,10 @@
       
       IF(verbose) WRITE(*,*) & 
         " Estimating bandwidths and distance matrix"
-
+      
+      !!! DEBUG START
+!      OPEN(UNIT=12,FILE=trim(outputfile)//".Q",STATUS='REPLACE',ACTION='WRITE')
+      !!! DEBUG END
       ! estimate the localization for each grid point
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
@@ -484,7 +489,7 @@
         CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
 
         ! oracle shrinkage of covariance matrix
-        CALL oracle(D,nlocal(i),Qi)  
+        CALL oracle(D,nlocal(i),Qi)          
         
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
@@ -504,6 +509,11 @@
         ! estimate logarithmic determinant of local Q's
         logdetHi(i) = logdet(D,Hi)
         
+        !!! DEBUG START
+!        WRITE(12,*) Qi
+        !!! DEBUG END
+        
+        
         DO j=1,ngrid
           ! mahalanobis distance using true covariance
           ! the row index is the reference, since all the 
@@ -513,6 +523,18 @@
           distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
         ENDDO      
       ENDDO
+              
+      !!! DEBUG START
+!      CLOSE(UNIT=12)
+      !!! DEBUG END
+      
+      !!! DEBUG START
+!      OPEN(UNIT=12,FILE=trim(outputfile)//".distmm",STATUS='REPLACE',ACTION='WRITE')
+!      DO i=1,ngrid
+!        WRITE(12,*) SQRT(distmm(i,:))
+!      ENDDO
+!      CLOSE(UNIT=12)
+      !!! DEBUG END
       
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
@@ -657,7 +679,20 @@
          counter=1         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             ! find closest point higher in probability
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2)   
+            !   
+            !   in higher dimensions jump distances are intrinsically
+            !   greater and scale with sqrt(D). thus, we use use the 
+            !   local dimensionality to scale the cutoff. However,
+            !   sqrt(D) scales the cutoff to find 50% of the points,
+            !   if we want to proportional increase the cutoff for higher
+            !   dimensions we need to add a correction factor.
+            ! 
+            
+            dummd1 = (DSQRT(Di(qspath(counter)))+1.0d0)**2
+            
+            WRITE(*,*) "QS cutoff and local dim: ", SQRT(dummd1), Di(qspath(counter))
+            
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut*dummd1)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -743,7 +778,7 @@
       ENDIF
       
       DO k=1,Nk
-         write(*,*) k, "/", Nk
+         IF(verbose) WRITE(*,*) k, "/", Nk
          IF(periodic)THEN
             ALLOCATE(vmclusters(k)%mean(D))
             ALLOCATE(vmclusters(k)%cov(D,D))
@@ -760,17 +795,6 @@
          
          ! optionally do a few mean-shift steps to find a better estimate 
          ! of the cluster mode
-         
-         !What the fuck is this?
-         !dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j)) 
-         ! weighted natural logarithm of kernel
-         !lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
-         !IF(prob(i).GT.lnK) THEN
-         !    prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
-         !ELSE
-         !    prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
-         !ENDIF 
-         
          
          DO j=1,nmsopt
             msmu=0.0d0
@@ -1781,8 +1805,8 @@
          qs_next = idx
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
-               IF ((distmm(j,idx).LT.dmin) .AND. (distmm(j,idx).LT.lambda)) THEN
-                 dmin = distmm(j,idx) 
+               IF ((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda)) THEN
+                 dmin = distmm(idx,j) 
                  qs_next = j
                ENDIF 
             ENDIF

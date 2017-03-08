@@ -3,6 +3,7 @@
 
 from numpy import *
 from matplotlib import cm
+from scipy.misc import logsumexp
 
 import matplotlib.pyplot as P
 import sys
@@ -137,21 +138,22 @@ ntot = len(uc)
 if nplot < 0: nplot = len(uc)
 
 if psort:
-  # sort cluster according to their maximum probability
-  cp = zeros(ntot)
+  # sort cluster according to cluster weights (fraction of densities)
+  lnw = zeros(ntot)
   for i,c in enumerate(uc):
-    cp[i] = max(p[cls == c])
-  uc = uc[argsort(cp)]
+    lnw[i] = logsumexp(p[cls == c])-logsumexp(p)
+    print c,lnw[i]
+  uc = uc[argsort(lnw)]
 else:
   # sort cluster according to their size
   uc = uc[where(mc >= minsize)]
   mc = mc[where(mc >= minsize)]
   uc = uc[argsort(mc)]
 
-# show smallest (or lowest probable) cluster first
-if flip: uc = flipud(uc)
-
 pc = uc[-nplot:]
+
+# show smallest (or lowest probable) cluster first
+if flip: pc = flipud(pc)
 
 print " Cluster Analysis"
 print "   %d clusters in total " % (ntot)
@@ -168,24 +170,23 @@ print "   %d clusters in total " % (ntot)
 
 
 P.figure()
-
 # clusters smaller than minsize are printed in gray
 P.scatter(X[where(~in1d(cls, pc))[0],0],X[where(~in1d(cls, pc))[0],1],c='gray',edgecolor='None')
-
 # print all other cluster bigger than minsize
 for i,c in enumerate(pc):
-  P.scatter(X[c==cls,0],X[c==cls,1],c=cm.jet(i/float(len(pc))),edgecolor='None')
-
+  P.scatter(X[c==cls,0],X[c==cls,1],c=cm.Accent(i/float(len(pc))),edgecolor='None')
 # mark points with highest probability
 for i,c in enumerate(pc):
-  P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',color=cm.jet(i/float(len(pc))))
+  P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',color=cm.Accent(i/float(len(pc))))
+P.axis('off')  
 
 if pflag:
   P.figure()
   P.scatter(X[argsort(p),0],X[argsort(p),1],c=p[argsort(p)],edgecolor='None')
   P.colorbar()
   P.clim([lo,hi])
-
+  P.axis('off')
+  
 P.show()
 
 
