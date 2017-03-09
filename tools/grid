@@ -6,7 +6,8 @@ verbose = False  # no verbosity
 N       = -1     # grid size equals sample size
 outfile = []     # use input data file as basename for outpur
 rndflag = False  # use minmax
-cosflag = True   # use cosine distance 
+metric  = 0      # use minkoswki metric 
+norm    = 2      # use euclidean distances
 
 print """ 
  ****************************************** 
@@ -18,8 +19,10 @@ print """
  grid creation based on:                    
    - minmax criterion (default)             
      or random points                       
-   - cosine distance (default)              
-     or euclidean distance                  
+   - euclidean distance (default)              
+     or cosine distance
+     or manhattan distance        
+   - periodic boundary conditions (not implemented)          
                                             
  Version: 1.0                               
  Date   : 03/08/17                          
@@ -27,18 +30,19 @@ print """
 """    
 
 if len(sys.argv) < 1:
-  print "usage: grid [-n N] [-o name] [-rand] [-cos] [-v] [-h] data"
+  print "usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data"
   sys.exit("ERROR: no data file specified")
 else:
   for i,s in enumerate(sys.argv):
     if   s == '-n'   : N       = int(sys.argv[i+1])
     if   s == '-o'   : outfile = sys.argv[i+1]
     if   s == '-rand': rndflag = True
-    if   s == '-cos' : cosflag = False
+    if   s == '-m'   : metric  = int(sys.argv[i+1])
+    if   s == '-p'   : norm    = float(sys.argv[i+1])
     elif s == '-v'   : verbose = True
     elif s == '-h'   : 
       print """
-usage: grid [-n N] [-o name] [-rand] [-cos] [-v] [-h] data
+usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data
  
  required: 
   
@@ -52,8 +56,17 @@ usage: grid [-n N] [-o name] [-rand] [-cos] [-v] [-h] data
 
    -rand         : random selection of grid points [false]
    
-   -cos          : use cosine similarity distance [true]
+   -m mode       : metric mode [0]
+                   0   - minkowski
+                   1   - cosine 
 
+   -p norm       : norm of the metric [2]
+                   mode must be zero  
+                   1   - manhattan
+                   2   - euclidean
+                   > 1 - fractional
+   
+    
    -v            : turn verbosity on [false]
 
    -h            : show this message"""
@@ -65,7 +78,7 @@ usage: grid [-n N] [-o name] [-rand] [-cos] [-v] [-h] data
 ###                                                                 ###
 #######################################################################
 
-def mm(x,idxs,n=-1,cosflag=True,verbose=False,steps=10):
+def mm(x,idxs,n=-1,met=0,norm=2.,verbose=False,steps=10):
    "creates grid points using minmax criterion"
    # if n not set
    if n < 0: n = int(x.shape[0]**(1.0/2.0))
@@ -73,26 +86,27 @@ def mm(x,idxs,n=-1,cosflag=True,verbose=False,steps=10):
    d = 1
    if (x.ndim > 1): d = x.shape[1]
    y = empty((n,d))
-   igrid = []
    x.reshape(-1,d)
    
    dmin = ones(x.shape[0])*inf
    
    # choosing a random point
-   y[0,:] = x[random.randint(0,x.shape[0]),:]
+   iy = random.randint(0,x.shape[0])
+   y[0,:] = x[iy,:]
+   # add point to new grid
+   igrid = [idxs[iy]]
    for i in range(1,n):
      if verbose and (mod(i+1,steps)==0): 
        print "   %d/%d" % (i+1,n)
-     if cosflag: dx = 1. - sum(x*y[i-1,:],axis=1)    \
+     if met==1: dx = 1. - sum(x*y[i-1,:],axis=1)    \
                          / ( linalg.norm(x,axis=1)   \
                          *   linalg.norm(y[i-1,:]) )
-     else: dx = linalg.norm(x-y[i-1,:],axis=1)
+     else:      dx = (sum(abs(x-y[i-1,:])**norm,axis=1))**(1./norm)
      dmin[dmin > dx] = dx[dmin > dx]
      iy = argmax(dmin)
      y[i,:] = x[iy,:]
      igrid.append(idxs[iy])
    return y,igrid
-
 
 #######################################################################
 ###                                                                 ###
@@ -137,7 +151,7 @@ if rndflag:
   idxs = idxs[:N]
 else:
   if verbose: print " selecting %d points using minmax ..." % N
-  _,idxs = mm(X,idxs,N,cosflag,verbose,steps)
+  _,idxs = mm(X,idxs,N,metric,norm,verbose,steps)
 
 #######################################################################
 ###                                                                 ###

@@ -688,11 +688,11 @@
             !   dimensions we need to add a correction factor.
             ! 
             
-            dummd1 = (DSQRT(Di(qspath(counter)))+1.0d0)**2
+            dummd1 = (DSQRT(Di(qspath(counter)))+qscut)**2
             
             WRITE(*,*) "QS cutoff and local dim: ", SQRT(dummd1), Di(qspath(counter))
             
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut*dummd1)   
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,dummd1)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
