@@ -21,7 +21,8 @@ print """
      or random points                       
    - euclidean distance (default)              
      or cosine distance
-     or manhattan distance        
+     or minkowski distance      
+     or mahalanobis distance 
    - periodic boundary conditions (not implemented)          
                                             
  Version: 1.0                               
@@ -59,12 +60,13 @@ usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data
    -m mode       : metric mode [0]
                    0   - minkowski
                    1   - cosine 
+                   2   - global mahalanobis
+                   3   - local mahalanobis
 
-   -p norm       : norm of the metric [2]
-                   mode must be zero  
+   -p norm       : norm of the minkowski metric [2]
                    1   - manhattan
                    2   - euclidean
-                   > 1 - fractional
+                   < 1 - fractional
    
     
    -v            : turn verbosity on [false]
@@ -79,34 +81,74 @@ usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data
 #######################################################################
 
 def mm(x,idxs,n=-1,met=0,norm=2.,verbose=False,steps=10):
-   "creates grid points using minmax criterion"
-   # if n not set
-   if n < 0: n = int(x.shape[0]**(1.0/2.0))
-   x = array(x)[idxs]
-   d = 1
-   if (x.ndim > 1): d = x.shape[1]
-   y = empty((n,d))
-   x.reshape(-1,d)
+  "creates grid points using minmax criterion"
+
+  # estimate true covariance from "all" points
+  if met==2: Qinv = linalg.inv(cov(x.T))
+
+  # if n not set
+  if n < 0: n = int(x.shape[0]**(1.0/2.0))
+  x = array(x)[idxs]
+  d = 1
+  if (x.ndim > 1): d = x.shape[1]
+  y = empty((n,d))
+  x.reshape(-1,d)
+
+  dmin = ones(x.shape[0])*inf
+
+  # choosing a random point
+  iy = random.randint(0,x.shape[0])
+  y[0,:] = x[iy,:]
+  # add point to new grid
+  igrid = [idxs[iy]]
+
+  for i in range(1,n):
+
+    if verbose and (mod(i+1,steps)==0): 
+      print "   %d/%d" % (i+1,n)
+     
+    # distance metric definition  
+    if   met==1:
+      dx = 1. - sum(x*y[i-1,:],axis=1)    \
+              / ( linalg.norm(x,axis=1)   \
+              *   linalg.norm(y[i-1,:]) )
+    elif met==2: 
+      dx = sqrt(sum((x-y[i-1,:])*matmul(x-y[i-1,:],Qinv),axis=1))
+    elif met==3: 
+      # use local information to estimate the covariance
+      Q = cov(x.T,aweights=linalg.norm(x-y[i-1,:],axis=1))
+      # oracle shrinkage of Q to avoid singular matrices
+      Q = oracle(Q,X.shape[0])
+      # invert matrix
+      Qinv = linalg.inv(Q)
+      dx = sqrt(sum((x-y[i-1,:])*matmul(x-y[i-1,:],Qinv),axis=1))
+    else: 
+      dx = (sum(abs(x-y[i-1,:])**norm,axis=1))**(1./norm)
+     
+  dmin[dmin > dx] = dx[dmin > dx]
+  iy = argmax(dmin)
+  y[i,:] = x[iy,:]
+  igrid.append(idxs[iy])
+  return y,igrid
    
-   dmin = ones(x.shape[0])*inf
-   
-   # choosing a random point
-   iy = random.randint(0,x.shape[0])
-   y[0,:] = x[iy,:]
-   # add point to new grid
-   igrid = [idxs[iy]]
-   for i in range(1,n):
-     if verbose and (mod(i+1,steps)==0): 
-       print "   %d/%d" % (i+1,n)
-     if met==1: dx = 1. - sum(x*y[i-1,:],axis=1)    \
-                         / ( linalg.norm(x,axis=1)   \
-                         *   linalg.norm(y[i-1,:]) )
-     else:      dx = (sum(abs(x-y[i-1,:])**norm,axis=1))**(1./norm)
-     dmin[dmin > dx] = dx[dmin > dx]
-     iy = argmax(dmin)
-     y[i,:] = x[iy,:]
-     igrid.append(idxs[iy])
-   return y,igrid
+def oracle(Q,N):
+  "oracle shrinkage of matrix"
+  
+  if len(Q.shape) < 2: D = 1.
+  else: D = float(Q.shape[1])
+  
+  # apply oracle approximating shrinkage alogorithm on local Q
+  a = ( (1.-2./D) * trace(Q**2) \
+         + trace(Q)**2 ) / ( (N + 1. - 2./D) \
+         * trace(Q**2) \
+         - (trace(Q)**2.) / D )
+      
+  b = min(1.,a)
+        
+  # regularized local covariance matrix for grid point 
+  Qr = (1.-b)*Q + b*trace(Q)*identity(int(D)) / D
+  
+  return Qr
 
 #######################################################################
 ###                                                                 ###
@@ -132,7 +174,7 @@ if not outfile: outfile = datafile + '.idxs'
 #######################################################################
 
 # check for duplicate entries and get only indexes of unique points
-if verbose:  print " analysing input ..."
+if verbose:  print " analyzing input ..."
 _,idxs = unique(map(str,X),return_index=True)
 
 if N < 0: N = idxs.shape[0]
