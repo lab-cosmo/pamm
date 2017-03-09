@@ -421,16 +421,6 @@
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,nj,iminij,pnlist,nlist)
       
-      ! estimate Q from grid
-      CALL covariance(D,period,ngrid,normwj,wi,y,Q)
-      
-      WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
-      
-      tune = maxeigval(Q,D)
-      sigma2 = tune
-      ! localization based on fraction of avg. variance
-      IF(fspread.GT.0) sigma2 = sigma2*fspread
-      
       IF(verbose) WRITE(*,*) & 
         " Estimating bandwidths and distance matrix"
       
@@ -441,58 +431,16 @@
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
-          
-        ! do bisectioning to find proper localization for ntarget points
-        IF(fpoints.GT.0) THEN
-          ! cannot go below number of points in current grid points
-          nlim = max(ntarget, 2*INT(wi(i))) 
-          IF (ntarget.LT.nlim) WRITE(*,*) &
-            " Warning: fraction of points too small, increase grid size!"
-              
-          ! initial estimate of nlocal using biggest eigenvalue of global Q
-          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-          
-          ! aproaching quickly ntarget
-          ! if nlocal is smaller than target value try to approach quickly to target value
-          ! typically the initial sigma is big enough not to do this, however, nobody knows...
-          IF (nlocal(i).LT.nlim) THEN
-            DO WHILE(nlocal(i).LT.nlim)
-              ! approach the desired value
-              sigma2(i)=sigma2(i)+tune
-              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-            ENDDO
-            
-          ENDIF
-          ! fine tuning of localization approach optimal value using bisectioning
-          j = 1
-          DO WHILE(.TRUE.)  
-            ! fine tuning 
-            IF(nlocal(i).GT.nlim) THEN
-              sigma2(i) = sigma2(i)-tune/2.0d0**j
-            ELSE
-              sigma2(i) = sigma2(i)+tune/2.0d0**j
-            ENDIF
-            
-            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
 
-            ! exit loop if sigma gives correct nlocal
-            IF (ANINT(nlocal(i)).EQ.nlim) EXIT
-            
-            ! adjust scaling factor for new sigma
-            j = j+1  
-          ENDDO
-        ELSE
-          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-        ENDIF
-
-        ! estimate Q from the grid
-        CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
-
-        ! oracle shrinkage of covariance matrix
-        CALL oracle(D,nlocal(i),Qi)          
+        ! estimate Q 
+        CALL local_covariance(D,period,nsamples,x,y(i,:),Qi,nlocal(i))
         
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
+        
+        ! oracle shrinkage of covariance matrix
+!        CALL oracle(D,nlocal(i),Qi)          ! why is here nlocal????
+        CALL oracle(D,DBLE(nsamples),Qi)
 
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi,Qiinv)
@@ -689,8 +637,6 @@
             ! 
             
             dummd1 = (DSQRT(Di(qspath(counter)))+qscut)**2
-            
-            WRITE(*,*) "QS cutoff and local dim: ", SQRT(dummd1), Di(qspath(counter))
             
             idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,dummd1)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
@@ -1214,6 +1160,50 @@
             CALL  swapi(sidx(i), sidx(location)) ! swap this and the minimum
          END DO
       END SUBROUTINE argsort
+
+      SUBROUTINE local_covariance(D,period,N,x,y,Q,wnorm)
+         INTEGER, INTENT(IN) :: D
+         INTEGER, INTENT(IN) :: N
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         DOUBLE PRECISION, INTENT(IN) :: y(D)
+         DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
+         DOUBLE PRECISION, INTENT(OUT) :: wnorm ! local number of points
+         
+         DOUBLE PRECISION xm(D)         ! mean of each dimension
+         DOUBLE PRECISION xxm(D,N)      ! difference of x and xm
+         DOUBLE PRECISION xxmw(D,N)     ! weighted difference of x and xm
+         
+         DOUBLE PRECISION xy(D,N)       ! difference of x and y
+         DOUBLE PRECISION w(N)          ! localization weights
+         
+         INTEGER ii
+         
+         ! estimate weights
+         DO ii=1,D
+           xy(ii,:) = x(ii,:) - y(ii)
+         ENDDO
+         w = NORM2(xy,1)
+         w = w/MAXVAL(w)
+         wnorm = SUM(w)
+         
+         DO ii=1,D
+           xm(ii) = SUM(x(ii,:)*w)/wnorm
+           xxm(ii,:) = x(ii,:) - xm(ii)
+           IF (period(ii) > 0.0d0) THEN
+             ! scaled lenght
+             xxm(ii,:) = xxm(ii,:)/period(ii)
+             ! Finds the smallest separation between the images of the vector elements
+             xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)) ! Minimum Image Convention
+             ! Rescale back the length
+             xxm(ii,:) = xxm(ii,:)*period(ii)
+           ENDIF  
+           xxmw(ii,:) = xxm(ii,:) * w/wnorm
+         ENDDO
+         CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
+         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))   
+      END SUBROUTINE local_covariance
+
 
       SUBROUTINE covariance(D,period,N,wnorm,w,x,Q)
          INTEGER, INTENT(IN) :: D
