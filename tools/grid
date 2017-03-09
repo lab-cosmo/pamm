@@ -125,10 +125,10 @@ def mm(x,idxs,n=-1,met=0,norm=2.,verbose=False,steps=10):
     else: 
       dx = (sum(abs(x-y[i-1,:])**norm,axis=1))**(1./norm)
      
-  dmin[dmin > dx] = dx[dmin > dx]
-  iy = argmax(dmin)
-  y[i,:] = x[iy,:]
-  igrid.append(idxs[iy])
+    dmin[dmin > dx] = dx[dmin > dx]
+    iy = argmax(dmin)
+    y[i,:] = x[iy,:]
+    igrid.append(idxs[iy])
   return y,igrid
    
 def oracle(Q,N):
