@@ -424,29 +424,29 @@
       IF(verbose) WRITE(*,*) & 
         " Estimating bandwidths and distance matrix"
       
-      !!! DEBUG START
-!      OPEN(UNIT=12,FILE=trim(outputfile)//".Q",STATUS='REPLACE',ACTION='WRITE')
-      !!! DEBUG END
+      !! DEBUG START
+      OPEN(UNIT=12,FILE=trim(outputfile)//".H",STATUS='REPLACE',ACTION='WRITE')
+      !! DEBUG END
       ! estimate the localization for each grid point
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) & 
           WRITE(*,*) i,"/",ngrid
 
-        ! estimate Q 
-        CALL local_covariance(D,period,nsamples,x,y(i,:),Qi,nlocal(i))
+        ! estimate local Q on the grid
+!        CALL local_covariance(D,period,ngrid,y,wi,y(i,:),Hi)
+        ! accurate version
+        CALL local_covariance(D,period,nsamples,x,wj,y(i,:),Hi)
         
         ! estimate local dimensionality
-        Di(i) = effdim(D,Qi)
+        Di(i) = effdim(D,Hi)
+        
+        !! DEBUG START
+        WRITE(12,*) Hi
+        !! DEBUG END
         
         ! oracle shrinkage of covariance matrix
 !        CALL oracle(D,nlocal(i),Qi)          ! why is here nlocal????
-        CALL oracle(D,DBLE(nsamples),Qi)
-
-        ! inverse local covariance matrix and store it
-        CALL invmatrix(D,Qi,Qiinv)
-        
-        ! estimate bandwidth from normal reference rule
-        Hi = (4.0d0 / ( nlocal(i) * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi
+        CALL oracle(D,DBLE(nsamples),Hi)
         
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
@@ -457,10 +457,7 @@
         ! estimate logarithmic determinant of local Q's
         logdetHi(i) = logdet(D,Hi)
         
-        !!! DEBUG START
-!        WRITE(12,*) Qi
-        !!! DEBUG END
-        
+
         
         DO j=1,ngrid
           ! mahalanobis distance using true covariance
@@ -468,13 +465,13 @@
           ! Mahalanobis distances in the same row are 
           ! computed using the covariance matrix from
           ! the point with that specific row index
-          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
+          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,i))
         ENDDO      
       ENDDO
               
-      !!! DEBUG START
-!      CLOSE(UNIT=12)
-      !!! DEBUG END
+      !! DEBUG START
+      CLOSE(UNIT=12)
+      !! DEBUG END
       
       !!! DEBUG START
 !      OPEN(UNIT=12,FILE=trim(outputfile)//".distmm",STATUS='REPLACE',ACTION='WRITE')
@@ -1161,47 +1158,60 @@
          END DO
       END SUBROUTINE argsort
 
-      SUBROUTINE local_covariance(D,period,N,x,y,Q,wnorm)
+      SUBROUTINE local_covariance(D,period,N,x,xnorm,y,Q)
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: N
          DOUBLE PRECISION, INTENT(IN) :: period(D)
          DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         DOUBLE PRECISION, INTENT(IN) :: xnorm(N)  ! weight of each sample point or voronoi
          DOUBLE PRECISION, INTENT(IN) :: y(D)
          DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
-         DOUBLE PRECISION, INTENT(OUT) :: wnorm ! local number of points
          
-         DOUBLE PRECISION xm(D)         ! mean of each dimension
+         DOUBLE PRECISION xm(D)         ! weighted mean in each dimension
          DOUBLE PRECISION xxm(D,N)      ! difference of x and xm
          DOUBLE PRECISION xxmw(D,N)     ! weighted difference of x and xm
          
          DOUBLE PRECISION xy(D,N)       ! difference of x and y
+         DOUBLE PRECISION dxy(N)        ! euclidean distances from y to x
          DOUBLE PRECISION w(N)          ! localization weights
+         DOUBLE PRECISION knnsum(N)     ! sorted sum of points (weights) in each voronoi
+         DOUBLE PRECISION cumsum        ! cumulative sum of neighbors
+         INTEGER knn(N)                 ! k-nearest neighbor list
          
-         INTEGER ii
+         INTEGER i,ii
          
-         ! estimate weights
+         ! estimate localization weights
          DO ii=1,D
            xy(ii,:) = x(ii,:) - y(ii)
          ENDDO
-         w = NORM2(xy,1)
-         w = w/MAXVAL(w)
-         wnorm = SUM(w)
+         dxy = NORM2(xy,1)
+         CALL argsort(dxy,knn,N)
+         
+         cumsum = 0.0d0
+         DO i=1,N
+           cumsum = cumsum + xnorm(knn(i))
+           knnsum(knn(i)) = cumsum
+         ENDDO
+         
+         w = 1.0d0/(knnsum**dxy)
+         ! normalize weights
+         w = w/SUM(w)
          
          DO ii=1,D
-           xm(ii) = SUM(x(ii,:)*w)/wnorm
+           xm(ii) = SUM(x(ii,:)*w)
            xxm(ii,:) = x(ii,:) - xm(ii)
            IF (period(ii) > 0.0d0) THEN
-             ! scaled lenght
+             ! scaled length
              xxm(ii,:) = xxm(ii,:)/period(ii)
              ! Finds the smallest separation between the images of the vector elements
              xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)) ! Minimum Image Convention
              ! Rescale back the length
              xxm(ii,:) = xxm(ii,:)*period(ii)
            ENDIF  
-           xxmw(ii,:) = xxm(ii,:) * w/wnorm
+           xxmw(ii,:) = xxm(ii,:)*w
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
-         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))   
+         Q = Q / (1.0d0-SUM((w)**2.0d0))   
       END SUBROUTINE local_covariance
 
 
