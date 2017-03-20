@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from numpy import *
+from scipy.special import gamma
 import sys
 
 verbose = False  # no verbosity
@@ -61,7 +62,7 @@ usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data
                    0   - minkowski
                    1   - cosine 
                    2   - global mahalanobis
-                   3   - local mahalanobis
+                   3   - local mahalanobis (experimental)
 
    -p norm       : norm of the minkowski metric [2]
                    1   - manhattan
@@ -116,7 +117,11 @@ def mm(x,idxs,n=-1,met=0,norm=2.,verbose=False,steps=10):
       dx = sqrt(sum((x-y[i-1,:])*matmul(x-y[i-1,:],Qinv),axis=1))
     elif met==3: 
       # use local information to estimate the covariance
-      Q = cov(x.T,aweights=linalg.norm(x-y[i-1,:],axis=1))
+      dist = linalg.norm(x-y[i-1,:],axis=1)
+      V = pi**(d/2.)/gamma(d/2. + 1.)*dist**d
+      w = dist/V
+      w[i-1] = max(w[~isnan(w)])
+      Q = cov(x.T,aweights=w)
       # oracle shrinkage of Q to avoid singular matrices
       Q = oracle(Q,X.shape[0])
       # invert matrix

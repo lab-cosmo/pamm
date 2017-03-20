@@ -488,11 +488,11 @@
         ! estimate Q from the grid
         CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
 
-        ! oracle shrinkage of covariance matrix
-        CALL oracle(D,nlocal(i),Qi)          
-        
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
+
+        ! oracle shrinkage of covariance matrix
+        CALL oracle(D,nlocal(i),Qi)          
 
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi,Qiinv)
@@ -669,6 +669,7 @@
       ENDIF
       
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
+      dummd1 = (6.0d0)**2
       idxroot=0
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
@@ -688,7 +689,7 @@
             !   dimensions we need to add a correction factor.
             ! 
             
-            dummd1 = (DSQRT(Di(qspath(counter)))+qscut)**2
+            !dummd1 = (DSQRT(Di(qspath(counter)))+qscut)**2
             
             WRITE(*,*) "QS cutoff and local dim: ", SQRT(dummd1), Di(qspath(counter))
             
