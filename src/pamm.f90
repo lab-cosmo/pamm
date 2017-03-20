@@ -520,7 +520,8 @@
           ! Mahalanobis distances in the same row are 
           ! computed using the covariance matrix from
           ! the point with that specific row index
-          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
+          !distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
+          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
         ENDDO      
       ENDDO
               
@@ -689,9 +690,9 @@
             !   dimensions we need to add a correction factor.
             ! 
             
-            !dummd1 = (DSQRT(Di(qspath(counter)))+qscut)**2
+            dummd1 = sigma2(qspath(counter))
             
-            WRITE(*,*) "QS cutoff and local dim: ", SQRT(dummd1), Di(qspath(counter))
+            !WRITE(*,*) "QS cutoff and local dim: ", SQRT(dummd1), Di(qspath(counter))
             
             idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,dummd1)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
