@@ -66,7 +66,7 @@
 
       ! neighbor list number of points in voronoi, voronoi 
       ! association, pointer, ..., sample point index of grid point
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: nj, iminij, pnlist, nlist, idxgrid
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: ni, iminij, pnlist, nlist, idxgrid
       ! quick shift, roots and path to reach the root (used to speedup the calculation)
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, qspath
       ! macrocluster
@@ -369,7 +369,7 @@
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                           y,nj,prob,probboot,idxroot,idxgrid,qspath, &
+                           y,ni,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -402,9 +402,9 @@
          WRITE(*,*) " Building the Voronoi associations"
          
          ! do the voronoi associations
-         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij,ineigh,wi,idxgrid)
+         CALL getvoro(D,period,nsamples,ngrid,x,wj,y,ni,iminij,ineigh,wi,idxgrid)
       ELSE
-         CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,nj,iminij,ineigh,wi, &
+         CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,ni,iminij,ineigh,wi, &
                   saveidxs,idxgrid,outputfile)
       ENDIF
       
@@ -419,7 +419,7 @@
       
       ! Generate the neighbour list
       IF(verbose) write(*,*) " Generating neighbour list"
-        CALL getnlist(nsamples,ngrid,nj,iminij,pnlist,nlist)
+        CALL getnlist(nsamples,ngrid,ni,iminij,pnlist,nlist)
       
       ! estimate Q from grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
@@ -520,8 +520,7 @@
           ! Mahalanobis distances in the same row are 
           ! computed using the covariance matrix from
           ! the point with that specific row index
-          !distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
-          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
         ENDDO      
       ENDDO
               
@@ -605,9 +604,9 @@
           nbstot = 0
           DO j=1,ngrid
             ! using weights explicitly
-            nbssample = random_binomial(nsamples, DBLE(nj(j))/DBLE(nsamples))
+            nbssample = random_binomial(nsamples, DBLE(ni(j))/DBLE(nsamples))
             ! calculate "scaled" weight for contribution from far away voronoi
-            dummd2 = DBLE(nbssample)/nj(j) * wi(j)
+            dummd2 = DBLE(nbssample)/ni(j) * wi(j)
             nbstot = nbstot+nbssample
             DO i=1,ngrid
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
@@ -620,7 +619,7 @@
                 ENDIF
               ELSE
                 DO k=1,nbssample
-                  rndidx = int(nj(j)*random_uniform())+1
+                  rndidx = int(ni(j)*random_uniform())+1
                   rndidx = nlist(pnlist(j)+rndidx)
                   IF ( rndidx.EQ.idxgrid(i) ) CYCLE
                   dummd1 = mahalanobis(D,period,y(:,i),x(:,rndidx),Hiinv(:,:,j)) 
@@ -690,9 +689,7 @@
             !   dimensions we need to add a correction factor.
             ! 
             
-            dummd1 = sigma2(qspath(counter))
-            
-            !WRITE(*,*) "QS cutoff and local dim: ", SQRT(dummd1), Di(qspath(counter))
+            dummd1 = DSQRT(Di(qspath(counter))+qscut)**2
             
             idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,dummd1)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
@@ -759,13 +756,14 @@
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
          !print out grid file with additional information on probability, errors, localization and dim
-         WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
-             " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,   &
-                                              " " , prob(i) ,   &
-                                              " " , pabserr(i), &
-                                              " " , prelerr(i), &
-                                              " " , sigma2(i),  &
-                                              " " , nlocal(i),  &
+         WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
+             " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
+                                              " " , prob(i) ,      &
+                                              " " , pabserr(i),    &
+                                              " " , prelerr(i),    &
+                                              " " , sigma2(i),     &
+                                              " " , nlocal(i),     &
+                                              " " , ni(i),         &
                                               " " , Di(i)
       ENDDO
       
@@ -879,7 +877,7 @@
       DEALLOCATE(period)
       DEALLOCATE(idxroot,qspath,distmm,idxgrid)
       DEALLOCATE(pnlist,nlist,iminij)
-      DEALLOCATE(y,nj,prob,sigma2,rgrid,wi)
+      DEALLOCATE(y,ni,prob,sigma2,rgrid,wi)
       DEALLOCATE(msmu,tmpmsmu)
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
@@ -1025,14 +1023,14 @@
       END FUNCTION median
       
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                                 y,nj,prob,probboot,idxroot,idxgrid,qspath, &
+                                 y,ni,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
-         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: nj,ineigh
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ni,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,nlocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di
@@ -1045,7 +1043,7 @@
          IF (ALLOCATED(pnlist))     DEALLOCATE(pnlist)
          IF (ALLOCATED(nlist))      DEALLOCATE(nlist)
          IF (ALLOCATED(y))          DEALLOCATE(y)
-         IF (ALLOCATED(nj))         DEALLOCATE(nj)
+         IF (ALLOCATED(ni))         DEALLOCATE(ni)
          IF (ALLOCATED(prob))       DEALLOCATE(prob)
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
@@ -1076,7 +1074,7 @@
          ! points and the dimensionality
          ALLOCATE(iminij(nsamples))
          ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
-         ALLOCATE(y(D,ngrid), nj(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
+         ALLOCATE(y(D,ngrid), ni(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
          ALLOCATE(idxroot(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
          ALLOCATE(msmu(D), tmpmsmu(D),logdetHi(ngrid))
          ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),wi(ngrid))
@@ -1503,7 +1501,7 @@
          ENDIF
       END SUBROUTINE readinputprobs
 
-      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,nj,iminij, &
+      SUBROUTINE mkgrid(D,period,nsamples,ngrid,x,wj,y,ni,iminij, &
                         ineigh,wi,saveidx,idxgrid,ofile)
          ! Select ngrid grid points from nsamples using minmax and
          ! the voronoi polyhedra around them.
@@ -1513,7 +1511,7 @@
          !    ngrid: number of grid points
          !    x: array containing the data samples
          !    y: array that will contain the grid points
-         !    nj: array cotaing the number of samples inside the Voronoj polyhedron of each grid point
+         !    ni: array cotaing the number of samples inside the Voronoj polyhedron of each grid point
          !    iminij: array containg the neighbor list for data samples
 
          INTEGER, INTENT(IN) :: D
@@ -1524,7 +1522,7 @@
          DOUBLE PRECISION, DIMENSION(nsamples), INTENT(IN) :: wj 
          
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
-         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: nj
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ni
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi 
@@ -1537,7 +1535,7 @@
          
          iminij=0
          y=0.0d0
-         nj=0
+         ni=0
          ! choose randomly the first point
          irandom=int(RAND()*nsamples)
          idxgrid(1)=irandom
@@ -1592,15 +1590,15 @@
 
          ! Assign neighbor list pointer of voronois
          ! Number of points in each voronoi polyhedra
-         nj = 0
+         ni = 0
          wi = 0.0d0
          DO j=1,nsamples
-            nj(iminij(j))=nj(iminij(j))+1
+            ni(iminij(j))=ni(iminij(j))+1
             wi(iminij(j))=wi(iminij(j))+wj(iminij(j))
          ENDDO
       END SUBROUTINE mkgrid
       
-      SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,nj,iminij, &
+      SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,ni,iminij, &
                          ineigh,wi,idxgrid)
          IMPLICIT NONE
          
@@ -1612,7 +1610,7 @@
          !    ngrid: number of grid points
          !    x: array containing the data samples
          !    y: array that will contain the grid points
-         !    nj: array cotaing the number of samples inside the Voronoj polyhedron of each grid point
+         !    ni: array cotaing the number of samples inside the Voronoj polyhedron of each grid point
          !    iminij: array containg the neighbor list for data samples
 
          INTEGER, INTENT(IN) :: D
@@ -1623,7 +1621,7 @@
          DOUBLE PRECISION, DIMENSION(nsamples), INTENT(IN) :: wj 
          
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
-         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: nj
+         INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ni
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi   
@@ -1634,7 +1632,7 @@
 
          iminij=0
          y=0.0d0
-         nj=0
+         ni=0
 
          ! start from first point of user provided grid
          irandom=idxgrid(1)
@@ -1680,15 +1678,15 @@
 
          ! Assign neighbor list pointer of voronois
          ! Number of points in each voronoi polyhedra
-         nj = 0
+         ni = 0
          wi = 0.0d0
          DO j=1,nsamples
-            nj(iminij(j))=nj(iminij(j))+1
+            ni(iminij(j))=ni(iminij(j))+1
             wi(iminij(j))=wi(iminij(j))+wj(iminij(j))
          ENDDO
       END SUBROUTINE getvoro
 
-      SUBROUTINE getnlist(nsamples,ngrid,nj,iminij, pnlist,nlist)
+      SUBROUTINE getnlist(nsamples,ngrid,ni,iminij, pnlist,nlist)
          ! Build a neighbours list: for every voronoi center keep track of his
          ! neighboroud that correspond to all the points inside the voronoi
          ! polyhedra.
@@ -1703,7 +1701,7 @@
 
          INTEGER, INTENT(IN) :: nsamples
          INTEGER, INTENT(IN) :: ngrid
-         INTEGER, DIMENSION(ngrid), INTENT(IN) :: nj
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: ni
          INTEGER, DIMENSION(nsamples), INTENT(IN) :: iminij
          INTEGER, DIMENSION(ngrid+1), INTENT(OUT) :: pnlist
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: nlist
@@ -1718,7 +1716,7 @@
          ! pointer to the neighbourlist
          pnlist(1)=0
          DO i=1,ngrid
-            pnlist(i+1)=pnlist(i)+nj(i)
+            pnlist(i+1)=pnlist(i)+ni(i)
             tmpnidx(i)=pnlist(i)+1  ! temporary array to use while filling up the neighbour list
          ENDDO
 
