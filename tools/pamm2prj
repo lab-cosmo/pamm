@@ -8,76 +8,83 @@ from scipy.misc import logsumexp
 import matplotlib.pyplot as P
 import sys
 
+D       = -1
 verbose = False  # no verbosity
-D       = 2      # use two-dimensional projection
+d       = 2      # use two-dimensional projection
 nplot   = -1     # show all cluster
 minsize = 1      # show cluster with one member
-flip    = False  # ascending order of cluster size
+flip    = False  # plot cluster from low to high probable
 pflag   = False  # no print out of probabilities
-psort   = False  # don't sort according to probabilities
+smode   = 0      # sort cluster according to size
 lo      = []     # use min/max of probability as limits for prob plot
 hi      = []     # use min/max of probability as limits for prob plot
 
-if len(sys.argv) < 2:
-  print "usage: pamm2prj [-d dim] [-min min] [-n N] [-f] [-ps] [-p] [-lo lo] [-hi hi] [-v] [-h] pamm proj idxs"
+if len(sys.argv) < 5:
+  print "usage: pamm2prj dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-lo lo] [-hi hi] [-v] [-h] pamm proj idxs"
   sys.exit("ERROR: not enough input provided")
 else:
   for i,s in enumerate(sys.argv):
-    if   s == '-d'   : D       = int(sys.argv[i+1])
-    elif s == '-min' : minsize = int(sys.argv[i+1])
-    elif s == '-n'   : nplot   = int(sys.argv[i+1])
-    elif s == '-f'   : flip    = True
-    elif s == '-ps'  : psort   = True
-    elif s == '-p'   : pflag   = True
-    elif s == '-lo'  : lo      = int(sys.argv[i+1])
-    elif s == '-hi'  : hi      = int(sys.argv[i+1])
-    elif s == '-v'   : verbose = True
-    elif s == '-h'   : 
-      print "usage: pamm2prj [-d dim] [-min min] [-n N] [-f] [-ps] [-p] [-lo lo] [-hi hi] [-v] [-h] pamm proj idxs"
-      print " "
-      print " pamm          : pamm grid file"
-      print " "
-      print " proj          : projection of data (pca, sketchmap or ...)"
-      print " "
-      print " idxs          : association to projection"
-      print " "
-      print " optional:"
-      print " "
-      print " -d dim        : dimensionality of projection [2]"
-      print " "
-      print " -min min      : minimum size of cluster to plot [1]"
-      print " "
-      print " -n N          : plot only N cluster [all]"
-      print " "
-      print " -f            : flip sorting [false]"
-      print " "
-      print " -ps           : sort according to probabilities [false]"
-      print " "
-      print " -p            : plot probabilities on sketchmap [false]"
-      print " "
-      print " -lo lo        : lower limit for probability plot [min(prob)]"
-      print " "
-      print " -hi hi        : upper limit for probability plot [max(prob)]"
-      print " "
-      print " -v            : turn verbosity on [false]"
-      print " "
-      print " -h            : show this message"
+    if   s == '-d'    : d       = int(sys.argv[i+1])
+    elif s == '-min'  : minsize = int(sys.argv[i+1])
+    elif s == '-n'    : nplot   = int(sys.argv[i+1])
+    elif s == '-flip' : flip    = True
+    elif s == '-sort' : smode   = int(sys.argv[i+1])
+    elif s == '-p'    : pflag   = True
+    elif s == '-lo'   : lo      = int(sys.argv[i+1])
+    elif s == '-hi'   : hi      = int(sys.argv[i+1])
+    elif s == '-v'    : verbose = True
+    elif s == '-h'    : 
+      print """
+usage: pamm2prj dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-lo lo] [-hi hi] [-v] [-h] pamm proj idxs"
+
+ required:
+   
+   dim           : dimensionality of system 
+  
+   pamm          : pamm grid file
+
+   proj          : projection of data (pca, sketchmap or ...)
+
+   idxs          : association to projection
+ 
+ optional
+  
+   -d dim        : dimensionality of projection       [2]
+
+   -min min      : minimum size of cluster to plot    [1]
+
+   -n N          : plot only N cluster                [all]
+
+   -flip         : flip sorting                       [false]
+
+   -sort mode    : sort mode                          [0]
+                   0   - points in cluster
+                   1   - kernel density fraction
+
+   -p            : plot probabilities on sketchmap    [false]
+
+   -lo lo        : lower limit for probability plot   [min(prob)]
+      
+   -hi hi        : upper limit for probability plot   [max(prob)]
+      
+   -v            : turn verbosity on                  [false]
+      
+   -h            : show this message"""
       sys.exit()
 
-print "                                            " 
-print " ****************************************** "
-print " *                                        * "
-print " *               PAMM Tools               * "
-print " *                                        * "
-print " ****************************************** "
-print "                                            "   
-print " plot results of PAMM on projection         "
-print "                                            "
-print " Version: 1.0                               "
-print " Date   : 03/02/17                          "
-print " Author : robert.meissner@epfl.ch           "
-print "                                            "    
-print "                                            "   
+print """ 
+ ****************************************** 
+ *                                        * 
+ *               PAMM Tools               * 
+ *                                        * 
+ ****************************************** 
+                                              
+ plot results of PAMM on projection         
+                                            
+ Version: 1.0                               
+ Date   : 21/03/17                          
+ Author : robert.meissner@epfl.ch                                                          
+"""   
 
 #######################################################################
 ###                                                                 ###
@@ -85,7 +92,9 @@ print "                                            "
 ###                                                                 ###
 #######################################################################
 
-if D > 2: sys.exit("ERROR: can't plot more than two dimensions")
+D = int(sys.argv[1])
+
+if d > 2: sys.exit("ERROR: can't plot more than two dimensions")
 
 # try to open input files
 try:
@@ -120,9 +129,11 @@ pamm = loadtxt(gridfile)
 
 N = pamm.shape[0]
 
-X = smap[:N,:2]
-cls = pamm[:,15]
-p = pamm[:,16]
+X     = smap[:N,:d]
+cls   = pamm[:,D]
+p     = pamm[:,D+1]
+wgrid = pamm[:,D+6]
+
 
 if not lo:
   lo = min(p)
@@ -134,40 +145,48 @@ uc, mc = unique(cls,return_counts=True)
 # total number of unique cluster
 ntot = len(uc)
 
+print " cluster analysis"
+print "   %d clusters in total " % (ntot)
+
 # if nplot is not set, set it to total number of clusters
 if nplot < 0: nplot = len(uc)
 
-if psort:
+if smode == 1:
   # sort cluster according to cluster weights (fraction of densities)
   lnw = zeros(ntot)
   for i,c in enumerate(uc):
     lnw[i] = logsumexp(p[cls == c])-logsumexp(p)
-    print c,exp(lnw[i])
-  uc = uc[argsort(lnw)]
+  
+  si = flipud(argsort(lnw))
+  
+  uc = uc[si]
+ 
+  print " cluster / weight"
+  w = exp(lnw[si])
+  for i in range(nplot):
+    print "   %d / %f" % (uc[i],w[i])
 else:
-  # sort cluster according to their size
-  uc = uc[where(mc >= minsize)]
-  mc = mc[where(mc >= minsize)]
-  uc = uc[argsort(mc)]
+    # sort cluster according to their size
+    
+  wtot = sum(wgrid)
+  w = zeros(ntot)
+  for i,c in enumerate(uc):
+    w[i] = sum(wgrid[cls == c])/wtot
 
-pc = uc[-nplot:]
+  si = flipud(argsort(w))
+  
+  uc = uc[si]
+ 
+  print " cluster / weight"
+  w = w[si]
+  
+  for i in range(nplot):
+    print "   %d / %f" % (uc[i],w[i])
+
+pc = uc[:nplot]
 
 # show smallest (or lowest probable) cluster first
 if flip: pc = flipud(pc)
-
-print " Cluster Analysis"
-print "   %d clusters in total " % (ntot)
-
-#print "   %d" % (len(pc)),
-#if psort:
-#  if flip: print "most probable clusters are shown"
-#  else:    print "lowest probable clusters are shown"
-#else:
-#  if flip: print "biggest clusters are shown" 
-#  else:    print "smallest clusters are shown"
-
-#print "   minimum size: %d" % minsize
-
 
 P.figure()
 # clusters smaller than minsize are printed in gray

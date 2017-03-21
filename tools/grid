@@ -10,27 +10,6 @@ rndflag = False  # use minmax
 metric  = 0      # use minkoswki metric 
 norm    = 2      # use euclidean distances
 
-print """ 
- ****************************************** 
- *                                        * 
- *               PAMM Tools               * 
- *                                        * 
- ****************************************** 
-                                               
- grid creation based on:                    
-   - minmax criterion (default)             
-     or random points                       
-   - euclidean distance (default)              
-     or cosine distance
-     or minkowski distance      
-     or mahalanobis distance 
-   - periodic boundary conditions (not implemented)          
-                                            
- Version: 1.0                               
- Date   : 03/08/17                          
- Author : robert.meissner@epfl.ch 
-"""    
-
 if len(sys.argv) < 1:
   print "usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data"
   sys.exit("ERROR: no data file specified")
@@ -74,6 +53,27 @@ usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data
 
    -h            : show this message"""
       sys.exit()
+
+print """ 
+ ****************************************** 
+ *                                        * 
+ *               PAMM Tools               * 
+ *                                        * 
+ ****************************************** 
+                                               
+ grid creation based on:                    
+   - minmax criterion (default)             
+     or random points                       
+   - euclidean distance (default)              
+     or cosine distance
+     or minkowski distance      
+     or mahalanobis distance 
+   - periodic boundary conditions (not implemented)          
+                                            
+ Version: 1.0                               
+ Date   : 03/08/17                          
+ Author : robert.meissner@epfl.ch 
+"""    
 
 #######################################################################
 ###                                                                 ###
