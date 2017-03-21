@@ -755,7 +755,7 @@
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
-         !print out grid file with additional information on probability, errors, localization and dim
+         !print out grid file with additional information on probability, errors, localization, weights in voronoi, dim
          WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
              " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
                                               " " , prob(i) ,      &
@@ -763,7 +763,7 @@
                                               " " , prelerr(i),    &
                                               " " , sigma2(i),     &
                                               " " , nlocal(i),     &
-                                              " " , ni(i),         &
+                                              " " , wi(i),         &
                                               " " , Di(i)
       ENDDO
       
