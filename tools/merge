@@ -15,62 +15,69 @@ thresh  = 0.9    # threshold to merge cluster
 D       = -1     # dimensionality needs to be specified
 
 if len(sys.argv) < 2:
-  print "usage: merge -d dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
+  print "usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
-    if   s == '-d'   : D       = int(sys.argv[i+1])
+    if   s == '-D'   : D       = int(sys.argv[i+1])
     elif s == '-t'   : thresh  = float(sys.argv[i+1])
-    elif s == '-e '  : errflag = True
-    elif s == '-l'   : logflag = False
+    elif s == '-err' : errflag = True
+    elif s == '-log' : logflag = False
     elif s == '-adj' : saveadj = True
     elif s == '-m'   : savegrd = True
     elif s == '-b'   : savebrd = True
     elif s == '-g'   : savegrp = True
     elif s == '-v'   : verbose = True
     elif s == '-h'   : 
-      print "usage: merge -d dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
-      print " "
-      print " -d dim        : dimensionality"
-      print " "
-      print " -t thresh     : threshold to merge cluster [0.9]"
-      print " "
-      print " -e            : use error of KDE in adjacency [false]"
-      print " "
-      print " -l            : use logarithm of probabilities [true]"
-      print " "
-      print " -adj          : write out adjacency matrix [false]"
-      print " "
-      print " -m            : write out gridfile containing"
-      print "                 new macrogrid [false]"
-      print " "
-      print " -b            : write out boarder points"
-      print " "
-      print " -b            : write out gapriel graph connecting points"
-      print " "
-      print " -v            : turn verbosity on [false]"
-      print " "
-      print " -h            : show this message"
-      sys.exit()
+      print """
+usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
 
-print "                                            " 
-print " ****************************************** "
-print " *                                        * "
-print " *               PAMM Tools               * "
-print " *                                        * "
-print " ****************************************** "
-print "                                            "   
-print " cluster merging based on:                  "
-print "   - gabriel neighbors                      "
-print "   - adjacency criterion                    "
-print "   - errors (not implemented yet)           "
-print "   - true log-sum-exp                       "
-print "                                            "
-print " Version: 1.0                               "
-print " Date   : 02/17/17                          "
-print " Author : robert.meissner@epfl.ch           "
-print "                                            "    
-print "                                            "    
+ required:
+ 
+   -D dim        : dimensionality
+   
+   grid          : pamm grid file
+       
+ optional:
+
+   -t thresh     : threshold to merge cluster                   [0.9]
+
+   -err          : use error of KDE in adjacency                [false]
+
+   -log          : use logarithm of probabilities               [true]
+
+   -adj          : write out adjacency matrix                   [false]
+
+   -m            : write out gridfile containing                [false]
+                   new macrogrid              
+
+   -b            : write out boarder points                     [false]
+
+   -g            : write out gapriel graph connecting points    [false]
+
+   -v            : turn verbosity on                            [false]
+
+   -h            : show this message
+      sys.exit()
+      """
+
+print """ 
+ ****************************************** 
+ *                                        * 
+ *               PAMM Tools               * 
+ *                                        * 
+ ****************************************** 
+                                               
+ cluster merging based on:                  
+   - gabriel neighbors                      
+   - adjacency criterion                    
+   - errors (not implemented yet)           
+   - true log-sum-exp                       
+                                            
+ Version: 1.0                               
+ Date   : 02/17/17                          
+ Author : robert.meissner@epfl.ch                                                           
+"""   
 
 #######################################################################
 ###                                                                 ###
@@ -94,7 +101,7 @@ mgridfile = basename + '.mgrid'
 macrofile = basename + '.macro'
 adjfile   = basename + '.adj'
 brdfile   = basename + '.boarders'
-neighfile = basename + '.gabriel'
+neighfile = basename + '.graph'
 
 # load data
 data = loadtxt(gridfile)
@@ -116,7 +123,7 @@ csteps = 10**multi
 multi = round(log10(N))-1
 if multi < 1: multi = 0
 # multiplier whenever something over a grid is calculated
-gsteps = 10**multi
+steps = 10**multi
 
 # prepare adjacency matrix skeleton
 if logflag: 
@@ -142,12 +149,31 @@ for i,xi in enumerate(X):
     # distance to myself is far away
     distsq[i,i] = inf
   
-    if verbose and (mod(i+1,gsteps)==0): print "  %d / %d" % (i+1,N)
+    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+
+
+neighs = zeros([N,N], dtype=bool)
+
+
+#if verbose: print " Finding connections between clusters"
+#for ic,c in enumerate(uc):   
+#    for i,x in enumerate(X):
+#        # loop over points in my cluster
+#        if c != cid[i]: continue
+#        mindist = inf
+#        jmin = -1
+#        for j,y in enumerate(X):
+#            # check if we are in same cluster
+#            if c == cid[j]: continue
+#            if distsq[i,j] < mindist:
+#                mindist = distsq[i,j]
+#                jmin = j
+#        if jmin > -1: neighs[i,jmin] = 1
+#    if verbose and (mod(ic+1,steps)==0): print "  %d / %d" % (ic+1,Nc)
 
 
 if verbose: print " Building Gabriel Graph"
 # find gabriel neighbors of i
-gneighs = zeros([N,N], dtype=bool)
 for i in range(N):
     # matrix is symmetric, loop over upper triangular
     for j in range(i-1):        
@@ -157,13 +183,13 @@ for i in range(N):
         flag = distsq[i,j] > (distsq[i,:] + distsq[j,:])
         
         if not flag.any():     
-          gneighs[i,j] = True
+          neighs[i,j] = True
           # matrix is symmetric
-          gneighs[j,i] = True
+          neighs[j,i] = True
 
-    if verbose and (mod(i+1,gsteps)==0): print "  %d / %d" % (i+1,N)
+    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
     
-
+    
 if verbose: print " Building adjacency matrix"
 # create array to store border points
 brd = zeros(N,dtype=bool)
@@ -176,7 +202,7 @@ for i in range(N):
         if cid[i] == cid[j]: continue
         
         # cluster ci and cj are connected if points i and j are gabriel neighbors
-        if gneighs[i,j]:
+        if neighs[i,j]:
             # mark points as boarder points
             brd[i] = True
             brd[j] = True
@@ -198,7 +224,7 @@ for i in range(N):
                 
                 if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
               
-    if verbose and (mod(i+1,gsteps)==0): print "  %d / %d" % (i+1,N)
+    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
 
 
 # rescale adjacency matrix to identify connected nodes
@@ -218,7 +244,7 @@ Nm, m = connected_components(adj_bool)
 if verbose: print " Write out"
 
 # write gabriel graph to file if desired
-if savegrp: savetxt(neighfile,gneighs,header="gabriel graph",fmt='%d')
+if savegrp: savetxt(neighfile,neighs,header="gabriel graph",fmt='%d')
     
 # write adjacency matrix to file if desired 
 if saveadj: 

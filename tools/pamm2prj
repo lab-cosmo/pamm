@@ -16,32 +16,33 @@ minsize = 1      # show cluster with one member
 flip    = False  # plot cluster from low to high probable
 pflag   = False  # no print out of probabilities
 smode   = 0      # sort cluster according to size
-lo      = []     # use min/max of probability as limits for prob plot
-hi      = []     # use min/max of probability as limits for prob plot
+lo      = nan    # use min/max of probability as limits for prob plot
+hi      = nan    # use min/max of probability as limits for prob plot
 
 if len(sys.argv) < 5:
-  print "usage: pamm2prj dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-lo lo] [-hi hi] [-v] [-h] pamm proj idxs"
+  print "usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
   sys.exit("ERROR: not enough input provided")
 else:
   for i,s in enumerate(sys.argv):
-    if   s == '-d'    : d       = int(sys.argv[i+1])
+    if   s == '-D'    : D       = int(sys.argv[i+1])
+    elif s == '-d'    : d       = int(sys.argv[i+1])
     elif s == '-min'  : minsize = int(sys.argv[i+1])
     elif s == '-n'    : nplot   = int(sys.argv[i+1])
     elif s == '-flip' : flip    = True
     elif s == '-sort' : smode   = int(sys.argv[i+1])
     elif s == '-p'    : pflag   = True
-    elif s == '-lo'   : lo      = int(sys.argv[i+1])
-    elif s == '-hi'   : hi      = int(sys.argv[i+1])
+    elif s == '-lo'   : lo      = float(sys.argv[i+1])
+    elif s == '-hi'   : hi      = float(sys.argv[i+1])
     elif s == '-v'    : verbose = True
     elif s == '-h'    : 
       print """
-usage: pamm2prj dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-lo lo] [-hi hi] [-v] [-h] pamm proj idxs"
+usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
 
  required:
    
-   dim           : dimensionality of system 
+   -D dim        : dimensionality of data 
   
-   pamm          : pamm grid file
+   grid          : pamm grid file
 
    proj          : projection of data (pca, sketchmap or ...)
 
@@ -92,8 +93,7 @@ print """
 ###                                                                 ###
 #######################################################################
 
-D = int(sys.argv[1])
-
+if D < 0: sys.exit("ERROR: no dimension specified")
 if d > 2: sys.exit("ERROR: can't plot more than two dimensions")
 
 # try to open input files
@@ -134,12 +134,11 @@ cls   = pamm[:,D]
 p     = pamm[:,D+1]
 wgrid = pamm[:,D+6]
 
-
-if not lo:
+if isnan(lo):
   lo = min(p)
-if not hi:
+if isnan(hi):
   hi = max(p)
-
+  
 # get unique cluster and number of members in each
 uc, mc = unique(cls,return_counts=True)
 # total number of unique cluster
@@ -197,6 +196,7 @@ for i,c in enumerate(pc):
 # mark points with highest probability
 for i,c in enumerate(pc):
   P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',color=cm.Accent(i/float(len(pc))))
+P.axis('equal')
 P.axis('off')  
 
 if pflag:
@@ -204,6 +204,7 @@ if pflag:
   P.scatter(X[argsort(p),0],X[argsort(p),1],c=p[argsort(p)],edgecolor='None')
   P.colorbar()
   P.clim([lo,hi])
+  P.axis('equal')
   P.axis('off')
   
 P.show()
