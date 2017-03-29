@@ -92,6 +92,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wi         ! accumulator for wj in each voronoi
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal     ! local weights around grid point
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: nlocal     ! local number of points around localized grid
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mindist    ! distance to closest voronoi
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: Di         ! local dimensionality
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: period     ! Periodic lenght in each dimension
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: prelerr    ! relative error of probability
@@ -369,7 +370,7 @@
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                           y,ni,prob,probboot,idxroot,idxgrid,qspath, &
+                           y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -416,6 +417,19 @@
       
       ! print out the voronois associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
+      
+      ! distance to closest voronoi
+      mindist=HUGE(0.0d0) !  of the kernel density estimator
+      DO i=1,ngrid
+        DO j=1,i-1
+          ! distance between two voronoi centers
+          dummd1 = pammr2(D,period,y(:,i),y(:,j))
+          IF (dummd1 < mindist(i)) THEN
+            mindist(i) = dummd1
+            mindist(j) = dummd1
+          ENDIF
+        ENDDO
+      ENDDO
       
       ! Generate the neighbour list
       IF(verbose) write(*,*) " Generating neighbour list"
@@ -487,6 +501,11 @@
 
         ! estimate Q from the grid
         CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
+
+        ! make sure that mahalanobis distances don't get to small
+        IF (trmatrix(D,Qi)/DBLE(D) < mindist(i)) THEN
+          Qi = Qi * mindist(i) * DBLE(D) / trmatrix(D,Qi)
+        ENDIF
 
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
@@ -1023,7 +1042,7 @@
       END FUNCTION median
       
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                                 y,ni,prob,probboot,idxroot,idxgrid,qspath, &
+                                 y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
@@ -1033,7 +1052,7 @@
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ni,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,nlocal
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di,mindist
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qi,Qiinv,Hi,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hiinv
@@ -1044,6 +1063,7 @@
          IF (ALLOCATED(nlist))      DEALLOCATE(nlist)
          IF (ALLOCATED(y))          DEALLOCATE(y)
          IF (ALLOCATED(ni))         DEALLOCATE(ni)
+         IF (ALLOCATED(mindist))    DEALLOCATE(mindist)
          IF (ALLOCATED(prob))       DEALLOCATE(prob)
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
@@ -1074,7 +1094,8 @@
          ! points and the dimensionality
          ALLOCATE(iminij(nsamples))
          ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
-         ALLOCATE(y(D,ngrid), ni(ngrid), prob(ngrid), sigma2(ngrid), rgrid(ngrid))
+         ALLOCATE(y(D,ngrid), ni(ngrid), mindist(ngrid))
+         ALLOCATE(prob(ngrid), sigma2(ngrid), rgrid(ngrid))
          ALLOCATE(idxroot(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
          ALLOCATE(msmu(D), tmpmsmu(D),logdetHi(ngrid))
          ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),wi(ngrid))

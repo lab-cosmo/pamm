@@ -214,7 +214,7 @@ if cvxflag:
 #    P.plot(x[hull.vertices,0], x[hull.vertices,1], 'r--', lw=2)
     patch = Polygon(x[hull.vertices,:], True, color=cc[i], alpha=0.4)
     ax.add_patch(patch)
-  P.axis('equal')
+#  P.axis('equal')
   P.axis('off')  
 else:
   # clusters smaller than minsize are printed in gray
@@ -225,7 +225,7 @@ else:
   # mark points with highest probability
   for i,c in enumerate(pc):
     P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',color=cc[i])
-  P.axis('equal')
+#  P.axis('equal')
   P.axis('off')  
 
 if pflag:
@@ -233,7 +233,7 @@ if pflag:
   P.scatter(X[argsort(p),0],X[argsort(p),1],c=p[argsort(p)],edgecolor='None')
   P.colorbar()
   P.clim([lo,hi])
-  P.axis('equal')
+#  P.axis('equal')
   P.axis('off')
   
 P.show()
