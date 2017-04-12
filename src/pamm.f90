@@ -523,14 +523,22 @@
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: npvoronoi
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
 
-         INTEGER i,j
+         INTEGER i,j,irandom
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax
 
          iminij=0
          y=0.0d0
          npvoronoi=0
          ! choose randomly the first point
-         y(:,1)=x(:,int(RAND()*nsamples))
+         irandom = int(RAND()*nsamples)
+         
+         !!! DEBUG
+         OPEN(UNIT=12,FILE="grid",STATUS='REPLACE',ACTION='WRITE')
+         WRITE(12,"((I9))") irandom
+         !!! DEBUG
+         
+         
+         y(:,1)=x(:,irandom)
          dminij = 1.0d99
          iminij = 1
          DO i=2,ngrid
@@ -548,9 +556,18 @@
                ENDIF
             ENDDO
             y(:,i) = x(:, jmax)
+            
+            !!! DEBUG
+            WRITE(12,"((I9))") jmax
+            !!! DEBUG
+            
             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
                write(*,*) i,"/",ngrid
          ENDDO
+         
+         !!! DEBUG
+         CLOSE(12)
+         !!! DEBUG 
 
          ! finishes Voronoi attribution
          DO j=1,nsamples
