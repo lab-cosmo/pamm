@@ -107,6 +107,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm   ! similarity matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot ! bootstrap probabilities
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q        ! global covariance matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qinv     ! inverse of global covariance matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qi       ! local covariance matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qiinv    ! inversed local covariance matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Hi       ! bandwidth matrix
@@ -372,7 +373,7 @@
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
                            y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                           wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
+                           wi,Q,Qinv,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
       
       ! Extract ngrid points on which the kernel density estimation is to be
@@ -437,13 +438,17 @@
       
       ! estimate Q from grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
+      CALL invmatrix(D,Q,Qinv)
       
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
       
-      tune = maxeigval(Q,D)
-      sigma2 = tune
-      ! localization based on fraction of avg. variance
-      IF(fspread.GT.0) sigma2 = sigma2*fspread
+      ! localization based on fraction of spread
+      IF(fspread.GT.0) THEN
+        Qinv = Qinv/fspread
+      ELSE
+        tune = maxeigval(Q,D)
+        sigma2 = tune
+      ENDIF
       
       IF(verbose) WRITE(*,*) & 
         " Estimating bandwidths and distance matrix"
@@ -464,7 +469,7 @@
             " Warning: fraction of points too small, increase grid size!"
               
           ! initial estimate of nlocal using biggest eigenvalue of global Q
-          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+          CALL localization(D,period,ngrid,Qinv/sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
           
           ! aproaching quickly ntarget
           ! if nlocal is smaller than target value try to approach quickly to target value
@@ -473,7 +478,7 @@
             DO WHILE(nlocal(i).LT.nlim)
               ! approach the desired value
               sigma2(i)=sigma2(i)+tune
-              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+              CALL localization(D,period,ngrid,Qinv/sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
             ENDDO
             
           ENDIF
@@ -487,7 +492,7 @@
               sigma2(i) = sigma2(i)+tune/2.0d0**j
             ENDIF
             
-            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+            CALL localization(D,period,ngrid,Qinv/sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
 
             ! exit loop if sigma gives correct nlocal
             IF (ANINT(nlocal(i)).EQ.nlim) EXIT
@@ -496,16 +501,16 @@
             j = j+1  
           ENDDO
         ELSE
-          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+          CALL localization(D,period,ngrid,Qinv,y,wi,y(:,i),wlocal,nlocal(i))
         ENDIF
 
         ! estimate Q from the grid
         CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
 
-        ! make sure that mahalanobis distances don't get to small
-        IF (trmatrix(D,Qi)/DBLE(D) < mindist(i)) THEN
-          Qi = Qi * mindist(i) * DBLE(D) / trmatrix(D,Qi)
-        ENDIF
+!        ! make sure that mahalanobis distances don't get to small
+!        IF (trmatrix(D,Qi)/DBLE(D) < mindist(i)) THEN
+!          Qi = Qi * mindist(i) * DBLE(D) / trmatrix(D,Qi)
+!        ENDIF
 
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
@@ -1044,7 +1049,7 @@
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
                                  y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                                 wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
+                                 wi,Q,Qinv,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
@@ -1053,7 +1058,7 @@
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,nlocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di,mindist
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qi,Qiinv,Hi,probboot
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qinv,Qi,Qiinv,Hi,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hiinv
          
@@ -1076,6 +1081,7 @@
          IF (ALLOCATED(wi))         DEALLOCATE(wi)
          IF (ALLOCATED(normkernel)) DEALLOCATE(normkernel)
          IF (ALLOCATED(Q))          DEALLOCATE(Q)
+         IF (ALLOCATED(Qinv))       DEALLOCATE(Qinv)
          IF (ALLOCATED(Qi))         DEALLOCATE(Qi)
          IF (ALLOCATED(logdetHi))   DEALLOCATE(logdetHi)
          IF (ALLOCATED(Hi))         DEALLOCATE(Hi)
@@ -1102,7 +1108,7 @@
          ! bootstrap probability density array will be allocated if necessary
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
-         ALLOCATE(Q(D,D),Qi(D,D))
+         ALLOCATE(Q(D,D),Qinv(D,D),Qi(D,D))
          ALLOCATE(Hi(D,D),Hiinv(D,D,ngrid),Qiinv(D,D))
          ALLOCATE(dij(D),Di(ngrid))
          ALLOCATE(idxgrid(ngrid),tmps2(ngrid))
@@ -1111,34 +1117,24 @@
          ALLOCATE(ineigh(ngrid))
       END SUBROUTINE allocatevectors
 
-      SUBROUTINE localization(D,period,N,s2,x,w,y,wl,num)
+      SUBROUTINE localization(D,period,N,Qinv,x,w,y,wl,num)
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: N
          DOUBLE PRECISION, INTENT(IN) :: period(D)
-         DOUBLE PRECISION, INTENT(IN) :: s2
+         DOUBLE PRECISION, INTENT(IN) :: Qinv(D,D)
          DOUBLE PRECISION, INTENT(IN) :: x(D,N)
          DOUBLE PRECISION, INTENT(IN) :: y(D)
          DOUBLE PRECISION, INTENT(IN) :: w(N)
          DOUBLE PRECISION, INTENT(OUT) :: wl(N)
          DOUBLE PRECISION, INTENT(OUT) :: num
          
-         INTEGER ii
-         DOUBLE PRECISION xy(D,N)
+         INTEGER i
          
-         DO ii=1,D
-           xy(ii,:) = x(ii,:)-y(ii)
-           IF (period(ii) > 0.0d0) THEN
-             ! scaled lenght
-             xy(ii,:) = xy(ii,:)/period(ii)
-             ! Finds the smallest separation between the images of the vector elements
-             xy(ii,:) = xy(ii,:) - DNINT(xy(ii,:)) ! Minimum Image Convention
-             ! Rescale back the length
-             xy(ii,:) = xy(ii,:)*period(ii)
-           ENDIF  
-         ENDDO
          ! estimate weights for localization as product from 
          ! spherical gaussian weights and weights in voronoi
-         wl = DEXP(-0.5d0/s2*SUM(xy*xy,1))*w
+         DO i=1,N
+            wl(i) = DEXP(-0.5d0*mahalanobis(D,period,x(:,i),y,Qinv))*w(i)
+         ENDDO
          ! estimate local number of sample points
          num = SUM(wl)
       END SUBROUTINE localization
