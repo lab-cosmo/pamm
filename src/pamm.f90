@@ -90,7 +90,8 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2     ! adaptive localizations
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wj         ! weight of each sample point
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wi         ! accumulator for wj in each voronoi
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal     ! local weights around grid point
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal     ! local weights around grid point for grid points
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal2    ! local weights around grid point for sample points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: nlocal     ! local number of points around localized grid
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mindist    ! distance to closest voronoi
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: Di         ! local dimensionality
@@ -373,7 +374,7 @@
                            y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
-                           wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
+                           wlocal,wlocal2,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
       
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -495,36 +496,57 @@
             ! adjust scaling factor for new sigma
             j = j+1  
           ENDDO
+          
+          ! estimate Q from the grid
+          CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
+          
         ELSE
+          ! estimate the localization weights using sigma calculated from fraction of data spread 
           CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+          ! if the localization is as small as the size of the voronoi
+          ! the covariance estimation from the grid is not working.
+          ! thus, we estimate the exact local covariance by using the sample points
+          IF (nlocal(i).LE.wi(i)) THEN
+            CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal2,nlocal(i))
+            WRITE(*,*) " Warning: localization smaller than Voronoi, increase grid size!"
+            ! check if we only have a single point in the voronoi using 
+            ! that localization
+            IF (nlocal(i).LE.1.0d0) THEN
+              tune = sigma2(i)
+              DO WHILE(nlocal(i).LE.1.0d0)
+                ! approach the desired value
+                sigma2(i)=sigma2(i)+tune
+                CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal2,nlocal(i))
+              ENDDO
+              WRITE(*,*) " Warning: only one point in local zone, adjusted localization!" 
+            ENDIF
+            ! estimate Q from all sample points
+            CALL covariance(D,period,nsamples,nlocal(i),wlocal2,x,Qi) 
+          ELSE
+            ! estimate Q using grid approximation
+            CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
+          ENDIF
         ENDIF
 
-        ! estimate Q from the grid
-        CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
 
         ! make sure that mahalanobis distances don't get to small
-        IF (trmatrix(D,Qi)/DBLE(D) < mindist(i)) THEN
-          Qi = Qi * mindist(i) * DBLE(D) / trmatrix(D,Qi)
-        ENDIF
-
+!        IF (trmatrix(D,Qi)/DBLE(D) < mindist(i)) THEN
+!          Qi = Qi * mindist(i) * DBLE(D) / trmatrix(D,Qi)
+!        ENDIF
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
-
         ! oracle shrinkage of covariance matrix
-        CALL oracle(D,nlocal(i),Qi)          
-
+        CALL oracle(D,nlocal(i),Qi)         
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi,Qiinv)
         
         ! estimate bandwidth from normal reference rule
         Hi = (4.0d0 / ( nlocal(i) * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi
-        
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
         
         ! estimate the logarithmic normalization constants
         normkernel(i) = DBLE(D)*DLOG(twopi) + logdet(D,Hi)
-        
         ! estimate logarithmic determinant of local Q's
         logdetHi(i) = logdet(D,Hi)
         
@@ -774,8 +796,11 @@
          DO j=1,D
            WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
          ENDDO
+         
+         CALL invmatrix(D,Hiinv(:,:,i),Hi)
+         
          !print out grid file with additional information on probability, errors, localization, weights in voronoi, dim
-         WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
+         WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") & 
              " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
                                               " " , prob(i) ,      &
                                               " " , pabserr(i),    &
@@ -783,7 +808,9 @@
                                               " " , sigma2(i),     &
                                               " " , nlocal(i),     &
                                               " " , wi(i),         &
-                                              " " , Di(i)
+                                              " " , Di(i),         &
+                                              " " , trmatrix(D,Hi)/DBLE(D)
+                                              
       ENDDO
       
       CLOSE(UNIT=11)
@@ -1045,13 +1072,13 @@
                                  y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
-                                 wlocal,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
+                                 wlocal,wlocal2,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
                                  
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ni,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,logdetHi
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,nlocal
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wlocal2,nlocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di,mindist
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qi,Qiinv,Hi,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: y,distmm
@@ -1083,6 +1110,7 @@
          IF (ALLOCATED(Qiinv))      DEALLOCATE(Qiinv)
          IF (ALLOCATED(dij))        DEALLOCATE(dij)
          IF (ALLOCATED(wlocal))     DEALLOCATE(wlocal)
+         IF (ALLOCATED(wlocal2))     DEALLOCATE(wlocal2)
          IF (ALLOCATED(nlocal))     DEALLOCATE(nlocal)
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
          IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
@@ -1107,6 +1135,7 @@
          ALLOCATE(dij(D),Di(ngrid))
          ALLOCATE(idxgrid(ngrid),tmps2(ngrid))
          ALLOCATE(wlocal(ngrid))
+         ALLOCATE(wlocal2(nsamples))
          ALLOCATE(nlocal(ngrid))
          ALLOCATE(ineigh(ngrid))
       END SUBROUTINE allocatevectors
