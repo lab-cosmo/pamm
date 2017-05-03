@@ -1,4 +1,4 @@
-! (PERIODIC) Probabilistic Analysis of Molecular Motifs - Utility Library 
+! (PERIODIC) Probabilistic Analysis of Molecular Motifs - Utility Library
 !
 ! Copyright (C) 2014, Piero Gasparotto and Michele Ceriotti
 !
@@ -26,7 +26,7 @@
       IMPLICIT NONE
 
       DOUBLE PRECISION, PARAMETER :: twopi = (2.0d0*3.14159265358979d0)
-      
+
       ! Structure that contains the parameters needed to define and
       ! estimate a gaussian
       TYPE gauss_type
@@ -34,25 +34,25 @@
          DOUBLE PRECISION weight                               ! weight associated with the Gaussian cluster (not included in the normalization!)
          DOUBLE PRECISION lnorm                                ! logarithm of the normalization factor
          DOUBLE PRECISION det                                  ! determinant of the covariance matrix
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean   
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: cov  ! convariance matrix
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: icov ! inverse convariance matrix
       END TYPE
-      
+
       ! Structure that contains the parameters needed to define and
       ! estimate a Von Mises distribution
       TYPE vm_type
          INTEGER D                                             ! dimensionality of the Gaussian
          DOUBLE PRECISION weight                               ! weight associated with the Gaussian cluster (not included in the normalization!)
-         DOUBLE PRECISION lnorm                                ! logarithm of the normalization factor 
+         DOUBLE PRECISION lnorm                                ! logarithm of the normalization factor
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: period
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean   
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mean
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: cov  ! convariance matrix
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: icov ! inverse convariance matrix
       END TYPE
-      
+
       CONTAINS
-		
+
       SUBROUTINE gauss_prepare(gpars)
          ! Initialize all the parameters of the gaussian
          !
@@ -69,7 +69,7 @@
          ! calculate the  logarithm of the normalization factor
          gpars%lnorm = dlog(1.0d0/dsqrt((twopi**gpars%D)*gpars%det))
       END SUBROUTINE gauss_prepare
-      
+
       SUBROUTINE vm_prepare(vmpars)
          ! Initialize all the parameters of the Von Mises distribution
          !
@@ -79,13 +79,13 @@
          TYPE(vm_type), INTENT(INOUT) :: vmpars
          INTEGER i
          DOUBLE PRECISION tprd,WR(vmpars%D)
-         
+
 
          ! calculate the inverse of the convariance matrix
          CALL invmatrix(vmpars%D,vmpars%cov,vmpars%icov)
          ! calculate the eigenvlaues of the inverse of cov matrix
          CALL eigval(vmpars%icov,vmpars%D,WR)
-         
+
          ! compute the normaliztion factor
          tprd=1.0d0
          DO i=1,vmpars%D
@@ -94,7 +94,7 @@
          ENDDO
          ! store the log of the normalization factor
          vmpars%lnorm=dlog(1.0d0/tprd)
-         
+
       END SUBROUTINE vm_prepare
 
       ! probably this is no more needed
@@ -104,7 +104,7 @@
          ! Args:
          !    gpars: gaussian parameters
          !    x: point in wich estimate the log of the gaussian
-      
+
          TYPE(gauss_type), INTENT(IN) :: gpars
          DOUBLE PRECISION, INTENT(IN) :: x(gpars%D)
          DOUBLE PRECISION dv(gpars%D),tmpv(gpars%D)
@@ -122,13 +122,13 @@
          ! Args:
          !    gpars: gaussian parameters
          !    x: point in wich estimate the value of the gaussian
-         
+
          TYPE(gauss_type), INTENT(IN) :: gpars
          DOUBLE PRECISION, INTENT(IN) :: x(gpars%D)
 
          gauss_eval = dexp(gauss_logeval(gpars,x))
       END FUNCTION gauss_eval
-      
+
       DOUBLE PRECISION FUNCTION vm_r2(vmpars, x)
          ! Evaluate the distance frome the center of the basin
          ! taking into account the periodicity of the data
@@ -137,7 +137,7 @@
          ! Args:
          !    vmpars: Von Mises parameters
          !    x: point in wich estimate the VM distrib
-      
+
          TYPE(vm_type), INTENT(IN) :: vmpars
          DOUBLE PRECISION, INTENT(IN) :: x(vmpars%D)
          INTEGER i,j
@@ -156,14 +156,14 @@
          ENDDO
          vm_r2=2.0d0*(tmpsum1+tmpsum2)
       END FUNCTION vm_r2
-      
+
       DOUBLE PRECISION FUNCTION vm_logeval(vmpars, x)
          ! Return the logarithm of the multivariate Von Mises density distrib
          !
          ! Args:
          !    vmpars: Vom Mises distr parameters
          !    x: point in wich estimate the log of the Vom Mises distr
-      
+
          TYPE(vm_type), INTENT(IN) :: vmpars
          DOUBLE PRECISION, INTENT(IN) :: x(vmpars%D)
 
@@ -175,7 +175,7 @@
          ! Args:
          !    vmpars: Vom Mises distr parameters
          !    x: point in wich estimate the value of the Vom Mises distr
-         
+
          TYPE(vm_type), INTENT(IN) :: vmpars
          DOUBLE PRECISION, INTENT(IN) :: x(vmpars%D)
 
@@ -184,7 +184,7 @@
 
       SUBROUTINE pamm_p(x, pnks, nk, clusters, alpha, zeta)
          ! Computes for a configuration x the posterior probabilities for it to belong
-         ! to each of the PAMM clusters. 
+         ! to each of the PAMM clusters.
          !
          ! Args:
          !    x: The point in wich calculate the probabilities
@@ -195,31 +195,31 @@
          !    clusters: The array containing the structures with the gaussians parameters
          !    pks: The array containing the gaussians Pk
          !    pnks: The conditional probability of the point p given k
-         
+
          INTEGER, INTENT(IN) :: nk
          TYPE(gauss_type), INTENT(IN) :: clusters(nk)
          DOUBLE PRECISION, INTENT(IN) :: x(clusters(1)%d)
          DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha, zeta
          DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
 
-         DOUBLE PRECISION pnormpk, palpha, pzeta, mxpk !normalization factor         
+         DOUBLE PRECISION pnormpk, palpha, pzeta, mxpk !normalization factor
          INTEGER k
-         
+
          palpha=1.0d0
          IF (PRESENT(alpha)) palpha = alpha
-         
+
          pzeta=0.0d0
          IF (PRESENT(zeta)) pzeta = zeta
          pnks=0.0d0
          pnormpk=pzeta ! normalization factor (mixture weight)
-         
+
          mxpk=-1d100
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
-            pnks(k) = gauss_logeval(clusters(k),x)            
+            pnks(k) = gauss_logeval(clusters(k),x)
             if (pnks(k).gt.mxpk) mxpk=pnks(k)
          ENDDO
-        
+
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
             pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha
@@ -232,7 +232,7 @@
 
       SUBROUTINE pamm_p_vm(x, pnks, nk, clusters, alpha, zeta)
          ! Computes for a configuration x the posterior probabilities for it to belong
-         ! to each of the PAMM clusters. 
+         ! to each of the PAMM clusters.
          !
          ! Args:
          !    x: The point in wich calculate the probabilities
@@ -250,7 +250,7 @@
          DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha, zeta
          DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
 
-         DOUBLE PRECISION pnormpk, palpha, pzeta, mxpk !normalization factor         
+         DOUBLE PRECISION pnormpk, palpha, pzeta, mxpk !normalization factor
          INTEGER k
 
          palpha=1.0d0
@@ -260,14 +260,14 @@
          IF (PRESENT(zeta)) pzeta = zeta
          pnks=0.0d0
          pnormpk=pzeta ! normalization factor (mixture weight)
-         
+
          mxpk=-1d100
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
             pnks(k) = vm_logeval(clusters(k),x)
             if (pnks(k).gt.mxpk) mxpk=pnks(k)
          ENDDO
-         
+
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
             pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha
@@ -288,18 +288,18 @@
 
          INTEGER, INTENT(IN) :: fileid
          INTEGER, INTENT(OUT) :: Nk
-         TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:), INTENT(OUT)  :: clusters         
+         TYPE(GAUSS_TYPE), ALLOCATABLE, DIMENSION(:), INTENT(OUT)  :: clusters
 
-         CHARACTER(LEN=1024) :: dummybuffer         
+         CHARACTER(LEN=1024) :: dummybuffer
          INTEGER k,D
 
-         ! skip the first two comment lines , for now...         
+         ! skip the first two comment lines , for now...
          READ(fileid,'(A)') dummybuffer
-         DO WHILE ( dummybuffer(1:1) == '#' ) 
+         DO WHILE ( dummybuffer(1:1) == '#' )
             READ(fileid,'(A)') dummybuffer
          ENDDO
          READ(dummybuffer, *) D, Nk
-         
+
          IF (ALLOCATED(clusters)) DEALLOCATE(clusters)
          ALLOCATE(clusters(nk))
          DO k=1,Nk
@@ -314,7 +314,7 @@
          ENDDO
 
       END SUBROUTINE readclusters
-      
+
       SUBROUTINE readvmclusters(fileid,Nk,clusters)
          ! Load the gaussian clusters from the stream fileid
          !
@@ -325,18 +325,18 @@
 
          INTEGER, INTENT(IN) :: fileid
          INTEGER, INTENT(OUT) :: Nk
-         TYPE(VM_TYPE), ALLOCATABLE, DIMENSION(:), INTENT(OUT)  :: clusters         
+         TYPE(VM_TYPE), ALLOCATABLE, DIMENSION(:), INTENT(OUT)  :: clusters
 
-         CHARACTER(LEN=1024) :: dummybuffer         
+         CHARACTER(LEN=1024) :: dummybuffer
          INTEGER k,D
 
-         ! skip the first two comment lines , for now...         
+         ! skip the first two comment lines , for now...
          READ(fileid,'(A)') dummybuffer
-         DO WHILE ( dummybuffer(1:1) == '#' ) 
+         DO WHILE ( dummybuffer(1:1) == '#' )
             READ(fileid,'(A)') dummybuffer
          ENDDO
          READ(dummybuffer, *) D, Nk
-         
+
          IF (ALLOCATED(clusters)) DEALLOCATE(clusters)
          ALLOCATE(clusters(nk))
          DO k=1,Nk
@@ -354,19 +354,19 @@
 
       END SUBROUTINE readvmclusters
 
-      SUBROUTINE writeclusters(outf,comments, nk, clusters) 
+      SUBROUTINE writeclusters(outf,comments, nk, clusters)
          ! Write out the gaussian model informations to a file. The file format
          ! is as follows:
          !
          ! # One or more comment lines
-         ! dimensionality nclusters 
+         ! dimensionality nclusters
          ! weight1 mean11 mean12 mean13 ... mean1d cov111 cov112 ... cov11d ... cov1dd
          ! weight2 ....
          !
          ! Args:
          !    outf: the file id to which the gaussians parameters will be written
          !    comments: a string containing the comments section (including already the #)
-         !    nk: number of clusters 
+         !    nk: number of clusters
          !    clusters: type_gaussian container in wich we store the gaussian parameters
 
          INTEGER, INTENT(IN) :: outf
@@ -375,7 +375,7 @@
          TYPE(GAUSS_TYPE), DIMENSION(Nk), INTENT(IN)  :: clusters
 
          INTEGER k,i,j
-         
+
          WRITE(outf, '(A)') trim(adjustl(comments))
          WRITE(outf, '(I12, I12)') clusters(1)%D, nk
          DO k=1,nk
@@ -394,20 +394,20 @@
            write(outf,*) ""
         ENDDO
       END SUBROUTINE writeclusters
-      
-      SUBROUTINE writevmclusters(outf,comments, nk, clusters) 
+
+      SUBROUTINE writevmclusters(outf,comments, nk, clusters)
          ! Write out the gaussian model informations to a file. The file format
          ! is as follows:
          !
          ! # One or more comment lines
-         ! dimensionality nclusters 
+         ! dimensionality nclusters
          ! weight1 mean11 mean12 mean13 ... mean1d cov111 cov112 ... cov11d ... cov1dd
          ! weight2 ....
          !
          ! Args:
          !    outf: the file id to which the gaussians parameters will be written
          !    comments: a string containing the comments section (including already the #)
-         !    nk: number of clusters 
+         !    nk: number of clusters
          !    clusters: type_gaussian container in wich we store the gaussian parameters
 
          INTEGER, INTENT(IN) :: outf
@@ -416,7 +416,7 @@
          TYPE(VM_TYPE), DIMENSION(Nk), INTENT(IN)  :: clusters
 
          INTEGER k,i,j
-         
+
          WRITE(outf, '(A)') trim(adjustl(comments))
          WRITE(outf, '(I12, I12)') clusters(1)%D, nk
          DO k=1,nk
@@ -438,7 +438,7 @@
            write(outf,*) ""
         ENDDO
       END SUBROUTINE writevmclusters
-      
+
       SUBROUTINE invmatrix(D,M,IM)
          ! inversion of a square matrix using lapack
          INTEGER, INTENT(IN) :: D
@@ -469,11 +469,11 @@
 
          trmatrix = 0.0d0
         ! sigma2 is the trace of the covariance matrix
-         DO i=1,D      
+         DO i=1,D
            trmatrix = trmatrix + M(i,i)
          ENDDO
          RETURN
-         
+
       END FUNCTION trmatrix
 
       DOUBLE PRECISION FUNCTION detmatrix(D,M)
@@ -523,7 +523,7 @@
             detmatrix=detmatrix*matrix(i,i)
          ENDDO
       END FUNCTION detmatrix
-      
+
       DOUBLE PRECISION FUNCTION logdet(D,M)
         ! log determinant of a square matrix
          INTEGER, INTENT(IN) :: D
@@ -569,13 +569,13 @@
             logdet=logdet+LOG(matrix(i,i))
          ENDDO
       END FUNCTION logdet
-      
+
       DOUBLE PRECISION FUNCTION variance(nsamples,D,x,weights)
          INTEGER, INTENT(IN) :: nsamples
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, INTENT(IN), DIMENSION(D,nsamples) :: x
          DOUBLE PRECISION, INTENT(IN), DIMENSION(nsamples) :: weights
-         
+
          INTEGER ii
          DOUBLE PRECISION wsum
          DOUBLE PRECISION, DIMENSION(D) :: xm
@@ -585,16 +585,16 @@
          ENDDO
          wsum = SUM(weights)
          xm = SUM(xtmp,2)/wsum
-                  
+
          DO ii=1,D
            xtmp(ii,:) = x(ii,:)-xm(ii)
          ENDDO
-         
+
          WRITE(*,*) "Mean", xm
-          
+
          variance = wsum/(SUM(weights)**2-SUM(weights**2)) * SUM(weights*(NORM2(xtmp,1))**2)
       END FUNCTION variance
-      
+
 !************************************************************************
 !*                                                                      *
 !*   Reference: From Numath Library By Tuan Dang Trong in Fortran 77.   *
@@ -610,9 +610,9 @@
 
 ! Auxiliary Bessel functions for N=0, N=1
       DOUBLE PRECISION FUNCTION BESSI0(X)
-         
+
          IMPLICIT NONE
-         
+
          DOUBLE PRECISION, INTENT(IN) :: X
          REAL *8 Y,P1,P2,P3,P4,P5,P6,P7,  &
               Q1,Q2,Q3,Q4,Q5,Q6,Q7,Q8,Q9,AX,BX
@@ -631,7 +631,7 @@
               AX=Q1+Y*(Q2+Y*(Q3+Y*(Q4+Y*(Q5+Y*(Q6+Y*(Q7+Y*(Q8+Y*Q9)))))))
               BESSI0=AX*BX
          ENDIF
-         
+
          RETURN
       END FUNCTION BESSI0
 ! ----------------------------------------------------------------------
@@ -663,7 +663,7 @@
 !         INTEGER, INTENT(IN) :: D
 !         DOUBLE PRECISION, DIMENSION(D,D), INTENT(IN) :: Q
 !         DOUBLE PRECISION, DIMENSION(D), INTENT(OUT) :: eig
-!         
+!
 !         INTEGER l,inf
 !         DOUBLE PRECISION work(D*(3+D/2))
 !         DOUBLE PRECISION M(D,D)
@@ -684,32 +684,32 @@
          DOUBLE PRECISION, DIMENSION(D), INTENT(OUT) :: WR
          INTEGER INFO
          DOUBLE PRECISION DUMMY(1,1),VR(D,D),WI(D),WORK(12*D)
-         
+
          DOUBLE PRECISION, DIMENSION(D,D) :: A
-         
+
          ! we need to backup the matrix
          ! because DGEEV for some reason modify it
          A=AB
          CALL DGEEV('No left vectors','Vectors (right)',D,A,D,WR,WI, &
               DUMMY,1,VR,D,WORK,12*D,INFO)
       END SUBROUTINE eigval
-      
+
       DOUBLE PRECISION FUNCTION maxeigval(AB,D)
          ! inversion of a square matrix using lapack
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, DIMENSION(D,D), INTENT(IN) :: AB
 
-         DOUBLE PRECISION, DIMENSION(D) :: WR         
+         DOUBLE PRECISION, DIMENSION(D) :: WR
          INTEGER ii
-         
+
          CALL eigval(AB,D,WR)
 
-         maxeigval = 0.0d0     
+         maxeigval = 0.0d0
          DO ii=1,D
             IF (WR(ii).GT.maxeigval) maxeigval = WR(ii)
-         ENDDO 
+         ENDDO
       END FUNCTION maxeigval
-      
+
       RECURSIVE FUNCTION factorial(n) RESULT(Fact)
         DOUBLE PRECISION :: Fact
         INTEGER, INTENT(IN) :: n
@@ -726,12 +726,12 @@
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: period
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: ri
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: rj
-		
+
          INTEGER k
          INTEGER, SAVE :: sD
          DOUBLE PRECISION, ALLOCATABLE, SAVE :: rij(:)
-         
-         IF (.not. ALLOCATED(rij)) THEN 
+
+         IF (.not. ALLOCATED(rij)) THEN
             sD = D
             ALLOCATE(rij(D))
          ENDIF
@@ -740,7 +740,7 @@
             ALLOCATE(rij(D))
          ENDIF
          rij = (ri-rj)
-         
+
          DO k = 1, D
             IF (period(k)<=0.0d0) CYCLE
             ! scaled lenght
@@ -751,22 +751,22 @@
             rij(k) = rij(k)*period(k)
          ENDDO
          pammr2 = DOT_PRODUCT(rij, rij)
-         
+
       END FUNCTION pammr2
-      
+
       SUBROUTINE pammrij(D,period,ri,rj,rij)
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: period
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: ri
          DOUBLE PRECISION, DIMENSION(D), INTENT(IN) :: rj
          DOUBLE PRECISION, DIMENSION(D), INTENT(OUT) :: rij
-		
+
          INTEGER k
-         
+
          rij = (ri-rj)
-         
+
          DO k = 1, D
-            IF (period(k)<=0.0d0) CYCLE            
+            IF (period(k)<=0.0d0) CYCLE
             ! scaled lenght
             rij(k) = rij(k)/period(k)
             ! Finds the smallest separation between the images of the atom i and j
@@ -774,46 +774,46 @@
             ! Rescale back the length
             rij(k) = rij(k)*period(k)
          ENDDO
-         
+
       END SUBROUTINE pammrij
-      
+
       DOUBLE PRECISION FUNCTION mahalanobis(D,period,x,y,Qinv)
          ! Return the mahalanobi distance between two points
          ! Args:
          !    ...
-         
+
          INTEGER , INTENT(IN) :: D
          DOUBLE PRECISION, INTENT(IN) :: period(D)
          DOUBLE PRECISION, INTENT(IN) :: x(D)
          DOUBLE PRECISION, INTENT(IN) :: y(D)
          DOUBLE PRECISION, INTENT(IN) :: Qinv(D,D)
          DOUBLE PRECISION dv(D),tmpv(D),xcx
-         
+
          CALL pammrij(D, period, x, y, dv)
          tmpv = MATMUL(dv,Qinv)
          xcx = DOT_PRODUCT(dv,tmpv)
 
          mahalanobis = xcx
       END FUNCTION mahalanobis
-      
+
       DOUBLE PRECISION FUNCTION effdim(D,Q)
          ! returns dimensionality estimated from covariance matrix
          !    see: Roy and Vetterli, European Signal Processing Conference,
          !         p. 606-610, 2007
-         !  
+         !
          ! Args:
          !    ...
-         
+
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, INTENT(IN) :: Q(D,D)
-         
+
          DOUBLE PRECISION pk(D)
-         
-         CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix       
+
+         CALL eigval(Q,D,pk) ! eigenvalues of the covariance matrix
          pk = pk/SUM(pk)
          pk = pk*LOG(pk)
          ! we assume that 0*log(0) is zero
-         ! thus we need to check for nan values 
+         ! thus we need to check for nan values
          ! and set pk to zero for that value
          ! since log(x) for x <= 0 is nan
          WHERE( pk .ne. pk ) pk = 0.0d0
@@ -824,12 +824,12 @@
          INTEGER, INTENT(IN) :: D
          DOUBLE PRECISION, INTENT(IN) :: N
          DOUBLE PRECISION, DIMENSION(D,D), INTENT(INOUT) :: Q
-		
+
          DOUBLE PRECISION rho,phi,trQ,tr2Q,trQ2
          DOUBLE PRECISION Qf(D*D) ! flat Q
-		     
+
          INTEGER ii
-		     
+
          Qf = reshape(Q, (/ D*D /))
          trQ = SUM(Qf(1:D*D:D+1))
          tr2Q = trQ**2
@@ -838,11 +838,11 @@
          ! apply oracle approximating shrinkage alogorithm on Q
          phi = ( (1.0d0-2.0d0/DBLE(D) ) * trQ2 + tr2Q ) &
              / ( (N+1.0d0-2.0d0/DBLE(D)) * trQ2 - tr2Q/DBLE(D) )
-      
+
          rho = min(1.0d0,phi)
-        
-         ! regularized local covariance matrix for grid point 
-         Q = (1.0d0-rho)*Q 
+
+         ! regularized local covariance matrix for grid point
+         Q = (1.0d0-rho)*Q
          trQ = trQ/DBLE(D)
          DO ii=1,D
            Q(ii,ii) = Q(ii,ii) + rho*trQ
