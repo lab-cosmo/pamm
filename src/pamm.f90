@@ -45,7 +45,8 @@
       LOGICAL fpost                                             ! flag for postprocessing
       LOGICAL weighted                                          ! flag for using weigheted data
       LOGICAL savevor, saveadj, saveidxs, readgrid              ! additional IN/OUT logical flags
-      LOGICAL, ALLOCATABLE, DIMENSION(:) :: mergeornot
+      LOGICAL, ALLOCATABLE, DIMENSION(:)   :: mergeornot
+      LOGICAL, ALLOCATABLE, DIMENSION(:,:) :: gabriel           ! gabriel graph
 
       INTEGER ccmd                                              ! Index used to control the PARSER input parameters
       INTEGER endf                                              ! end file state for reading in data from file
@@ -105,7 +106,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: rgrid, msmu, tmpmsmu, pcluster, px, tmps2
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: x, y     ! Array containing the input data and grid points
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm   ! similarity matrix
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: distmm   ! distance matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: probboot ! bootstrap probabilities
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Q        ! global covariance matrix
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: Qi       ! local covariance matrix
@@ -367,7 +368,7 @@
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
                            y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
-                           distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
+                           distmm,gabriel,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,wlocal2,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
 
@@ -414,21 +415,50 @@
       ! print out the voronois associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
 
+      IF(verbose) WRITE(*,*) &
+        " Precalculate distance matrix between grid points"
       ! distance to closest voronoi
       mindist=HUGE(0.0d0) !  of the kernel density estimator
       DO i=1,ngrid
+        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+          WRITE(*,*) i,"/",ngrid  
         DO j=1,i-1
           ! distance between two voronoi centers
-          dummd1 = pammr2(D,period,y(:,i),y(:,j))
-          IF (dummd1 < mindist(i)) THEN
+          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+          distmm(j,i) = distmm(i,j)
+          IF (distmm(i,j) < mindist(i)) THEN
             mindist(i) = dummd1
             mindist(j) = dummd1
           ENDIF
         ENDDO
+        ! set distance to myself super far away
+        distmm(i,i) = HUGE(0.0d0)    
       ENDDO
+      
+      IF(verbose) WRITE(*,*) &
+        " Creating Gabriel graph for grid points"
+      gabriel = .FALSE.
+      DO i=1,ngrid
+        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+          WRITE(*,*) i,"/",ngrid  
+        DO j=1,i-1
+          IF(.NOT.ANY(distmm(i,j).GE.(distmm(i,:) + distmm(j,:)))) THEN
+            gabriel(i,j) = .TRUE.
+            gabriel(j,i) = .TRUE.
+          ENDIF
+        ENDDO
+      ENDDO
+      
+      !!! DEBUG START
+      OPEN(UNIT=12,FILE=trim(outputfile)//".neigh",STATUS='REPLACE',ACTION='WRITE')
+      DO i=1,ngrid
+        WRITE(12,*) gabriel(i,:)
+      ENDDO
+      CLOSE(UNIT=12)
+      !!! DEBUG END
 
       ! Generate the neighbour list
-      IF(verbose) write(*,*) " Generating neighbour list"
+      IF(verbose) WRITE(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,ni,iminij,pnlist,nlist)
 
       ! estimate Q from grid
@@ -548,23 +578,25 @@
         !!! DEBUG END
 
 
-        DO j=1,ngrid
-          ! mahalanobis distance using true covariance
-          ! the row index is the reference, since all the
-          ! Mahalanobis distances in the same row are
-          ! computed using the covariance matrix from
-          ! the point with that specific row index
-          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
-          
-          ! check if at least the closest (in mahalanobis metric)
-          ! grid point is found using the local covariance matrix
-          
-!          WRITE(*,*) "Cutoff Radius for QS is ", DSQRT(Di(i)+qscut)**2
-!          WRITE(*,*) "Closest Grid Point is this away ", dist
-          
-        ENDDO
-        ! set distance to myself super far away
-        distmm(i,i) = HUGE(0.0d0)      
+!        DO j=1,ngrid
+!          ! mahalanobis distance using true covariance
+!          ! the row index is the reference, since all the
+!          ! Mahalanobis distances in the same row are
+!          ! computed using the covariance matrix from
+!          ! the point with that specific row index
+!!          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
+!          
+!          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+!          
+!          ! check if at least the closest (in mahalanobis metric)
+!          ! grid point is found using the local covariance matrix
+!          
+!!          WRITE(*,*) "Cutoff Radius for QS is ", DSQRT(Di(i)+qscut)**2
+!!          WRITE(*,*) "Closest Grid Point is this away ", dist
+!          
+!        ENDDO
+!        ! set distance to myself super far away
+!        distmm(i,i) = HUGE(0.0d0)      
 
       ENDDO
 
@@ -579,6 +611,7 @@
 !      ENDDO
 !      CLOSE(UNIT=12)
       !!! DEBUG END
+      
 
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
@@ -1080,7 +1113,7 @@
 
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
                                  y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
-                                 distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
+                                 distmm,gabriel,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,wlocal2,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
 
@@ -1093,7 +1126,8 @@
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qi,Qiinv,Hi,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hiinv
-
+         LOGICAL, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: gabriel
+         
 
          IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
          IF (ALLOCATED(pnlist))     DEALLOCATE(pnlist)
@@ -1106,6 +1140,7 @@
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
          IF (ALLOCATED(idxgrid))    DEALLOCATE(idxgrid)
          IF (ALLOCATED(distmm))     DEALLOCATE(distmm)
+         IF (ALLOCATED(gabriel))    DEALLOCATE(gabriel)
          IF (ALLOCATED(msmu))       DEALLOCATE(msmu)
          IF (ALLOCATED(tmpmsmu))    DEALLOCATE(tmpmsmu)
          IF (ALLOCATED(pabserr))    DEALLOCATE(pabserr)
@@ -1120,7 +1155,7 @@
          IF (ALLOCATED(Qiinv))      DEALLOCATE(Qiinv)
          IF (ALLOCATED(dij))        DEALLOCATE(dij)
          IF (ALLOCATED(wlocal))     DEALLOCATE(wlocal)
-         IF (ALLOCATED(wlocal2))     DEALLOCATE(wlocal2)
+         IF (ALLOCATED(wlocal2))    DEALLOCATE(wlocal2)
          IF (ALLOCATED(nlocal))     DEALLOCATE(nlocal)
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
          IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
@@ -1148,6 +1183,7 @@
          ALLOCATE(wlocal2(nsamples))
          ALLOCATE(nlocal(ngrid))
          ALLOCATE(ineigh(ngrid))
+         ALLOCATE(gabriel(ngrid,ngrid))
       END SUBROUTINE allocatevectors
 
       SUBROUTINE localization(D,period,N,s2,x,w,y,wl,num)
