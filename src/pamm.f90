@@ -562,7 +562,16 @@
           ! computed using the covariance matrix from
           ! the point with that specific row index
           distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
-        ENDDO      
+          
+          ! check if at least the closest (in mahalanobis metric)
+          ! grid point is found using the local covariance matrix
+          
+!          WRITE(*,*) "Cutoff Radius for QS is ", DSQRT(Di(i)+qscut)**2
+!          WRITE(*,*) "Closest Grid Point is this away ", dist
+          
+        ENDDO
+        ! set distance to myself super far away
+        distmm(i,i) = HUGE(0.0d0)      
       ENDDO
               
       !!! DEBUG START
@@ -708,9 +717,9 @@
           pabserr(i)=prelerr(i)+prob(i)
         ENDDO
       ENDIF
-      
+     
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
-      dummd1 = (6.0d0)**2
+      dummd1 = (DSQRT(DBLE(D)) + qscut)**2
       idxroot=0
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
@@ -730,7 +739,12 @@
             !   dimensions we need to add a correction factor.
             ! 
             
-            dummd1 = DSQRT(Di(qspath(counter))+qscut)**2
+!            dummd1 = (DSQRT(Di(qspath(counter)))+qscut)**2
+            dummd2 = MINVAL(distmm(qspath(counter),:))
+            
+            IF(dummd1.LT.dummd2) THEN
+              WRITE(*,*) "WARNING: Uh Oh, found no other grid point within cutoff...", DSQRT(dummd1), DSQRT(dummd2)
+            ENDIF  
             
             idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,dummd1)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
