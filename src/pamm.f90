@@ -37,7 +37,7 @@
       IMPLICIT NONE
 
       CHARACTER(LEN=1024) :: outputfile, clusterfile            ! The output file prefix
-      CHARACTER(LEN=1024) :: gridfile                           ! The output file prefix
+      CHARACTER(LEN=1024) :: gridfile, neighfile                ! The output file prefix
       CHARACTER(LEN=1024) :: cmdbuffer, comment                 ! String used for reading text lines from files
 
       LOGICAL periodic                                          ! flag for using periodic data
@@ -45,6 +45,7 @@
       LOGICAL fpost                                             ! flag for postprocessing
       LOGICAL weighted                                          ! flag for using weigheted data
       LOGICAL savevor, saveadj, saveidxs, readgrid              ! additional IN/OUT logical flags
+      LOGICAL saveneigh, readneigh                              ! additional IN/OUT logical flags
       LOGICAL, ALLOCATABLE, DIMENSION(:)   :: mergeornot
       LOGICAL, ALLOCATABLE, DIMENSION(:,:) :: gabriel           ! gabriel graph
 
@@ -146,6 +147,8 @@
       saveidxs = .FALSE.     ! don't save the indexes of the grid points
       saveadj = .FALSE.      ! save adjacency
       readgrid = .FALSE.     ! don't read the grid from the standard input
+      saveneigh = .FALSE.    ! don't save gabriel graph
+      readneigh = .FALSE.    ! don't read gabriel graph
 
       D=-1
       periodic=.FALSE.
@@ -194,6 +197,11 @@
             ccmd = 15
          ELSEIF (cmdbuffer == "-merger") THEN       ! cluster with a pk loewr than this are merged with the NN
             ccmd = 16
+         ELSEIF (cmdbuffer == "-saveneigh") THEN    ! save gabriel graph
+            saveneigh= .TRUE.
+         ELSEIF (cmdbuffer == "-readneigh") THEN    ! read gabriel graph
+            readneigh= .TRUE.
+            ccmd = 17
          ELSEIF (cmdbuffer == "-w") THEN            ! use weights
             weighted = .TRUE.
          ELSEIF (cmdbuffer == "-v") THEN            ! verbosity flag
@@ -236,8 +244,6 @@
                READ(cmdbuffer,*) fspread
             ELSEIF (ccmd == 11) THEN                ! read fraction of points for bandwidth estimation
                READ(cmdbuffer,*) fpoints
-            ELSEIF (ccmd == 16) THEN
-               READ(cmdbuffer,*) thrpcl
             ELSEIF (ccmd == 12) THEN                ! read the periodicity in each dimension
                IF (D<0) STOP &
                  "Dimensionality (-d) must precede the periodic lenghts (-p). "
@@ -265,6 +271,10 @@
                gridfile=trim(cmdbuffer)
             ELSEIF (ccmd == 15) THEN                ! read the threashold for cluster adjancency merging
                READ(cmdbuffer,*) thrmerg
+            ELSEIF (ccmd == 16) THEN
+               READ(cmdbuffer,*) thrpcl
+            ELSEIF (ccmd == 17) THEN                ! read the file containing gabriel graph
+               neighfile=trim(cmdbuffer)
             ENDIF
          ENDIF
       ENDDO
@@ -435,46 +445,62 @@
         distmm(i,i) = HUGE(0.0d0)    
       ENDDO
       
-      IF(verbose) WRITE(*,*) &
-        " Creating Gabriel graph for grid points"
-      gabriel = .FALSE.
-      DO i=1,ngrid
-        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-          WRITE(*,*) i,"/",ngrid  
-        DO j=1,i-1
-          IF(.NOT.ANY(distmm(i,j).GE.(distmm(i,:) + distmm(j,:)))) THEN
-            gabriel(i,j) = .TRUE.
-            gabriel(j,i) = .TRUE.
-          ENDIF
+      IF(readneigh) THEN
+        ! read gabriel graph
+
+        IF (neighfile.EQ."NULL") THEN
+          WRITE(*,*) &
+          " Error: insert the file containing the gabriel graph! "
+          CALL helpmessage
+          CALL EXIT(-1)
+        ENDIF
+
+        OPEN(UNIT=12,FILE=neighfile,STATUS='OLD',ACTION='READ')
+        ! read graph from a file
+        DO i=1,ngrid
+           READ(12,*) (gabriel(i,j),j=1,ngrid)
         ENDDO
-      ENDDO
-      
-!      IF(verbose) WRITE(*,*) &
-!        " Creating Gabriel graph for grid points"
-!      gabriel = .TRUE.
-!      DO i=1,ngrid
-!        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!          WRITE(*,*) i,"/",ngrid  
-!        gabriel(i,i) = .FALSE.
-!        DO j=1,i-1
-!          DO k=1,ngrid
-!            IF (distmm(i,j).GE.(distmm(i,k) + distmm(j,k))) THEN
-!              gabriel(i,j) = .FALSE.
-!              gabriel(j,i) = .FALSE.
-!              EXIT
+        CLOSE(UNIT=12)
+      ELSE
+        IF(verbose) WRITE(*,*) &
+          " Finding gabriel neighbors between grid points"
+!        gabriel = .FALSE.
+!        DO i=1,ngrid
+!          IF(verbose .AND. (modulo(i,100).EQ.0)) &
+!            WRITE(*,*) i,"/",ngrid  
+!          DO j=1,i-1
+!            IF(.NOT.ANY(distmm(i,j).GE.(distmm(i,:) + distmm(j,:)))) THEN
+!              gabriel(i,j) = .TRUE.
+!              gabriel(j,i) = .TRUE.
 !            ENDIF
 !          ENDDO
 !        ENDDO
-!      ENDDO
-!      
+
+        ! this is a bit faster ...
+        gabriel = .TRUE.
+        DO i=1,ngrid
+          IF(verbose .AND. (modulo(i,100).EQ.0)) &
+            WRITE(*,*) i,"/",ngrid  
+          gabriel(i,i) = .FALSE.
+          DO j=1,i-1
+            DO k=1,ngrid
+              IF (distmm(i,j).GE.(distmm(i,k) + distmm(j,k))) THEN
+                gabriel(i,j) = .FALSE.
+                gabriel(j,i) = .FALSE.
+                EXIT
+              ENDIF
+            ENDDO
+          ENDDO
+        ENDDO   
+      ENDIF
       
-      !!! DEBUG START
-      OPEN(UNIT=12,FILE=trim(outputfile)//".neigh",STATUS='REPLACE',ACTION='WRITE')
-      DO i=1,ngrid
-        WRITE(12,*) gabriel(i,:)
-      ENDDO
-      CLOSE(UNIT=12)
-      !!! DEBUG END
+      IF(saveneigh) THEN
+        OPEN(UNIT=12,FILE=trim(outputfile)//".neigh",STATUS='REPLACE',ACTION='WRITE')
+        DO i=1,ngrid
+          WRITE(12,*) gabriel(i,:)
+        ENDDO
+        CLOSE(UNIT=12)
+      ENDIF
 
       ! Generate the neighbour list
       IF(verbose) WRITE(*,*) " Generating neighbour list"
@@ -764,9 +790,7 @@
         ENDDO
       ENDIF
 
-      IF(verbose) WRITE(*,*) " Starting Quick-Shift"
-      ! use a global cutoff for quickshift
-      dummd1 = (DSQRT(DBLE(D)) + qscut)**2
+      IF(verbose) WRITE(*,*) " Starting Gabriel shift"
       idxroot=0
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
@@ -777,23 +801,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             ! find closest point higher in probability
-            !
-            !   in higher dimensions jump distances are intrinsically
-            !   greater and scale with sqrt(D). thus, we use use the
-            !   local dimensionality to scale the cutoff. However,
-            !   sqrt(D) scales the cutoff to find 50% of the points,
-            !   if we want to proportional increase the cutoff for higher
-            !   dimensions we need to add a correction factor.
-            ! 
-            
-!            dummd1 = (DSQRT(Di(qspath(counter)))+qscut)**2
-            dummd2 = MINVAL(distmm(qspath(counter),:))
-            
-            IF(dummd1.LT.dummd2) THEN
-              WRITE(*,*) "WARNING: Uh Oh, found no other grid point within cutoff...", DSQRT(dummd1), DSQRT(dummd2)
-            ENDIF  
-            
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,dummd1)   
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,gabriel)   
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1897,7 +1905,7 @@
       END FUNCTION
 
 
-      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,lambda)
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,gabriel)
          ! Return the index of the closest point higher in P
          !
          ! Args:
@@ -1909,9 +1917,9 @@
 
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
-         DOUBLE PRECISION, INTENT(IN) :: lambda
          DOUBLE PRECISION, INTENT(IN) :: probnmm(ngrid)
          DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid)
+         LOGICAL, INTENT(IN) :: gabriel(ngrid,ngrid)
 
          INTEGER j
          DOUBLE PRECISION dmin
@@ -1921,7 +1929,7 @@
          qs_next = idx
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
-               IF ((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda)) THEN
+               IF ((distmm(idx,j).LT.dmin) .AND. gabriel(idx,j)) THEN
                  dmin = distmm(idx,j)
                  qs_next = j
                ENDIF
