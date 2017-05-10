@@ -101,7 +101,7 @@ mgridfile = basename + '.mgrid'
 macrofile = basename + '.macro'
 adjfile   = basename + '.adj'
 brdfile   = basename + '.boarders'
-neighfile = basename + '.graph'
+neighfile = basename + '.neigh'
 
 # load data
 data = loadtxt(gridfile)
@@ -153,8 +153,6 @@ for i,xi in enumerate(X):
 
 
 neighs = zeros([N,N], dtype=bool)
-
-
 #if verbose: print " Finding connections between clusters"
 #for ic,c in enumerate(uc):   
 #    for i,x in enumerate(X):
@@ -171,23 +169,29 @@ neighs = zeros([N,N], dtype=bool)
 #        if jmin > -1: neighs[i,jmin] = 1
 #    if verbose and (mod(ic+1,steps)==0): print "  %d / %d" % (ic+1,Nc)
 
+if verbose: print " Loading Gabriel Graph"
+with open(neighfile) as gf:
+    for i,line in enumerate(gf):
+        line = line.replace('F','0')
+        line = line.replace('T','1')
+        neighs[i,:] = array(map(int,line.split()),dtype=bool)
+        if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+#if verbose: print " Building Gabriel Graph"
+## find gabriel neighbors of i
+#for i in range(N):
+#    # matrix is symmetric, loop over upper triangular
+#    for j in range(i):        
+#        # if i and j are in the same cluster skip operation
+#        if cid[i] == cid[j]: continue
+#        
+#        flag = distsq[i,j] >= (distsq[i,:] + distsq[j,:])
+#        
+#        if not flag.any():     
+#          neighs[i,j] = True
+#          # matrix is symmetric
+#          neighs[j,i] = True
 
-if verbose: print " Building Gabriel Graph"
-# find gabriel neighbors of i
-for i in range(N):
-    # matrix is symmetric, loop over upper triangular
-    for j in range(i-1):        
-        # if i and j are in the same cluster skip operation
-        if cid[i] == cid[j]: continue
-        
-        flag = distsq[i,j] > (distsq[i,:] + distsq[j,:])
-        
-        if not flag.any():     
-          neighs[i,j] = True
-          # matrix is symmetric
-          neighs[j,i] = True
-
-    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+#    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
     
     
 if verbose: print " Building adjacency matrix"
@@ -244,7 +248,7 @@ Nm, m = connected_components(adj_bool)
 if verbose: print " Write out"
 
 # write gabriel graph to file if desired
-if savegrp: savetxt(neighfile,neighs,header="gabriel graph",fmt='%d')
+#if savegrp: savetxt(neighfile,neighs,header="gabriel graph",fmt='%d')
     
 # write adjacency matrix to file if desired 
 if saveadj: 

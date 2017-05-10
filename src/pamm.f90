@@ -430,7 +430,7 @@
       ! distance to closest voronoi
       mindist=HUGE(0.0d0) !  of the kernel density estimator
       DO i=1,ngrid
-        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+        IF(verbose .AND. (modulo(i,1000).EQ.0)) &
           WRITE(*,*) i,"/",ngrid  
         DO j=1,i-1
           ! distance between two voronoi centers
@@ -466,7 +466,7 @@
           " Finding gabriel neighbors between grid points"
 !        gabriel = .FALSE.
 !        DO i=1,ngrid
-!          IF(verbose .AND. (modulo(i,100).EQ.0)) &
+!          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
 !            WRITE(*,*) i,"/",ngrid  
 !          DO j=1,i-1
 !            IF(.NOT.ANY(distmm(i,j).GE.(distmm(i,:) + distmm(j,:)))) THEN
@@ -479,7 +479,7 @@
         ! this is a bit faster ...
         gabriel = .TRUE.
         DO i=1,ngrid
-          IF(verbose .AND. (modulo(i,100).EQ.0)) &
+          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
             WRITE(*,*) i,"/",ngrid  
           gabriel(i,i) = .FALSE.
           DO j=1,i-1
@@ -522,7 +522,7 @@
       !!! DEBUG END
       ! estimate the localization for each grid point
       DO i=1,ngrid
-        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+        IF(verbose .AND. (modulo(i,1000).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
 
         ! do bisectioning to find proper localization for ntarget points
@@ -672,7 +672,7 @@
       wi = DLOG(wi)
       wj = DLOG(wj)
       DO i=1,ngrid
-        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+        IF(verbose .AND. (modulo(i,1000).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         ! setting lnK to the smallest possible number
         DO j=1,ngrid
