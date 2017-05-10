@@ -435,38 +435,38 @@
         distmm(i,i) = HUGE(0.0d0)    
       ENDDO
       
-!      IF(verbose) WRITE(*,*) &
-!        " Creating Gabriel graph for grid points"
-!      gabriel = .FALSE.
-!      DO i=1,ngrid
-!        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!          WRITE(*,*) i,"/",ngrid  
-!        DO j=1,i-1
-!          IF(.NOT.ANY(distmm(i,j).GE.(distmm(i,:) + distmm(j,:)))) THEN
-!            gabriel(i,j) = .TRUE.
-!            gabriel(j,i) = .TRUE.
-!          ENDIF
-!        ENDDO
-!      ENDDO
-      
       IF(verbose) WRITE(*,*) &
         " Creating Gabriel graph for grid points"
-      gabriel = .TRUE.
+      gabriel = .FALSE.
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid  
-        gabriel(i,i) = .FALSE.
         DO j=1,i-1
-          DO k=1,ngrid
-            IF (distmm(i,j).GE.(distmm(i,k) + distmm(j,k))) THEN
-              gabriel(i,j) = .FALSE.
-              gabriel(j,i) = .FALSE.
-              EXIT
-            ENDIF
-          ENDDO
+          IF(.NOT.ANY(distmm(i,j).GE.(distmm(i,:) + distmm(j,:)))) THEN
+            gabriel(i,j) = .TRUE.
+            gabriel(j,i) = .TRUE.
+          ENDIF
         ENDDO
       ENDDO
       
+!      IF(verbose) WRITE(*,*) &
+!        " Creating Gabriel graph for grid points"
+!      gabriel = .TRUE.
+!      DO i=1,ngrid
+!        IF(verbose .AND. (modulo(i,100).EQ.0)) &
+!          WRITE(*,*) i,"/",ngrid  
+!        gabriel(i,i) = .FALSE.
+!        DO j=1,i-1
+!          DO k=1,ngrid
+!            IF (distmm(i,j).GE.(distmm(i,k) + distmm(j,k))) THEN
+!              gabriel(i,j) = .FALSE.
+!              gabriel(j,i) = .FALSE.
+!              EXIT
+!            ENDIF
+!          ENDDO
+!        ENDDO
+!      ENDDO
+!      
       
       !!! DEBUG START
       OPEN(UNIT=12,FILE=trim(outputfile)//".neigh",STATUS='REPLACE',ACTION='WRITE')
