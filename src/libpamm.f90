@@ -677,6 +677,42 @@
 
 !      END SUBROUTINE eigen
 
+       SUBROUTINE sqrtm(D,Q,Qsq)
+         ! square root of a matrix using LaPack DSYEV
+         INTEGER, INTENT(IN) :: D
+         DOUBLE PRECISION, DIMENSION(D,D), INTENT(IN) :: Q
+         DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Qsq
+
+         INTEGER i,l,info
+         DOUBLE PRECISION work(1000),eig(D)
+         DOUBLE PRECISION M(D,D),EM(D,D)
+
+         ! we need to backup the matrix
+         ! because DSYEV for some reason modify it
+         M = Q
+
+         ! Query optimal lwork
+         l = -1
+         CALL DSYEV( 'Vectors', 'Upper', D, M, D, eig, work, l, info )
+         l = MIN( 1000, INT( work( 1 ) ))
+          
+         ! solve eigenproblem
+         CALL DSYEV('V','U',D,M,D,eig,work,l,info)
+         ! check for convergence
+         IF( info.GT.0 ) THEN
+            WRITE(*,*)'The algorithm failed to compute eigenvalues.'
+            STOP
+         END IF
+         ! orthonormal eigenvectors are stored in M
+         ! eigenvalues are stored in eig
+         EM = 0.0d0
+         DO i=1,D
+            EM(i,i) = eig(i)
+         ENDDO
+         ! calculate square root of matrix
+         Qsq = MATMUL(MATMUL(M,DSQRT(EM)),M)
+      END SUBROUTINE sqrtm
+
       SUBROUTINE eigval(AB,D,WR)
          ! inversion of a square matrix using lapack
          INTEGER, INTENT(IN) :: D

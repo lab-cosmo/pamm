@@ -476,7 +476,7 @@
 !          ENDDO
 !        ENDDO
 
-        ! this is a bit faster ...
+        ! doing everything serial is apparently a bit faster ...
         gabriel = .TRUE.
         DO i=1,ngrid
           IF(verbose .AND. (modulo(i,1000).EQ.0)) &
@@ -508,8 +508,10 @@
 
       ! estimate Q from grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
-
+      ! oracle shrinkage of covariance matrix
+      CALL oracle(D,DBLE(nsamples),Q)
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
+      ! estimate initial localization
       tune = maxeigval(Q,D)
       sigma2 = tune
       ! localization based on fraction of avg. variance
@@ -596,20 +598,29 @@
           ENDIF
         ENDIF
 
+        ! use Kish's effective sample size instead of the sum of
+        ! local weights to estimate local number of points
+        CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal2,nlocal(i))
+        nlocal(i) = SUM(wlocal2)**2/SUM(wlocal2**2)
 
-        ! make sure that mahalanobis distances don't get to small
-!        IF (trmatrix(D,Qi)/DBLE(D) < mindist(i)) THEN
-!          Qi = Qi * mindist(i) * DBLE(D) / trmatrix(D,Qi)
-!        ENDIF
         ! estimate local dimensionality
-        Di(i) = effdim(D,Qi)
+!        Di(i) = effdim(D,Qi)
+
         ! oracle shrinkage of covariance matrix
         CALL oracle(D,nlocal(i),Qi)
-        ! inverse local covariance matrix and store it
-        CALL invmatrix(D,Qi,Qiinv)
-
-        ! estimate bandwidth from normal reference rule
-        Hi = (4.0d0 / ( nlocal(i) * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi
+        
+        
+        ! square root of matrix
+        ! temporarily store it in bandwidth matrix
+        CALL sqrtm(D,Qi,Hi)
+        
+        ! estimate bandwidth from approximate Scott's rule 
+        ! modified for multivariate Kernels. Since we localize
+        ! we'll take the effective sample number and (maybe)
+        ! local dimensionality into account.
+        Hi = (4.0d0 / ( (DBLE(D)+2.0d0) ) )**( 1.0d0 / (DBLE(D)+4.0d0) ) &
+           * nlocal(i)**( -1.0d0 / (DBLE(D)+4.0d0) ) * Hi
+           
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
@@ -617,46 +628,7 @@
         normkernel(i) = DBLE(D)*DLOG(twopi) + logdet(D,Hi)
         ! estimate logarithmic determinant of local Q's
         logdetHi(i) = logdet(D,Hi)
-
-        !!! DEBUG START
-!        WRITE(12,*) Qi
-        !!! DEBUG END
-
-
-!        DO j=1,ngrid
-!          ! mahalanobis distance using true covariance
-!          ! the row index is the reference, since all the
-!          ! Mahalanobis distances in the same row are
-!          ! computed using the covariance matrix from
-!          ! the point with that specific row index
-!!          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
-!          
-!          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
-!          
-!          ! check if at least the closest (in mahalanobis metric)
-!          ! grid point is found using the local covariance matrix
-!          
-!!          WRITE(*,*) "Cutoff Radius for QS is ", DSQRT(Di(i)+qscut)**2
-!!          WRITE(*,*) "Closest Grid Point is this away ", dist
-!          
-!        ENDDO
-!        ! set distance to myself super far away
-!        distmm(i,i) = HUGE(0.0d0)      
-
       ENDDO
-
-      !!! DEBUG START
-!      CLOSE(UNIT=12)
-      !!! DEBUG END
-
-      !!! DEBUG START
-!      OPEN(UNIT=12,FILE=trim(outputfile)//".distmm",STATUS='REPLACE',ACTION='WRITE')
-!      DO i=1,ngrid
-!        WRITE(12,*) SQRT(distmm(i,:))
-!      ENDDO
-!      CLOSE(UNIT=12)
-      !!! DEBUG END
-      
 
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
@@ -674,11 +646,10 @@
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,1000).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
-        ! setting lnK to the smallest possible number
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
           dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-          IF (dummd1.GT.36.0d0) THEN
+          IF (dummd1.GT.16.0d0) THEN
             ! assume distribution in far away grid point is narrow
             ! and store sum of all contributions in grid point
             ! exponent of the gaussian
@@ -732,7 +703,7 @@
             nbstot = nbstot+nbssample
             DO i=1,ngrid
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-              IF (dummd1.GT.36.0d0) THEN
+              IF (dummd1.GT.16.0d0) THEN
                 lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(dummd2)
                 IF(probboot(i,nn).GT.lnK) THEN
                   probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
@@ -1226,7 +1197,7 @@
 
          INTEGER ii
          DOUBLE PRECISION xy(D,N)
-
+          
          DO ii=1,D
            xy(ii,:) = x(ii,:)-y(ii)
            IF (period(ii) > 0.0d0) THEN
@@ -1241,6 +1212,7 @@
          ! estimate weights for localization as product from
          ! spherical gaussian weights and weights in voronoi
          wl = DEXP(-0.5d0/s2*SUM(xy*xy,1))*w
+         
          ! estimate local number of sample points
          num = SUM(wl)
       END SUBROUTINE localization
