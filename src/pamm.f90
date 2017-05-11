@@ -482,6 +482,9 @@
           IF(verbose .AND. (modulo(i,1000).EQ.0)) &
             WRITE(*,*) i,"/",ngrid  
           gabriel(i,i) = .FALSE.
+          ! we could only allow jumps to neighbors
+          ! higher in probability. Would speed up this
+          ! a lot ...
           DO j=1,i-1
             DO k=1,ngrid
               IF (distmm(i,j).GE.(distmm(i,k) + distmm(j,k))) THEN
@@ -609,18 +612,13 @@
         ! oracle shrinkage of covariance matrix
         CALL oracle(D,nlocal(i),Qi)
         
-        ! square root of matrix and temporarily store it in bandwidth matrix
-        CALL sqrtm(D,Qi,Hi)  
-        
         ! estimate bandwidth from approximate Scott's rule 
         ! modified for multivariate Kernels. Since we localize
         ! we'll take the effective sample number and (maybe)
         ! local dimensionality into account.
-        Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 1.0d0 / (Di(i)+4.0d0) ) &
-           * nlocal(i)**( -1.0d0 / (Di(i)+4.0d0) ) * Hi
-        
-!        Hi = (4.0d0 / ( DBLE(D)+2.0d0) )**( 1.0d0 / (DBLE(D)+4.0d0) ) &
-!           * DBLE(nsamples)**( -1.0d0 / (DBLE(D)+4.0d0) ) * Hi
+        Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
+           * nlocal(i)**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
+
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
