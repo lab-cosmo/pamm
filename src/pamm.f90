@@ -609,10 +609,11 @@
         ! oracle shrinkage of covariance matrix
         CALL oracle(D,nlocal(i),Qi)
         
+        ! square root of matrix and temporarily store it in bandwidth matrix
+        CALL sqrtm(D,Qi,Hi)  
         
-        ! square root of matrix
-        ! temporarily store it in bandwidth matrix
-        CALL sqrtm(D,Qi,Hi)
+        WRITE(*,*) Qi
+        WRITE(*,*) Hi
         
         ! estimate bandwidth from approximate Scott's rule 
         ! modified for multivariate Kernels. Since we localize
@@ -620,7 +621,7 @@
         ! local dimensionality into account.
         Hi = (4.0d0 / ( (DBLE(D)+2.0d0) ) )**( 1.0d0 / (DBLE(D)+4.0d0) ) &
            * nlocal(i)**( -1.0d0 / (DBLE(D)+4.0d0) ) * Hi
-           
+          
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 

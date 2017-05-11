@@ -684,7 +684,7 @@
          DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Qsq
 
          INTEGER i,l,info
-         DOUBLE PRECISION work(1000),eig(D)
+         DOUBLE PRECISION work(D*(3+D/2)),eig(D)
          DOUBLE PRECISION M(D,D),EM(D,D)
 
          ! we need to backup the matrix
@@ -692,9 +692,12 @@
          M = Q
 
          ! Query optimal lwork
-         l = -1
-         CALL DSYEV( 'Vectors', 'Upper', D, M, D, eig, work, l, info )
-         l = MIN( 1000, INT( work( 1 ) ))
+!         l = -1
+!         CALL DSYEV( 'Vectors', 'Upper', D, M, D, eig, work, l, info )
+!         l = MIN( 1000, INT( work( 1 ) ))
+         
+         l=D*(3+D/2)
+         
           
          ! solve eigenproblem
          CALL DSYEV('V','U',D,M,D,eig,work,l,info)
@@ -710,7 +713,7 @@
             EM(i,i) = eig(i)
          ENDDO
          ! calculate square root of matrix
-         Qsq = MATMUL(MATMUL(M,DSQRT(EM)),M)
+         Qsq = MATMUL(MATMUL(M,DSQRT(EM)),TRANSPOSE(M))
       END SUBROUTINE sqrtm
 
       SUBROUTINE eigval(AB,D,WR)
