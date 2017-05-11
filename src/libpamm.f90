@@ -684,7 +684,7 @@
          DOUBLE PRECISION, DIMENSION(D,D), INTENT(OUT) :: Qsq
 
          INTEGER i,l,info
-         DOUBLE PRECISION work(D*(3+D/2)),eig(D)
+         DOUBLE PRECISION work(1000),eig(D)
          DOUBLE PRECISION M(D,D),EM(D,D)
 
          ! we need to backup the matrix
@@ -692,13 +692,11 @@
          M = Q
 
          ! Query optimal lwork
-!         l = -1
-!         CALL DSYEV( 'Vectors', 'Upper', D, M, D, eig, work, l, info )
-!         l = MIN( 1000, INT( work( 1 ) ))
+         l = -1
+         CALL DSYEV('V','U',D,M,D,eig,work,l,info)
+         l = MIN(1000,INT(work(1)))         
+!         l=D*(3+D/2)
          
-         l=D*(3+D/2)
-         
-          
          ! solve eigenproblem
          CALL DSYEV('V','U',D,M,D,eig,work,l,info)
          ! check for convergence

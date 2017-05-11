@@ -600,11 +600,11 @@
 
         ! use Kish's effective sample size instead of the sum of
         ! local weights to estimate local number of points
-        CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal2,nlocal(i))
-        nlocal(i) = SUM(wlocal2)**2/SUM(wlocal2**2)
+!        CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal2,nlocal(i))
+!        nlocal(i) = SUM(wlocal2)**2/SUM(wlocal2**2)
 
         ! estimate local dimensionality
-!        Di(i) = effdim(D,Qi)
+        Di(i) = effdim(D,Qi)
 
         ! oracle shrinkage of covariance matrix
         CALL oracle(D,nlocal(i),Qi)
@@ -612,16 +612,15 @@
         ! square root of matrix and temporarily store it in bandwidth matrix
         CALL sqrtm(D,Qi,Hi)  
         
-        WRITE(*,*) Qi
-        WRITE(*,*) Hi
-        
         ! estimate bandwidth from approximate Scott's rule 
         ! modified for multivariate Kernels. Since we localize
         ! we'll take the effective sample number and (maybe)
         ! local dimensionality into account.
-        Hi = (4.0d0 / ( (DBLE(D)+2.0d0) ) )**( 1.0d0 / (DBLE(D)+4.0d0) ) &
-           * nlocal(i)**( -1.0d0 / (DBLE(D)+4.0d0) ) * Hi
-          
+        Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 1.0d0 / (Di(i)+4.0d0) ) &
+           * nlocal(i)**( -1.0d0 / (Di(i)+4.0d0) ) * Hi
+        
+!        Hi = (4.0d0 / ( DBLE(D)+2.0d0) )**( 1.0d0 / (DBLE(D)+4.0d0) ) &
+!           * DBLE(nsamples)**( -1.0d0 / (DBLE(D)+4.0d0) ) * Hi
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
