@@ -7,23 +7,25 @@ verbose = False  # no verbosity
 N       = -1     # grid size equals sample size
 outfile = []     # use input data file as basename for outpur
 rndflag = False  # use minmax
+gamma   = -1     # no staged grid selection
 metric  = 0      # use minkoswki metric 
 norm    = 2      # use euclidean distances
 
 if len(sys.argv) < 1:
-  print "usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data"
+  print "usage: grid [-n N] [-o name] [-rand] [-s gamma] [-m mode] [-p norm] [-v] [-h] data"
   sys.exit("ERROR: no data file specified")
 else:
   for i,s in enumerate(sys.argv):
-    if   s == '-n'   : N       = int(sys.argv[i+1])
-    if   s == '-o'   : outfile = sys.argv[i+1]
-    if   s == '-rand': rndflag = True
-    if   s == '-m'   : metric  = int(sys.argv[i+1])
-    if   s == '-p'   : norm    = float(sys.argv[i+1])
-    elif s == '-v'   : verbose = True
-    elif s == '-h'   : 
+    if   s == '-n'      : N       = int(sys.argv[i+1])
+    if   s == '-o'      : outfile = sys.argv[i+1]
+    if   s == '-rand'   : rndflag = True
+    if   s == '-s'      : gamma   = float(sys.argv[i+1])
+    if   s == '-m'      : metric  = int(sys.argv[i+1])
+    if   s == '-p'      : norm    = float(sys.argv[i+1])
+    elif s == '-v'      : verbose = True
+    elif s == '-h'      : 
       print """
-usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data
+usage: grid [-n N] [-o name] [-rand] [-s gamma] [-m mode] [-p norm] [-v] [-h] data
  
  required: 
   
@@ -31,25 +33,32 @@ usage: grid [-n N] [-o name] [-rand] [-m mode] [-p norm] [-v] [-h] data
    
  optional:
 
-   -n N          : grid size [all]
+   -n N          : grid size                                    [all]
  
-   -o name       : filename of grid [data + .idxs]
+   -o name       : filename of grid                             [data + .idxs]
 
-   -rand         : random selection of grid points [false]
+   -rand         : random selection of grid points              [false]
    
-   -m mode       : metric mode [0]
+   -s gamma      : mixed mode between selecting grid points via [false]
+                   minmax and random selection. Within each 
+                   voronoi a random selection of grid points is
+                   made. gamma defines fraction of points 
+                   selected by each method gamma=0 is pure 
+                   random and gamma=1 is pure minmax selection. 
+   
+   -m mode       : metric mode                                  [0]
                    0   - minkowski
                    1   - cosine 
                    2   - global mahalanobis
                    3   - local mahalanobis (experimental)
 
-   -p norm       : norm of the minkowski metric [2]
+   -p norm       : norm of the minkowski metric                 [2]
                    1   - manhattan
                    2   - euclidean
                    < 1 - fractional
    
     
-   -v            : turn verbosity on [false]
+   -v            : turn verbosity on                            [false]
 
    -h            : show this message"""
       sys.exit()
@@ -63,7 +72,8 @@ print """
                                                
  grid creation based on:                    
    - minmax criterion (default)             
-     or random points                       
+     or random points     
+     or mix between both                  
    - euclidean distance (default)              
      or cosine distance
      or minkowski distance      
@@ -93,7 +103,7 @@ def mm(x,idxs,n=-1,met=0,norm=2.,verbose=False,steps=10):
   d = 1
   if (x.ndim > 1): d = x.shape[1]
   y = empty((n,d))
-  x.reshape(-1,d)
+  x = x.reshape(-1,d)
 
   dmin = ones(x.shape[0])*inf
 
@@ -135,7 +145,30 @@ def mm(x,idxs,n=-1,met=0,norm=2.,verbose=False,steps=10):
     y[i,:] = x[iy,:]
     igrid.append(idxs[iy])
   return y,igrid
-   
+  
+def vlist(X,idxs):
+  """
+    assigns sample points to closest voronoi and gives back
+    a list of indices where each sample point is associated
+    to the appropriate voronoi.
+  """
+  
+  n = X.shape[0]
+  d = 1
+  if (X.ndim > 1): d = X.shape[1]
+  X = X.reshape(-1,d)
+
+  Y = X[idxs,:]
+  
+  # create array associating sample points to grid points
+  vlist = empty(n)
+  for i,x in enumerate(X):
+    dx = linalg.norm(Y-x,axis=1)
+    # get index of closest distance
+    vlist[i] = idxs[argmin(dx)]
+  vlist = array(map(int,vlist))
+  return vlist   
+  
 def oracle(Q,N):
   "oracle shrinkage of matrix"
   
@@ -172,6 +205,8 @@ X = loadtxt(datafile)
 
 if not outfile: outfile = datafile + '.idxs'
 
+if rndflag and (gamma > 0): sys.exit("ERROR: random or staged selection?")
+
 #######################################################################
 ###                                                                 ###
 ###                          main program                           ###
@@ -196,6 +231,23 @@ if rndflag:
   if verbose: print " selecting %d random points ..." % N
   random.shuffle(idxs)
   idxs = idxs[:N]
+if gamma > 0:
+  Nmm  = int(N*gamma)
+  Nrnd = N-Nmm  
+  
+  if verbose: print " (i) selecting %d points using minmax ..." % Nmm
+  _,idxs = mm(X,idxs,Nmm,metric,norm,verbose,steps)
+  
+  if verbose: print " (ii) selecting %d random points in voronois ..." % Nrnd
+  s2g = vlist(X,idxs) # sample to grid 
+  for i in range(Nrnd):
+    # select random grid point
+    gi = idxs[random.randint(Nmm)]
+    # select a random point within voronoi
+    rnd_idxs = where(s2g == gi)[0]
+    idxs.append(rnd_idxs[random.randint(len(rnd_idxs))])
+    if verbose and (mod(i+1,steps)==0): 
+      print "   %d/%d" % (i+1,Nrnd)
 else:
   if verbose: print " selecting %d points using minmax ..." % N
   _,idxs = mm(X,idxs,N,metric,norm,verbose,steps)
