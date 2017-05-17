@@ -55,6 +55,7 @@
       INTEGER Nk                                                ! Number of gaussians in the mixture
       INTEGER nsamples                                          ! Total number points
       INTEGER ngrid                                             ! Number of samples extracted using minmax
+      INTEGER qscut                                             ! cutoff and squared cutoff for QS
       INTEGER seed                                              ! seed for the random number generator
       INTEGER ntarget, nlim                                     ! ntarget for adaptive bandwidth estimation
       INTEGER nmsopt                                            ! number of mean-shift optimizations of the cluster centers
@@ -79,9 +80,8 @@
       DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
       DOUBLE PRECISION thrpcl                                   ! parmeter controlling the merging of the outlier clusters
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points
-      DOUBLE PRECISION fspread                                     ! or a fraction of the global avg. variance
+      DOUBLE PRECISION fspread                                  ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
-      DOUBLE PRECISION qscut, qscut2                            ! cutoff and squared cutoff for QS
       DOUBLE PRECISION msw
       DOUBLE PRECISION alpha                                    ! cluster smearing
       DOUBLE PRECISION zeta                                     ! background for clustering
@@ -139,7 +139,7 @@
       ntarget = -1           ! number of sample points for localization
       seed = 12345           ! seed for the random number generator
       thrmerg = 0.8d0        ! merge different clusters
-      qscut = -1.0d0         ! quick shift cut-off
+      qscut = -1             ! quick shift cut-off (number of neighbor shells)
       verbose = .FALSE.      ! no verbosity
       weighted = .FALSE.     ! don't use the weights
       nbootstrap = 0         ! do not use bootstrap
@@ -292,9 +292,8 @@
 
       ! If not specified, set the qscut to be used in QS
       IF (qscut.LT.0) THEN
-        qscut = 1.0d0
+        qscut = 1
       ENDIF
-      qscut2 = qscut * qscut
 
       ! #####################  POST-PROCESSING MODE  ###################
       ! This modality will run just specifying the -gf flag.
@@ -618,7 +617,7 @@
         ! local dimensionality into account.
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
            * nlocal(i)**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
-
+        
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
@@ -770,7 +769,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             ! find closest point higher in probability
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,gabriel)   
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,gabriel,qscut)   
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1875,34 +1874,46 @@
       END FUNCTION
 
 
-      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,gabriel)
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,gabriel,nn)
          ! Return the index of the closest point higher in P
          !
          ! Args:
          !    ngrid: number of grid points
          !    idx: current point
-         !    qscut: cut-off in the jump
+         !    nn: cut-off in the jumps
          !    probnmm: density estimations
-         !    distmm: distances matrix
+         !    gabriel: gabriel graph
 
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
+         INTEGER, INTENT(IN) :: nn                      ! number of neighbor shells
          DOUBLE PRECISION, INTENT(IN) :: probnmm(ngrid)
-         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid)
          LOGICAL, INTENT(IN) :: gabriel(ngrid,ngrid)
 
-         INTEGER j
-         DOUBLE PRECISION dmin
-
-         dmin = HUGE(0.0d0)
-
+         INTEGER i,j
+         DOUBLE PRECISION pmax
+         LOGICAL neighs(ngrid), nneighs(ngrid)
+         
+         ! neighbors and neighbors of neighbors and ...
+         neighs = gabriel(idx,:)
+         ! loop over the nn neighbor shells
+         DO i=2,nn
+            nneighs = .FALSE.
+            DO j=1,ngrid
+              IF (neighs(j)) nneighs = nneighs .OR. gabriel(j,:)
+            ENDDO 
+            ! add new neighbors to neighbor array
+            neighs = neighs .OR. nneighs
+         ENDDO
+         
          qs_next = idx
+         pmax = -HUGE(0.0d0)
          DO j=1,ngrid
-            IF ( probnmm(j).GT.probnmm(idx) ) THEN
-               IF ((distmm(idx,j).LT.dmin) .AND. gabriel(idx,j)) THEN
-                 dmin = distmm(idx,j)
-                 qs_next = j
-               ENDIF
+            IF (    ( probnmm(j).GT.probnmm(idx) ) &
+              .AND. ( probnmm(j).GT.pmax )         &
+              .AND.   neighs(j)                  ) THEN
+               qs_next = j
+               pmax = probnmm(j)
             ENDIF
          ENDDO
       END FUNCTION qs_next
