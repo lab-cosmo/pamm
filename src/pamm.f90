@@ -769,7 +769,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             ! find closest point higher in probability
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,gabriel,qscut)   
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,gabriel,qscut)   
 
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1874,24 +1874,26 @@
       END FUNCTION
 
 
-      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,gabriel,nn)
+      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,gabriel,nn)
          ! Return the index of the closest point higher in P
          !
          ! Args:
          !    ngrid: number of grid points
          !    idx: current point
-         !    nn: cut-off in the jumps
          !    probnmm: density estimations
+         !    distmm: distance matrix (squared)
          !    gabriel: gabriel graph
+         !    nn: cut-off in the jumps
 
          INTEGER, INTENT(IN) :: ngrid
          INTEGER, INTENT(IN) :: idx
          INTEGER, INTENT(IN) :: nn                      ! number of neighbor shells
          DOUBLE PRECISION, INTENT(IN) :: probnmm(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid)
          LOGICAL, INTENT(IN) :: gabriel(ngrid,ngrid)
 
          INTEGER i,j
-         DOUBLE PRECISION pmax
+         DOUBLE PRECISION dmin
          LOGICAL neighs(ngrid), nneighs(ngrid)
          
          ! neighbors and neighbors of neighbors and ...
@@ -1907,13 +1909,13 @@
          ENDDO
          
          qs_next = idx
-         pmax = -HUGE(0.0d0)
+         dmin = HUGE(0.0d0)
          DO j=1,ngrid
-            IF (    ( probnmm(j).GT.probnmm(idx) ) &
-              .AND. ( probnmm(j).GT.pmax )         &
-              .AND.   neighs(j)                  ) THEN
-               qs_next = j
-               pmax = probnmm(j)
+            IF ( probnmm(j).GT.probnmm(idx) ) THEN 
+               IF ( (distmm(idx,j).LT.dmin) .AND. neighs(j) ) THEN
+                  qs_next = j
+                  dmin = distmm(idx,j)
+               ENDIF
             ENDIF
          ENDDO
       END FUNCTION qs_next
