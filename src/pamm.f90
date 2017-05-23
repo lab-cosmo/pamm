@@ -137,7 +137,7 @@
       ntarget = -1           ! number of sample points for localization
       seed = 12345           ! seed for the random number generator
       thrmerg = 0.8d0        ! merge different clusters
-      qscut = -1.0d0         ! quick shift cut-off
+      qscut = 1.0d0          ! quick shift cut-off
       verbose = .FALSE.      ! no verbosity
       weighted = .FALSE.     ! don't use the weights
       nbootstrap = 0         ! do not use bootstrap
@@ -217,8 +217,8 @@
                READ(cmdbuffer,*) seed
             ELSEIF (ccmd == 5) THEN                 ! read cutoff for quickshift
                READ(cmdbuffer,*) qscut
-               IF (qscut<0) STOP &
-                 "The QS cutoff should be positive!"
+               !IF (qscut<0) STOP &
+               !  "The QS cutoff should be positive!"
             ELSEIF (ccmd == 6) THEN                 ! read the number of mean-shift refinement steps
                READ(cmdbuffer,*) nmsopt
             ELSEIF (ccmd == 7) THEN                 ! number of grid points
@@ -278,12 +278,6 @@
          CALL helpmessage
          CALL EXIT(-1)
       ENDIF
-
-      ! If not specified, set the qscut to be used in QS
-      IF (qscut.LT.0) THEN
-        qscut = 1.0d0
-      ENDIF
-      qscut2 = qscut * qscut
 
       ! #####################  POST-PROCESSING MODE  ###################
       ! This modality will run just specifying the -gf flag.
@@ -534,7 +528,9 @@
         CALL invmatrix(D,Qi,Qiinv)
 
         ! estimate bandwidth from normal reference rule
-        Hi = (4.0d0 / ( nlocal(i) * (Di(i)+2.0d0) ) )**( 2.0d0 / (Di(i)+4.0d0) ) * Qi
+        Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
+           * nlocal(i)**( -2.0d0 / (DBLE(D)+4.0d0) ) * Qi
+           
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
