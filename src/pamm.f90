@@ -710,7 +710,8 @@
 
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       ! use a global cutoff for quickshift
-      dummd1 = (DSQRT(DBLE(D)) + qscut)**2
+      !dummd1 = (DSQRT(DBLE(D)) + qscut)**2
+      dummd1 = (DSQRT(effdim(D,Q)) + qscut)**2
       idxroot=0
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
