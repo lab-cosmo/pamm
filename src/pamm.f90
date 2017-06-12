@@ -529,7 +529,7 @@
 
         ! estimate bandwidth from normal reference rule
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
-           * nlocal(i)**( -2.0d0 / (DBLE(D)+4.0d0) ) * Qi
+           * nlocal(i)**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
            
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
