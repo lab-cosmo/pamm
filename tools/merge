@@ -58,8 +58,8 @@ usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
    -v            : turn verbosity on                            [false]
 
    -h            : show this message
-      sys.exit()
       """
+      sys.exit()
 
 print """ 
  ****************************************** 
@@ -234,8 +234,20 @@ for i in range(N):
 # rescale adjacency matrix to identify connected nodes
 if verbose: print " Finding macrocluster"
 # create boolean adjacency matrix
-adj_bool = zeros([Nc,Nc])
-adj_bool[where(adj >  thresh)] = 1
+adj_bool = zeros([Nc,Nc],dtype=bool)
+
+# at this point I made an error: 
+# we merge here clusters which are actually not connected
+# due to their common connection to a lower probable cluster
+# adj_bool[where(adj >  thresh)] = 1
+
+for i in range(Nc):
+  # is there an adjacent cluster
+  if sum(adj[i,:]) == 0: continue
+  # connect to cluster with highest adjacency
+  j = argmax(adj[i,:])
+  if adj[i,j] > thresh: adj_bool[i,j] = True
+
 # get macrocluster ids
 Nm, m = connected_components(adj_bool)
 
