@@ -34,32 +34,24 @@ usage: grid [-n N] [-o name] [-rand] [-s gamma] [-m mode] [-p norm] [-v] [-h] da
  optional:
 
    -n N          : grid size                                    [all]
- 
    -o name       : filename of grid                             [data + .idxs]
-
    -rand         : random selection of grid points              [false]
-   
    -s gamma      : mixed mode between selecting grid points via [false]
                    minmax and random selection. Within each 
                    voronoi a random selection of grid points is
                    made. gamma defines fraction of points 
                    selected by each method gamma=0 is pure 
                    random and gamma=1 is pure minmax selection. 
-   
    -m mode       : metric mode                                  [0]
                    0   - minkowski
                    1   - cosine 
                    2   - global mahalanobis
                    3   - local mahalanobis (experimental)
-
    -p norm       : norm of the minkowski metric                 [2]
                    1   - manhattan
                    2   - euclidean
                    < 1 - fractional
-   
-    
    -v            : turn verbosity on                            [false]
-
    -h            : show this message"""
       sys.exit()
 

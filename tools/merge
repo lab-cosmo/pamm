@@ -35,28 +35,19 @@ usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
  required:
  
    -D dim        : dimensionality
-   
    grid          : pamm grid file
        
  optional:
 
    -t thresh     : threshold to merge cluster                   [0.9]
-
    -err          : use error of KDE in adjacency                [false]
-
    -log          : use logarithm of probabilities               [true]
-
    -adj          : write out adjacency matrix                   [false]
-
    -m            : write out gridfile containing                [false]
                    new macrogrid              
-
    -b            : write out boarder points                     [false]
-
    -g            : write out gapriel graph connecting points    [false]
-
    -v            : turn verbosity on                            [false]
-
    -h            : show this message
       """
       sys.exit()

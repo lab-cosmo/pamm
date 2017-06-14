@@ -46,38 +46,26 @@ usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-hu
  required:
    
    -D dim        : dimensionality of data 
-  
    grid          : pamm grid file
-
    proj          : projection of data (pca, sketchmap or ...)
-
    idxs          : association to projection
  
  optional
   
    -d dim        : dimensionality of projection       [2]
-
    -min min      : minimum size of cluster to plot    [1]
-
    -n N          : plot only N cluster                [all]
-
    -flip         : flip sorting                       [false]
-
    -sort mode    : sort mode                          [0]
                    0   - points in cluster
                    1   - kernel density fraction
-                   
    -hull         : use convex hull of cluster         [false]
-
    -p            : plot probabilities on sketchmap    [false]
-
    -lo lo        : lower limit for probability plot   [min(prob)]
-      
    -hi hi        : upper limit for probability plot   [max(prob)]
-      
    -v            : turn verbosity on                  [false]
-      
-   -h            : show this message"""
+   -h            : show this message
+      """
       sys.exit()
 
 print """ 
@@ -131,8 +119,9 @@ idxsfile = sys.argv[-1]
 
 idxs = loadtxt(idxsfile,dtype=int)
 smap = loadtxt(projfile)
-smap = smap[idxs-1,:2]
 pamm = loadtxt(gridfile)
+if len(idxs) > len(pamm):
+  smap = smap[idxs-1,:2]
 
 N = pamm.shape[0]
 
