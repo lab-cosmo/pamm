@@ -120,9 +120,11 @@ idxsfile = sys.argv[-1]
 idxs = loadtxt(idxsfile,dtype=int)
 smap = loadtxt(projfile)
 pamm = loadtxt(gridfile)
-if len(idxs) > len(pamm):
+if len(idxs) < len(smap):
+  smap = smap[idxs[:len(smap)]-1,:2]
+else:
   smap = smap[idxs-1,:2]
-
+  
 N = pamm.shape[0]
 
 X     = smap[:N,:d]
