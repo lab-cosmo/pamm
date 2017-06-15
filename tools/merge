@@ -167,23 +167,6 @@ with open(neighfile) as gf:
         line = line.replace('T','1')
         neighs[i,:] = array(map(int,line.split()),dtype=bool)
         if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
-#if verbose: print " Building Gabriel Graph"
-## find gabriel neighbors of i
-#for i in range(N):
-#    # matrix is symmetric, loop over upper triangular
-#    for j in range(i):        
-#        # if i and j are in the same cluster skip operation
-#        if cid[i] == cid[j]: continue
-#        
-#        flag = distsq[i,j] >= (distsq[i,:] + distsq[j,:])
-#        
-#        if not flag.any():     
-#          neighs[i,j] = True
-#          # matrix is symmetric
-#          neighs[j,i] = True
-
-#    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
-    
     
 if verbose: print " Building adjacency matrix"
 # create array to store border points
@@ -226,19 +209,14 @@ for i in range(N):
 if verbose: print " Finding macrocluster"
 # create boolean adjacency matrix
 adj_bool = zeros([Nc,Nc],dtype=bool)
-
-# at this point I made an error: 
-# we merge here clusters which are actually not connected
-# due to their common connection to a lower probable cluster
-# adj_bool[where(adj >  thresh)] = 1
-
 for i in range(Nc):
   # is there an adjacent cluster
   if sum(adj[i,:]) == 0: continue
   # connect to cluster with highest adjacency
   j = argmax(adj[i,:])
-  if adj[i,j] > thresh: adj_bool[i,j] = True
-
+  if adj[i,j] > thresh: 
+    adj_bool[i,j] = True
+    adj_bool[j,i] = True
 # get macrocluster ids
 Nm, m = connected_components(adj_bool)
 
