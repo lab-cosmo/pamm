@@ -35,28 +35,18 @@ usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
  required:
  
    -D dim        : dimensionality
-   
    grid          : pamm grid file
        
  optional:
 
    -t thresh     : threshold to merge cluster                   [0.9]
-
    -err          : use error of KDE in adjacency                [false]
-
    -log          : use logarithm of probabilities               [true]
-
    -adj          : write out adjacency matrix                   [false]
-
-   -m            : write out gridfile containing                [false]
-                   new macrogrid              
-
+   -m            : write out macrogrid                          [false]         
    -b            : write out boarder points                     [false]
-
    -g            : write out gapriel graph connecting points    [false]
-
    -v            : turn verbosity on                            [false]
-
    -h            : show this message
       """
       sys.exit()
@@ -68,11 +58,13 @@ print """
  *                                        * 
  ****************************************** 
                                                
- cluster merging based on:                  
+ cluster merging based on:    
+   - true log-sum-exp                   
    - gabriel neighbors                      
-   - adjacency criterion                    
-   - errors (not implemented yet)           
-   - true log-sum-exp                       
+   - adjacency criterion 
+      threshold 
+      kde error (not implemented yet)           
+   - periodic boudaries (not implemented yet)             
                                             
  Version: 1.0                               
  Date   : 02/17/17                          
@@ -154,31 +146,14 @@ for i,xi in enumerate(X):
 
 neighs = zeros([N,N], dtype=bool)
 
-
-#if verbose: print " Finding connections between clusters"
-#for ic,c in enumerate(uc):   
-#    for i,x in enumerate(X):
-#        # loop over points in my cluster
-#        if c != cid[i]: continue
-#        mindist = inf
-#        jmin = -1
-#        for j,y in enumerate(X):
-#            # check if we are in same cluster
-#            if c == cid[j]: continue
-#            if distsq[i,j] < mindist:
-#                mindist = distsq[i,j]
-#                jmin = j
-#        if jmin > -1: neighs[i,jmin] = 1
-#    if verbose and (mod(ic+1,steps)==0): print "  %d / %d" % (ic+1,Nc)
-
-
 if verbose: print " Building Gabriel Graph"
 # find gabriel neighbors of i
 for i in range(N):
     # matrix is symmetric, loop over upper triangular
     for j in range(i):        
-        # if i and j are in the same cluster skip operation
-        if cid[i] == cid[j]: continue
+        # if i and j are in the same cluster or 
+        # j has lower probability than i skip operation
+        if (cid[i] == cid[j]) or (prob[j] >= prob[i]) : continue
         
         flag = distsq[i,j] > (distsq[i,:] + distsq[j,:])
         
@@ -231,18 +206,14 @@ for i in range(N):
 if verbose: print " Finding macrocluster"
 # create boolean adjacency matrix
 adj_bool = zeros([Nc,Nc])
-
-# at this point I made an error: 
-# we merge here clusters which are actually not connected
-# due to their common connection to a lower probable cluster
-# adj_bool[where(adj >  thresh)] = 1
-
 for i in range(Nc):
   # is there an adjacent cluster
   if sum(adj[i,:]) == 0: continue
   # connect to cluster with highest adjacency
   j = argmax(adj[i,:])
-  if adj[i,j] > thresh: adj_bool[i,j] = True
+  if adj[i,j] > thresh: 
+    adj_bool[i,j] = True
+    adj_bool[j,i] = True
   
 # get macrocluster ids
 Nm, m = connected_components(adj_bool)
