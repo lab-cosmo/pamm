@@ -1,8 +1,7 @@
 #!/usr/bin/python
 from numpy import *
 from scipy.sparse.csgraph import connected_components
-from scipy.misc import factorial
-import sys
+import sys, os
 
 verbose = False  # no verbosity
 saveadj = False  # don't store adjacency
@@ -15,7 +14,7 @@ thresh  = 0.9    # threshold to merge cluster
 D       = -1     # dimensionality needs to be specified
 
 if len(sys.argv) < 2:
-  print "usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
+  print "usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid neigh"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
@@ -30,12 +29,13 @@ else:
     elif s == '-v'   : verbose = True
     elif s == '-h'   : 
       print """
-usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
+usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid neigh"
 
  required:
  
    -D dim        : dimensionality
    grid          : pamm grid file
+   neigh         : pamm neigh file
        
  optional:
 
@@ -79,20 +79,26 @@ print """
 if D < 0: sys.exit("ERROR: no dimension specified")
 
 try:
+    with open(sys.argv[-2]) as file:
+        pass
+except IOError as e:
+    print "ERROR: Unable to open grid file"
+gridfile = sys.argv[-2]
+
+try:
     with open(sys.argv[-1]) as file:
         pass
 except IOError as e:
-    print "ERROR: Unable to open file"
-gridfile = sys.argv[-1]
+    print "ERROR: Unable to open neigh file"
+neighfile = sys.argv[-1]
 
 # define output names
-if gridfile[-5:] == '.grid': basename = gridfile[:-5] 
-else : basename = gridfile
+if gridfile[-5:] == '.grid': basename = os.path.basename(gridfile[:-5])
+else : basename = os.path.basename(gridfile)
 mgridfile = basename + '.mgrid'
 macrofile = basename + '.macro'
 adjfile   = basename + '.adj'
 brdfile   = basename + '.boarders'
-neighfile = basename + '.neigh'
 
 # load data
 data = loadtxt(gridfile)
