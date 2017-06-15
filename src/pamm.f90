@@ -463,27 +463,12 @@
       ELSE
         IF(verbose) WRITE(*,*) &
           " Finding gabriel neighbors between grid points"
-!        gabriel = .FALSE.
-!        DO i=1,ngrid
-!          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
-!            WRITE(*,*) i,"/",ngrid  
-!          DO j=1,i-1
-!            IF(.NOT.ANY(distmm(i,j).GE.(distmm(i,:) + distmm(j,:)))) THEN
-!              gabriel(i,j) = .TRUE.
-!              gabriel(j,i) = .TRUE.
-!            ENDIF
-!          ENDDO
-!        ENDDO
-
-        ! doing everything serial is apparently a bit faster ...
+        ! doing this in serial is apparently a bit faster ...
         gabriel = .TRUE.
         DO i=1,ngrid
           IF(verbose .AND. (modulo(i,1000).EQ.0)) &
             WRITE(*,*) i,"/",ngrid  
           gabriel(i,i) = .FALSE.
-          ! we could only allow jumps to neighbors
-          ! higher in probability. Would speed up this
-          ! a lot ...
           DO j=1,i-1
             DO k=1,ngrid
               IF (distmm(i,j).GE.(distmm(i,k) + distmm(j,k))) THEN
@@ -757,6 +742,53 @@
           pabserr(i)=prelerr(i)+prob(i)
         ENDDO
       ENDIF
+
+!      IF(readneigh) THEN
+!        ! read gabriel graph
+
+!        IF (neighfile.EQ."NULL") THEN
+!          WRITE(*,*) &
+!          " Error: insert the file containing the gabriel graph! "
+!          CALL helpmessage
+!          CALL EXIT(-1)
+!        ENDIF
+
+!        OPEN(UNIT=12,FILE=neighfile,STATUS='OLD',ACTION='READ')
+!        ! read graph from a file
+!        DO i=1,ngrid
+!           READ(12,*) (gabriel(i,j),j=1,ngrid)
+!        ENDDO
+!        CLOSE(UNIT=12)
+!      ELSE
+!        IF(verbose) WRITE(*,*) &
+!          " Finding gabriel neighbors between grid points"
+!        ! serial calculation seems to be faster than working on arrays
+!        gabriel = .TRUE.
+!        DO i=1,ngrid
+!          IF(verbose .AND. (modulo(i,1000).EQ.0)) &
+!            WRITE(*,*) i,"/",ngrid  
+!          gabriel(i,i) = .FALSE.
+!          DO j=1,ngrid
+!            ! skip if j is lower in probability than i
+!            IF(prob(j).LT.prob(i)) CYCLE
+!            DO k=1,ngrid
+!              IF (distmm(i,j).GE.(distmm(i,k) + distmm(j,k))) THEN
+!                gabriel(i,j) = .FALSE.
+!                gabriel(j,i) = .FALSE.
+!                EXIT
+!              ENDIF
+!            ENDDO
+!          ENDDO
+!        ENDDO   
+!      ENDIF
+!      
+!      IF(saveneigh) THEN
+!        OPEN(UNIT=12,FILE=trim(outputfile)//".neigh",STATUS='REPLACE',ACTION='WRITE')
+!        DO i=1,ngrid
+!          WRITE(12,*) gabriel(i,:)
+!        ENDDO
+!        CLOSE(UNIT=12)
+!      ENDIF
 
       IF(verbose) WRITE(*,*) " Starting Gabriel shift"
       idxroot=0
