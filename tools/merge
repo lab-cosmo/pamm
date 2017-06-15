@@ -130,36 +130,7 @@ else:
 ###                                                                 ###
 #######################################################################
 
-if verbose: print " Compute Distance Matrix"
-# we need squared distances for gabriel graph
-distsq = zeros([N,N])
-for i,xi in enumerate(X):
-    # matrix is symmetric, loop over upper triangular
-    distsq[i,:] = linalg.norm(xi-X,axis=1)**2
-    
-    # distance to myself is far away
-    distsq[i,i] = inf
-  
-    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
-
-
 neighs = zeros([N,N], dtype=bool)
-#if verbose: print " Finding connections between clusters"
-#for ic,c in enumerate(uc):   
-#    for i,x in enumerate(X):
-#        # loop over points in my cluster
-#        if c != cid[i]: continue
-#        mindist = inf
-#        jmin = -1
-#        for j,y in enumerate(X):
-#            # check if we are in same cluster
-#            if c == cid[j]: continue
-#            if distsq[i,j] < mindist:
-#                mindist = distsq[i,j]
-#                jmin = j
-#        if jmin > -1: neighs[i,jmin] = 1
-#    if verbose and (mod(ic+1,steps)==0): print "  %d / %d" % (ic+1,Nc)
-
 if verbose: print " Loading Gabriel Graph"
 with open(neighfile) as gf:
     for i,line in enumerate(gf):
