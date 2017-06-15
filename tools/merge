@@ -1,7 +1,6 @@
 #!/usr/bin/python
 from numpy import *
 from scipy.sparse.csgraph import connected_components
-from scipy.misc import factorial
 import sys
 
 verbose = False  # no verbosity
@@ -150,7 +149,7 @@ if verbose: print " Building Gabriel Graph"
 # find gabriel neighbors of i
 for i in range(N):
     # matrix is symmetric, loop over upper triangular
-    for j in range(i):        
+    for j in range(N):        
         # if i and j are in the same cluster or 
         # j has lower probability than i skip operation
         if (cid[i] == cid[j]) or (prob[j] >= prob[i]) : continue
@@ -159,8 +158,6 @@ for i in range(N):
         
         if not flag.any():     
           neighs[i,j] = True
-          # matrix is symmetric
-          neighs[j,i] = True
 
     if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
     
