@@ -416,6 +416,8 @@
           dummd1 = pammr2(D,period,y(:,i),y(:,j))
           IF (dummd1 < mindist(i)) THEN
             mindist(i) = dummd1
+          ENDIF
+          IF (dummd1 < mindist(j)) THEN
             mindist(j) = dummd1
           ENDIF
         ENDDO
@@ -429,17 +431,20 @@
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
 
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
-      tune = maxeigval(Q,D)
+      !MC tune = maxeigval(Q,D)
+      tune = SUM(Q(1:D*D:D+1)/D  ! computes the trace of the covariance
       sigma2 = tune
       ! localization based on fraction of avg. variance
       IF(fspread.GT.0) sigma2 = sigma2*fspread
       IF(verbose) WRITE(*,*) &
         " Estimating bandwidths and distance matrix"
 
+      
       !!! DEBUG START
 !      OPEN(UNIT=12,FILE=trim(outputfile)//".Q",STATUS='REPLACE',ACTION='WRITE')
       !!! DEBUG END
       ! estimate the localization for each grid point
+      !!!!MC GOT HERE
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
@@ -451,7 +456,7 @@
           IF (ntarget.LT.nlim) WRITE(*,*) &
             " Warning: fraction of points too small, increase grid size!"
 
-          ! initial estimate of nlocal using biggest eigenvalue of global Q
+          ! initial estimate of nlocal using average spread 
           CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
 
           ! aproaching quickly ntarget
