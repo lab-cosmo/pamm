@@ -466,6 +466,7 @@
           " Finding gabriel neighbors between grid points"
         ! doing this in serial is apparently a bit faster ...
         gabriel = .TRUE.
+        dummd1 = omp_get_wtime()
         !$omp parallel do
         DO i=1,ngrid
           IF(verbose .AND. (modulo(i,1000).EQ.0)) &
@@ -482,6 +483,8 @@
           ENDDO
         ENDDO   
         !$omp end parallel do
+        dummd1 = omp_get_wtime()-dummd1;
+        write(*,'(a,f9.3,a)') "gabriel calculation took ", dummd1, " s"
       ENDIF
       
       IF(saveneigh) THEN
