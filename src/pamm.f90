@@ -34,6 +34,7 @@
       PROGRAM pamm
       USE libpamm
       USE random
+      use omp_lib
       IMPLICIT NONE
 
       CHARACTER(LEN=1024) :: outputfile, clusterfile            ! The output file prefix
@@ -465,6 +466,7 @@
           " Finding gabriel neighbors between grid points"
         ! doing this in serial is apparently a bit faster ...
         gabriel = .TRUE.
+        !$omp parallel do
         DO i=1,ngrid
           IF(verbose .AND. (modulo(i,1000).EQ.0)) &
             WRITE(*,*) i,"/",ngrid  
@@ -479,6 +481,7 @@
             ENDDO
           ENDDO
         ENDDO   
+        !$omp end parallel do
       ENDIF
       
       IF(saveneigh) THEN
