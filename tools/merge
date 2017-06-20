@@ -214,6 +214,26 @@ for i in range(Nc):
   
 # get macrocluster ids
 Nm, m = connected_components(adj_bool)
+print m
+
+
+## rescale adjacency matrix to identify connected nodes
+#if verbose: print " Finding macrocluster"
+#m = zeros(Nc,dtype=int)
+#for i in range(Nc):
+#  m[i] = uc[i]
+#  j = argmax(adj[i,:])
+#  if adj[i,j] > thresh:
+#    m[i] = uc[j]
+#    
+##  print uc[i],m[i],exp(max(adj[i,:]))
+
+#um = unique(m)
+#for i in range(len(um)):
+#  m[m == um[i]] = i
+#m = m+1 
+# 
+#print m
 
 #######################################################################
 ###                                                                 ###
