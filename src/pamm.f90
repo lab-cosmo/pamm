@@ -482,7 +482,6 @@
             ENDDO
           ENDDO
         ENDDO   
-        !$omp end parallel do
         dummd1 = omp_get_wtime()-dummd1;
         write(*,'(a,f9.3,a)') "gabriel calculation took ", dummd1, " s"
       ENDIF
@@ -631,13 +630,14 @@
       ! pre-logarithm weights to increase speed
       wi = DLOG(wi)
       wj = DLOG(wj)
+      dummd2 = (DSQRT(DBLE(D))+1.0d0)**2 ! kde cutoff
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,1000).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
           dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-          IF (dummd1.GT.16.0d0) THEN
+          IF (dummd1.GT.dummd2) THEN
             ! assume distribution in far away grid point is narrow
             ! and store sum of all contributions in grid point
             ! exponent of the gaussian
