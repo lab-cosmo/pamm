@@ -830,7 +830,7 @@
 
          INTEGER ii
 
-         Qf = reshape(Q, (/ D*D /))
+         Qf = RESHAPE(Q, (/ D*D /))
          trQ = SUM(Qf(1:D*D:D+1))
          tr2Q = trQ**2
          trQ2 = SUM(Qf(1:D*D:D+1)**2)

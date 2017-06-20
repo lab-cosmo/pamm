@@ -88,8 +88,8 @@
       DOUBLE PRECISION lnK                                      ! logarithm of kernel
 
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: sigma2     ! adaptive localizations
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wj         ! weight of each sample point
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wi         ! accumulator for wj in each voronoi
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wj, lwj    ! weight of each sample point
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wi, lwi    ! accumulator for wj in each voronoi
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal     ! local weights around grid point for grid points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal2    ! local weights around grid point for sample points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: nlocal     ! local number of points around localized grid
@@ -362,7 +362,7 @@
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
                            y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                           wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
+                           wi,lwi,lwj,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,wlocal2,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
 
       ! Extract ngrid points on which the kernel density estimation is to be
@@ -405,6 +405,8 @@
           " Error: voronoi has no points associated with - probably two points are perfectly overlapping"
       ENDDO
 
+      lwi = DLOG(wi)  ! precomputes log weights
+      lwj = DLOG(lwj)
       ! print out the voronois associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
 
@@ -432,7 +434,11 @@
 
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
       !MC tune = maxeigval(Q,D)
-      tune = SUM(Q(1:D*D:D+1)/D  ! computes the trace of the covariance
+      tune = 0.0d0
+      DO i=1,D
+          tune = tune+Q(i,i)
+      ENDDO
+      tune = tune/D
       sigma2 = tune
       ! localization based on fraction of avg. variance
       IF(fspread.GT.0) sigma2 = sigma2*fspread
@@ -520,11 +526,6 @@
           ENDIF
         ENDIF
 
-
-        ! make sure that mahalanobis distances don't get to small
-!        IF (trmatrix(D,Qi)/DBLE(D) < mindist(i)) THEN
-!          Qi = Qi * mindist(i) * DBLE(D) / trmatrix(D,Qi)
-!        ENDIF
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
         ! oracle shrinkage of covariance matrix
@@ -532,22 +533,19 @@
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi,Qiinv)
 
-        ! estimate bandwidth from normal reference rule
+        ! estimate bandwidth from normal reference rule        
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
            * nlocal(i)**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
            
+        !TODO since Hi is just a scaling of Qi we can similarly compute Hiinv from Qiinv. This is also useful below   
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
-        ! estimate the logarithmic normalization constants
-        normkernel(i) = DBLE(D)*DLOG(twopi) + logdet(D,Hi)
-        ! estimate logarithmic determinant of local Q's
+        ! estimate logarithmic determinant of local BW H's
         logdetHi(i) = logdet(D,Hi)
-
-        !!! DEBUG START
-!        WRITE(12,*) Qi
-        !!! DEBUG END
-
+        ! estimate the logarithmic normalization constants
+        normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
+        
 
         DO j=1,ngrid
           ! mahalanobis distance using true covariance
@@ -591,22 +589,19 @@
 
       ! setting initial probability to the smallest possible value
       prob = -HUGE(0.0d0)
-      ! pre-logarithm weights to increase speed
-      wi = DLOG(wi)
-      wj = DLOG(wj)
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         ! setting lnK to the smallest possible number
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
-          dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-          IF (dummd1.GT.36.0d0) THEN
+          dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j)) !TODO we already know distance in Qi metric
+          IF (dummd1.GT.(DSQRT(D*1.0d0)+2)**2) THEN ! note we also take into account the dimensionality (ask for distances larger than sqrt(D)+2)
             ! assume distribution in far away grid point is narrow
             ! and store sum of all contributions in grid point
             ! exponent of the gaussian
             ! natural logarithm of kernel
-            lnK = -0.5d0 * (normkernel(j) + dummd1) + wi(j)
+            lnK = -0.5d0 * (normkernel(j) + dummd1) + lwi(j)
             IF(prob(i).GT.lnK) THEN
               prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
             ELSE
@@ -620,7 +615,7 @@
               ! exponent of the gaussian
               dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
               ! weighted natural logarithm of kernel
-              lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(nlist(k))
+              lnK = -0.5d0 * (normkernel(j) + dummd1) + lwj(nlist(k))
               IF(prob(i).GT.lnK) THEN
                 prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
               ELSE
@@ -631,13 +626,8 @@
         ENDDO
       ENDDO
       prob=prob-DLOG(normwj)
-      ! undo the logarithm on weights
-      wi = DEXP(wi)
-      wj = DEXP(wj)
-
+      
       IF(nbootstrap > 0) THEN
-        wi = DLOG(wi)
-        wj = DLOG(wj)
         probboot = -HUGE(0.0d0)
         DO nn=1,nbootstrap
           IF(verbose) WRITE(*,*) &
@@ -651,7 +641,7 @@
             ! using weights explicitly
             nbssample = random_binomial(nsamples, DBLE(ni(j))/DBLE(nsamples))
             ! calculate "scaled" weight for contribution from far away voronoi
-            dummd2 = DBLE(nbssample)/ni(j) * wi(j)
+            dummd2 = DBLE(nbssample)/ni(j) * lwi(j)
             nbstot = nbstot+nbssample
             DO i=1,ngrid
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
@@ -668,7 +658,7 @@
                   rndidx = nlist(pnlist(j)+rndidx)
                   IF ( rndidx.EQ.idxgrid(i) ) CYCLE
                   dummd1 = mahalanobis(D,period,y(:,i),x(:,rndidx),Hiinv(:,:,j))
-                  lnK = -0.5d0 * (normkernel(j) + dummd1) + wj(rndidx)
+                  lnK = -0.5d0 * (normkernel(j) + dummd1) + lwj(rndidx)
                   IF(probboot(i,nn).GT.lnK) THEN
                     probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
                   ELSE
@@ -680,8 +670,6 @@
           ENDDO
           probboot(:,nn) = probboot(:,nn)-DLOG(DBLE(nbstot))
         ENDDO
-        wi = DEXP(wi)
-        wj = DEXP(wj)
         prelerr = 0.0d0
         pabserr = 0.0d0
         DO i=1,ngrid
@@ -1083,13 +1071,13 @@
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
                                  y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
-                                 wi,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
+                                 wi,lwi,lwj,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,wlocal2,nlocal,ineigh,rgrid,sigma2,tmps2,Di)
 
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ni,ineigh
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,logdetHi
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,lwi,lwj,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wlocal2,nlocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,rgrid,tmps2,Di,mindist
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qi,Qiinv,Hi,probboot
@@ -1113,6 +1101,8 @@
          IF (ALLOCATED(pabserr))    DEALLOCATE(pabserr)
          IF (ALLOCATED(prelerr))    DEALLOCATE(prelerr)
          IF (ALLOCATED(wi))         DEALLOCATE(wi)
+         IF (ALLOCATED(lwi))        DEALLOCATE(lwi)
+         IF (ALLOCATED(lwj))        DEALLOCATE(lwj)
          IF (ALLOCATED(normkernel)) DEALLOCATE(normkernel)
          IF (ALLOCATED(Q))          DEALLOCATE(Q)
          IF (ALLOCATED(Qi))         DEALLOCATE(Qi)
@@ -1133,12 +1123,12 @@
          ! Initialize the arrays, since now I know the number of
          ! points and the dimensionality
          ALLOCATE(iminij(nsamples))
-         ALLOCATE(pnlist(ngrid+1), nlist(nsamples))
+         ALLOCATE(pnlist(ngrid+1), nlist(nsamples), lwj(nsamples))
          ALLOCATE(y(D,ngrid), ni(ngrid), mindist(ngrid))
          ALLOCATE(prob(ngrid), sigma2(ngrid), rgrid(ngrid))
          ALLOCATE(idxroot(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
          ALLOCATE(msmu(D), tmpmsmu(D),logdetHi(ngrid))
-         ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),wi(ngrid))
+         ALLOCATE(pabserr(ngrid),prelerr(ngrid),normkernel(ngrid),wi(ngrid),lwi(ngrid))
          ! bootstrap probability density array will be allocated if necessary
          IF(nbootstrap > 0) ALLOCATE(probboot(ngrid,nbootstrap))
          ! Allocate variables for local bandwidth estimate
