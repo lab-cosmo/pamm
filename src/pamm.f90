@@ -77,9 +77,9 @@
       DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
       DOUBLE PRECISION thrpcl                                   ! parmeter controlling the merging of the outlier clusters
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points
-      DOUBLE PRECISION fspread                                     ! or a fraction of the global avg. variance
+      DOUBLE PRECISION fspread                                  ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
-      DOUBLE PRECISION qscut, qscut2                            ! cutoff and squared cutoff for QS
+      DOUBLE PRECISION qscut, qscut2, kdecut2                   ! cutoff and squared cutoff for QS
       DOUBLE PRECISION msw
       DOUBLE PRECISION alpha                                    ! cluster smearing
       DOUBLE PRECISION zeta                                     ! background for clustering
@@ -431,8 +431,8 @@
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
 
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
-      !MC tune = maxeigval(Q,D)
-      tune = SUM(Q(1:D*D:D+1)/D  ! computes the trace of the covariance
+      tune = maxeigval(Q,D)
+      !tune = SUM(Q(1:D*D:D+1)/D  ! computes the trace of the covariance
       sigma2 = tune
       ! localization based on fraction of avg. variance
       IF(fspread.GT.0) sigma2 = sigma2*fspread
@@ -445,6 +445,10 @@
       !!! DEBUG END
       ! estimate the localization for each grid point
       !!!!MC GOT HERE
+
+      ! set distance matrix to zero
+      distmm = 0.0d0
+      
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
@@ -549,24 +553,10 @@
         !!! DEBUG END
 
 
-        DO j=1,ngrid
-          ! mahalanobis distance using true covariance
-          ! the row index is the reference, since all the
-          ! Mahalanobis distances in the same row are
-          ! computed using the covariance matrix from
-          ! the point with that specific row index
-          distmm(i,j) = mahalanobis(D,period,y(:,i),y(:,j),Qiinv)
-          
-          ! check if at least the closest (in mahalanobis metric)
-          ! grid point is found using the local covariance matrix
-          
-!          WRITE(*,*) "Cutoff Radius for QS is ", DSQRT(Di(i)+qscut)**2
-!          WRITE(*,*) "Closest Grid Point is this away ", dist
-          
+        DO j=1,i-1
+          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+          distmm(j,i) = distmm(i,j)
         ENDDO
-        ! set distance to myself super far away
-        distmm(i,i) = HUGE(0.0d0)      
-
       ENDDO
 
       !!! DEBUG START
@@ -589,11 +579,14 @@
       !           a Gaussian distribution is approximately a van Mises distribution
       !           if van Mises kernel is sufficiently small ...
 
+      ! global cutoff for kde
+      kdecut2 = (DSQRT(DBLE(D))+1.0d0)**2
       ! setting initial probability to the smallest possible value
       prob = -HUGE(0.0d0)
       ! pre-logarithm weights to increase speed
       wi = DLOG(wi)
       wj = DLOG(wj)
+      
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
@@ -601,7 +594,7 @@
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
           dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-          IF (dummd1.GT.36.0d0) THEN
+          IF (dummd1.GT.kdecut2) THEN
             ! assume distribution in far away grid point is narrow
             ! and store sum of all contributions in grid point
             ! exponent of the gaussian
@@ -655,7 +648,7 @@
             nbstot = nbstot+nbssample
             DO i=1,ngrid
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-              IF (dummd1.GT.36.0d0) THEN
+              IF (dummd1.GT.kdecut2) THEN
                 lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(dummd2)
                 IF(probboot(i,nn).GT.lnK) THEN
                   probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
@@ -714,9 +707,6 @@
       ENDIF
 
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
-      ! use a global cutoff for quickshift
-      !dummd1 = (DSQRT(DBLE(D)) + qscut)**2
-      dummd1 = (DSQRT(effdim(D,Q)) + qscut)**2
       idxroot=0
       DO i=1,ngrid
          IF(idxroot(i).NE.0) CYCLE
@@ -726,25 +716,7 @@
          qspath(1)=i
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-            ! find closest point higher in probability
-            !
-            !   in higher dimensions jump distances are intrinsically
-            !   greater and scale with sqrt(D). thus, we use use the
-            !   local dimensionality to scale the cutoff. However,
-            !   sqrt(D) scales the cutoff to find 50% of the points,
-            !   if we want to proportional increase the cutoff for higher
-            !   dimensions we need to add a correction factor.
-            ! 
-            
-!            dummd1 = (DSQRT(Di(qspath(counter)))+qscut)**2
-            dummd2 = MINVAL(distmm(qspath(counter),:))
-            
-            IF(dummd1.LT.dummd2) THEN
-              WRITE(*,*) "WARNING: Uh Oh, found no other grid point within cutoff...", DSQRT(dummd1), DSQRT(dummd2)
-            ENDIF  
-            
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,dummd1)   
-
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,sigma2(qspath(counter)))   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
