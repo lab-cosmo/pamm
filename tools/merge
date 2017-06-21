@@ -143,16 +143,15 @@ for i,xi in enumerate(X):
     if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
 
 
-neighs = zeros([N,N], dtype=bool)
-
 if verbose: print " Building Gabriel Graph"
+neighs = zeros([N,N], dtype=bool)
 # find gabriel neighbors of i
 for i in range(N):
     # matrix is symmetric, loop over upper triangular
-    for j in range(N):        
+    for j in range(i):        
         # if i and j are in the same cluster or 
         # j has lower probability than i skip operation
-        if (cid[i] == cid[j]) or (prob[j] >= prob[i]) : continue
+        if (cid[i] == cid[j]): continue
         
         flag = distsq[i,j] > (distsq[i,:] + distsq[j,:])
         
@@ -210,7 +209,6 @@ for i in range(Nc):
   j = argmax(adj[i,:])
   if adj[i,j] > thresh: 
     adj_bool[i,j] = True
-    adj_bool[j,i] = True
   
 # get macrocluster ids
 Nm, m = connected_components(adj_bool)

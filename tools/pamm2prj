@@ -200,8 +200,6 @@ fig, ax = P.subplots()
 cc=cm.rainbow(linspace(0,1,len(pc)))
 random.shuffle(cc)
 
-hullflag = True
-
 if cvxflag:
   # print patches instead of scattered points
   patches = []
@@ -214,17 +212,17 @@ if cvxflag:
 #    P.plot(x[hull.vertices,0], x[hull.vertices,1], 'r--', lw=2)
     patch = Polygon(x[hull.vertices,:], True, color=cc[i], alpha=0.4)
     ax.add_patch(patch)
-#  P.axis('equal')
+  P.axis('equal')
   P.axis('off')  
 else:
   # clusters smaller than minsize are printed in gray
-  P.scatter(X[where(~in1d(cls, pc))[0],0],X[where(~in1d(cls, pc))[0],1],c='gray',edgecolor='None')
+  P.scatter(X[where(~in1d(cls, pc))[0],0],X[where(~in1d(cls, pc))[0],1],s=2,c='gray',edgecolor='None')
   # print all other cluster bigger than minsize
   for i,c in enumerate(pc):
-    P.scatter(X[c==cls,0],X[c==cls,1],c=cc[i],edgecolor='None')
+    P.scatter(X[c==cls,0],X[c==cls,1],c=cc[i],s=2,edgecolor='None')
   # mark points with highest probability
   for i,c in enumerate(pc):
-    P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',color=cc[i])
+    P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],s=2,edgecolor='k',color=cc[i])
 #  P.axis('equal')
   P.axis('off')  
 

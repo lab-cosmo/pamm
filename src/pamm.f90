@@ -217,8 +217,9 @@
                READ(cmdbuffer,*) seed
             ELSEIF (ccmd == 5) THEN                 ! read cutoff for quickshift
                READ(cmdbuffer,*) qscut
-               !IF (qscut<0) STOP &
-               !  "The QS cutoff should be positive!"
+               IF (qscut<0) STOP &
+                 "The QS cutoff should be positive!"
+               qscut2 = qscut**2
             ELSEIF (ccmd == 6) THEN                 ! read the number of mean-shift refinement steps
                READ(cmdbuffer,*) nmsopt
             ELSEIF (ccmd == 7) THEN                 ! number of grid points
@@ -707,7 +708,8 @@
          qspath(1)=i
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,sigma2(qspath(counter)))   
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm, &
+                                               sigma2(qspath(counter))*(DSQRT(Di(i)+1.0d0)**2)*qscut2)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
