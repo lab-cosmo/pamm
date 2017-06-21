@@ -409,24 +409,25 @@
       ENDDO
 
       lwi = DLOG(wi)  ! precomputes log weights
-      lwj = DLOG(lwj)
+      lwj = DLOG(wj)
       ! print out the voronois associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
 
       ! distance to closest voronoi
-      mindist=HUGE(0.0d0) !  of the kernel density estimator
-      DO i=1,ngrid
-        DO j=1,i-1
-          ! distance between two voronoi centers
-          dummd1 = pammr2(D,period,y(:,i),y(:,j))
-          IF (dummd1 < mindist(i)) THEN
-            mindist(i) = dummd1
-          ENDIF
-          IF (dummd1 < mindist(j)) THEN
-            mindist(j) = dummd1
-          ENDIF
-        ENDDO
-      ENDDO
+      ! ROM: we don't need this ...
+!      mindist=HUGE(0.0d0) !  of the kernel density estimator
+!      DO i=1,ngrid
+!        DO j=1,i-1
+!          ! distance between two voronoi centers
+!          dummd1 = pammr2(D,period,y(:,i),y(:,j))
+!          IF (dummd1 < mindist(i)) THEN
+!            mindist(i) = dummd1
+!          ENDIF
+!          IF (dummd1 < mindist(j)) THEN
+!            mindist(j) = dummd1
+!          ENDIF
+!        ENDDO
+!      ENDDO
 
       ! Generate the neighbour list
       IF(verbose) write(*,*) " Generating neighbour list"
