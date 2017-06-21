@@ -219,7 +219,6 @@
                READ(cmdbuffer,*) qscut
                IF (qscut<0) STOP &
                  "The QS cutoff should be positive!"
-               qscut2 = qscut**2
             ELSEIF (ccmd == 6) THEN                 ! read the number of mean-shift refinement steps
                READ(cmdbuffer,*) nmsopt
             ELSEIF (ccmd == 7) THEN                 ! number of grid points
@@ -350,6 +349,9 @@
       ! If not specified, the number of voronoi polyhedra
       ! are set to the square root of the total number of points
       IF (ngrid.EQ.-1) ngrid = int(sqrt(float(nsamples)))
+
+      ! set the square of the scaling factor
+      qscut2 = qscut**2
 
       ! Now sets the localization. It can be set either in terms of a fraction of the
       ! number samples, or directly as a fraction of the variance of the data
@@ -708,6 +710,7 @@
          qspath(1)=i
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
+            write(*,*) sigma2(qspath(counter)),qscut2,(DSQRT(Di(i)+1.0d0)**2)
             idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm, &
                                                sigma2(qspath(counter))*(DSQRT(Di(i)+1.0d0)**2)*qscut2)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT

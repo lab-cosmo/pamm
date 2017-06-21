@@ -209,7 +209,10 @@ for i in range(Nc):
   j = argmax(adj[i,:])
   if adj[i,j] > thresh: 
     adj_bool[i,j] = True
-  
+  # connect to closest cluster
+  dmin = inf
+  for c in uc[adj[i,:] > thresh]:
+
 # get macrocluster ids
 Nm, m = connected_components(adj_bool)
 print m
