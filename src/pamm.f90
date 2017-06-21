@@ -583,7 +583,7 @@
       !           if van Mises kernel is sufficiently small ...
 
       ! global cutoff for kde
-      kdecut2 = (DSQRT(DBLE(D))+1.0d0)**2
+      kdecut2 = 16.0d0 * (DSQRT(DBLE(D))+1.0d0)**2
       ! setting initial probability to the smallest possible value
       prob = -HUGE(0.0d0)
       ! pre-logarithm weights to increase speed
