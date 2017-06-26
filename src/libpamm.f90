@@ -220,6 +220,7 @@
             if (pnks(k).gt.mxpk) mxpk=pnks(k)
          ENDDO
 
+
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
             pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha

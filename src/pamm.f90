@@ -332,7 +332,7 @@
               ENDDO
               ! write out the number of the
               ! cluster with the highest probability
-              WRITE(*,*) px,dummyi1 ! ,pcluster(dummyi1)
+              WRITE(*,*) dummyi1
             ENDDO
             DEALLOCATE(clusters)
          ENDIF
@@ -712,7 +712,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm, &
-                                               sigma2(qspath(counter))*(DSQRT(Di(i))+1.0d0)**2)*qscut)   
+                                               sigma2(qspath(counter))*(DSQRT(Di(i))+qscut)**2)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
