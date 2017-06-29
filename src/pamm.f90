@@ -83,6 +83,7 @@
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points
       DOUBLE PRECISION fspread                                  ! or a fraction of the global avg. variance
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
+      DOUBLE PRECISION kdecut2                                  ! cutoff for kde
       DOUBLE PRECISION msw
       DOUBLE PRECISION alpha                                    ! cluster smearing
       DOUBLE PRECISION zeta                                     ! background for clustering
@@ -632,14 +633,14 @@
       ! pre-logarithm weights to increase speed
       wi = DLOG(wi)
       wj = DLOG(wj)
-      dummd2 = (DSQRT(DBLE(D))+1.0d0)**2 ! kde cutoff
+      kdecut2 = 16.0d0*(DSQRT(DBLE(D))+1.0d0)**2 ! kde cutoff
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,1000).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
           dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-          IF (dummd1.GT.dummd2) THEN
+          IF (dummd1.GT.kdecut2) THEN
             ! assume distribution in far away grid point is narrow
             ! and store sum of all contributions in grid point
             ! exponent of the gaussian
@@ -693,7 +694,7 @@
             nbstot = nbstot+nbssample
             DO i=1,ngrid
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
-              IF (dummd1.GT.16.0d0) THEN
+              IF (dummd1.GT.kdecut2) THEN
                 lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(dummd2)
                 IF(probboot(i,nn).GT.lnK) THEN
                   probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
