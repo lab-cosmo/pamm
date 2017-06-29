@@ -612,10 +612,11 @@
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
-        ! estimate the logarithmic normalization constants
-        normkernel(i) = DBLE(D)*DLOG(twopi) + logdet(D,Hi)
         ! estimate logarithmic determinant of local Q's
         logdetHi(i) = logdet(D,Hi)
+
+        ! estimate the logarithmic normalization constants
+        normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
       ENDDO
 
       IF(verbose) WRITE(*,*) &
