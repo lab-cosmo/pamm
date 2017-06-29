@@ -99,4 +99,56 @@ for i in `seq 1 $(head -n 1 h2o.sad | wc -w)`; do awk -v i=$i '{print $i}' h2o.s
         autocorr -maxlag 150 -runlength $(wc -l h2o.sad) > h2o.hh
 ```
 
+DODECA -- local and global motifs in biomolecules
+------------------------------------------------
+
+This example uses a data file `torsions-pt-525k.dat` that contains a 
+snapshots from a simulation of a dodecalanine at 525K, using the AMBER
+forcefield. 
+
+The PAMM analysis consists of three steps.
+
+1. **Evaluation of the local environment descriptors**
+    First, one needs to analyze the trajectory to compute a set of
+    descriptors to describe local motifs. This could be for example the
+    set of backbone dihedrals (phi,psi) as a two dimensional descriptor.
+    However, it could be also any higher dimensional descriptor, too.
+    For example a 4-dimensional set of two subsequent backbone dihedral pairs.
+    Anyway, we'll have to reshape the original 24-dimensional dataset using
+    the following bash command:
+ 
+    ```bash
+    cat torsions-pt-525k.dat | awk '{for (i=1;i<=NF-1;i+=2){printf "%.9f %.9f\n",$i,$(i+1)}}' > bb-pt-525k.dat
+    ```
+
+2. **Training of probabilistic motif identifiers (PMIs)**
+    Next, one can run the PAMM analysis on the set dodecalanine descriptors:
+ 
+    ```bash
+    ../bin/pamm -d 2 -p 6.28,6,28 (-fpoints 0.3 -qs 0.0) -o dode < bb-pt-525k.dat
+    ```
+
+    Note that most parameters in PAMM are selected automatically to 
+    give reasonable defaults. However, we have to specify the periodicity
+    of each dimension using the -p flag. (We also reset the default parameter
+    for the smoothing with -fpoints to 0.3 and the dimensionality compensation factor
+    for the quickshift algorithm to 0.0 with the flag -qs since this is a low 
+    dimensional problem).
+
+    `pamm` generates two files, `dode.grid` that cointains the grid points,
+    that have been selected, together with the value of the KDE of the 
+    probability density and with the cluster index for each point (plus some 
+    additional things like the local dimensionality, the local number of points, ...) 
+    `dode.pamm` contains the list of clusters that have been identified,
+    represented by Gaussians with the given mean and covariance.
+
+3. **Global structure classification**
+    We can also use the high-dimensional data directly and see if we find reasonable
+    clusters. The following command would use PAMM to globally classify structures:
+    
+    ```bash
+    ../bin/pamm -d 24 -p 6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28,6.28,6,28 -o dode_global < bb-pt-525k.dat
+    ```
+    
+    
 

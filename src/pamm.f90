@@ -583,7 +583,7 @@
       !           if van Mises kernel is sufficiently small ...
 
       ! global cutoff for kde
-      kdecut2 = 16.0d0 * (DSQRT(DBLE(D))+1.0d0)**2
+      kdecut2 = 9.0d0 * (DSQRT(DBLE(D))+1.0d0)**2
       ! setting initial probability to the smallest possible value
       prob = -HUGE(0.0d0)
       ! pre-logarithm weights to increase speed
@@ -1260,6 +1260,8 @@
          DOUBLE PRECISION xxm(D,N)      ! difference of x and xm
          DOUBLE PRECISION xxmw(D,N)     ! weighted difference of x and xm
 
+         DOUBLE PRECISION sumsin,sumcos     ! sum of cos and sin
+
 !         DOUBLE PRECISION sumcos,sumsin
 
          INTEGER ii
@@ -1267,24 +1269,24 @@
          DO ii=1,D
            ! find the mean for periodic or non periodic data
 
-!           IF (period(ii) > 0.0d0) THEN
-!             sumsin = SUM(SIN(x(ii,:)))/nsamples
-!             sumcos = SUM(COS(x(ii,:)))/nsamples
-!             xm(ii) = ATAN(sumsin/sumcos)
-!             IF (sumcos<0.0d0) THEN
-!               xm(ii) = xm(ii) + twopi/2.0d0
-!             ELSEIF (sumsin<0.0d0 .AND. sumcos>0.0d0) THEN
-!               xm(ii) = xm(ii) + twopi
-!             ENDIF
-!           ELSE
-!             xm(ii) = SUM(x(ii,:)*w)/wnorm
-!           ENDIF
+           IF (period(ii) > 0.0d0) THEN
+             sumsin = SUM(w*SIN(x(ii,:)/period(ii)))/wnorm
+             sumcos = SUM(w*COS(x(ii,:)/period(ii)))/wnorm
+             xm(ii) = ATAN2(sumsin,sumcos)
+             IF (sumcos<0.0d0) THEN
+               xm(ii) = xm(ii) + twopi/2.0d0
+             ELSEIF (sumsin<0.0d0 .AND. sumcos>0.0d0) THEN
+               xm(ii) = xm(ii) + twopi
+             ENDIF
+           ELSE
+             xm(ii) = SUM(x(ii,:)*w)/wnorm
+           ENDIF
 
-           xm(ii) = SUM(x(ii,:)*w)/wnorm
+!           xm(ii) = SUM(x(ii,:)*w)/wnorm
 
            xxm(ii,:) = x(ii,:) - xm(ii)
            IF (period(ii) > 0.0d0) THEN
-             ! scaled lenght
+             ! scaled length
              xxm(ii,:) = xxm(ii,:)/period(ii)
              ! Finds the smallest separation between the images of the vector elements
              xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)) ! Minimum Image Convention
