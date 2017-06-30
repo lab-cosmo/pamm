@@ -1270,19 +1270,12 @@
            ! find the mean for periodic or non periodic data
 
            IF (period(ii) > 0.0d0) THEN
-             sumsin = SUM(w*SIN(x(ii,:)/period(ii)))/wnorm
-             sumcos = SUM(w*COS(x(ii,:)/period(ii)))/wnorm
+             sumsin = SUM(w*SIN(x(ii,:)*twopi/period(ii)))/wnorm
+             sumcos = SUM(w*COS(x(ii,:)*twopi/period(ii)))/wnorm
              xm(ii) = ATAN2(sumsin,sumcos)
-             IF (sumcos<0.0d0) THEN
-               xm(ii) = xm(ii) + twopi/2.0d0
-             ELSEIF (sumsin<0.0d0 .AND. sumcos>0.0d0) THEN
-               xm(ii) = xm(ii) + twopi
-             ENDIF
            ELSE
              xm(ii) = SUM(x(ii,:)*w)/wnorm
            ENDIF
-
-!           xm(ii) = SUM(x(ii,:)*w)/wnorm
 
            xxm(ii,:) = x(ii,:) - xm(ii)
            IF (period(ii) > 0.0d0) THEN
@@ -1297,7 +1290,11 @@
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
          Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
-
+         
+         WRITE(*,*) xm(:)
+         
+         STOP
+         
       END SUBROUTINE covariance
 
       SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
