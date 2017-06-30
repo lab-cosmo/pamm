@@ -1290,11 +1290,6 @@
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
          Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
-         
-         WRITE(*,*) xm(:)
-         
-         STOP
-         
       END SUBROUTINE covariance
 
       SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
