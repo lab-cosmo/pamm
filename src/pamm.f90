@@ -1361,31 +1361,25 @@
          DOUBLE PRECISION xxm(D,N)      ! difference of x and xm
          DOUBLE PRECISION xxmw(D,N)     ! weighted difference of x and xm
 
+         DOUBLE PRECISION sumsin,sumcos     ! sum of cos and sin
+
 !         DOUBLE PRECISION sumcos,sumsin
 
          INTEGER ii
 
          DO ii=1,D
            ! find the mean for periodic or non periodic data
-
-!           IF (period(ii) > 0.0d0) THEN
-!             sumsin = SUM(SIN(x(ii,:)))/nsamples
-!             sumcos = SUM(COS(x(ii,:)))/nsamples
-!             xm(ii) = ATAN(sumsin/sumcos)
-!             IF (sumcos<0.0d0) THEN
-!               xm(ii) = xm(ii) + twopi/2.0d0
-!             ELSEIF (sumsin<0.0d0 .AND. sumcos>0.0d0) THEN
-!               xm(ii) = xm(ii) + twopi
-!             ENDIF
-!           ELSE
-!             xm(ii) = SUM(x(ii,:)*w)/wnorm
-!           ENDIF
-
-           xm(ii) = SUM(x(ii,:)*w)/wnorm
+           IF (period(ii) > 0.0d0) THEN
+             sumsin = SUM(w*SIN(x(ii,:)*twopi/period(ii)))/wnorm
+             sumcos = SUM(w*COS(x(ii,:)*twopi/period(ii)))/wnorm
+             xm(ii) = ATAN2(sumsin,sumcos)
+           ELSE
+             xm(ii) = SUM(x(ii,:)*w)/wnorm
+           ENDIF
 
            xxm(ii,:) = x(ii,:) - xm(ii)
            IF (period(ii) > 0.0d0) THEN
-             ! scaled lenght
+             ! scaled length
              xxm(ii,:) = xxm(ii,:)/period(ii)
              ! Finds the smallest separation between the images of the vector elements
              xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)) ! Minimum Image Convention
@@ -1396,7 +1390,6 @@
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
          Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
-
       END SUBROUTINE covariance
 
       SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
