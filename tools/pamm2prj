@@ -216,20 +216,20 @@ if cvxflag:
   P.axis('off')  
 else:
   # clusters smaller than minsize are printed in gray
-  P.scatter(X[where(~in1d(cls, pc))[0],0],X[where(~in1d(cls, pc))[0],1],c='gray',s=5,edgecolor='None')
+  P.scatter(X[where(~in1d(cls, pc))[0],0],X[where(~in1d(cls, pc))[0],1],c='gray',edgecolor='None')
   # print all other cluster bigger than minsize
   for i,c in enumerate(pc):
-    P.scatter(X[c==cls,0],X[c==cls,1],c=cc[i],s=5,edgecolor='None')
+    P.scatter(X[c==cls,0],X[c==cls,1],c=cc[i],edgecolor='None')
   # mark points with highest probability
   for i,c in enumerate(pc):
-    P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',s=5,color=cc[i])
+    P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',color=cc[i])
   P.axis('equal')
   P.axis('off') 
   P.tight_layout() 
 
 if pflag:
   P.figure()
-  P.scatter(X[argsort(p),0],X[argsort(p),1],c=p[argsort(p)],s=5,edgecolor='None')
+  P.scatter(X[argsort(p),0],X[argsort(p),1],c=p[argsort(p)],edgecolor='None')
   P.colorbar()
   P.clim([lo,hi])
   P.axis('equal')

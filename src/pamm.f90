@@ -1268,7 +1268,6 @@
 
          DO ii=1,D
            ! find the mean for periodic or non periodic data
-
            IF (period(ii) > 0.0d0) THEN
              sumsin = SUM(w*SIN(x(ii,:)*twopi/period(ii)))/wnorm
              sumcos = SUM(w*COS(x(ii,:)*twopi/period(ii)))/wnorm
