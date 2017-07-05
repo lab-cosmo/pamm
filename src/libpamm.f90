@@ -744,12 +744,15 @@
 
          DO k = 1, D
             IF (period(k)<=0.0d0) CYCLE
-            ! scaled lenght
-            rij(k) = rij(k)/period(k)
-            ! Finds the smallest separation between the images of the atom i and j
-            rij(k) = rij(k) - dnint(rij(k)) ! Minimum Image Convention
-            ! Rescale back the lenght
-            rij(k) = rij(k)*period(k)
+            ! this is the correct periodic distance
+            rij(k) = rij(k) - DNINT(rij(k)/period(k)) * period(k)
+            
+!            ! scaled lenght
+!            rij(k) = rij(k)/period(k)
+!            ! Finds the smallest separation between the images of the atom i and j
+!            rij(k) = rij(k) - ANINT(rij(k)) ! Minimum Image Convention
+!            ! Rescale back the lenght
+!            rij(k) = rij(k)*period(k)
          ENDDO
          pammr2 = DOT_PRODUCT(rij, rij)
 

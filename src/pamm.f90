@@ -413,29 +413,12 @@
       ! print out the voronois associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
 
-      ! distance to closest voronoi
-      ! ROM: we don't need this ...
-!      mindist=HUGE(0.0d0) !  of the kernel density estimator
-!      DO i=1,ngrid
-!        DO j=1,i-1
-!          ! distance between two voronoi centers
-!          dummd1 = pammr2(D,period,y(:,i),y(:,j))
-!          IF (dummd1 < mindist(i)) THEN
-!            mindist(i) = dummd1
-!          ENDIF
-!          IF (dummd1 < mindist(j)) THEN
-!            mindist(j) = dummd1
-!          ENDIF
-!        ENDDO
-!      ENDDO
-
       ! Generate the neighbour list
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,ni,iminij,pnlist,nlist)
 
       ! estimate Q from grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
-
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
 
       !MC tune = maxeigval(Q,D)
@@ -447,25 +430,17 @@
       sigma2 = tune
       ! localization based on fraction of avg. variance
       IF(fspread.GT.0) sigma2 = sigma2*fspread
+      
       IF(verbose) WRITE(*,*) &
         " Estimating bandwidths and distance matrix"
-
-      
-      !!! DEBUG START
-!      OPEN(UNIT=12,FILE=trim(outputfile)//".Q",STATUS='REPLACE',ACTION='WRITE')
-      !!! DEBUG END
-      ! estimate the localization for each grid point
-      !!!!MC GOT HERE
-
       ! set distance matrix to zero
       distmm = 0.0d0
-      
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
 
-        ! do bisectioning to find proper localization for ntarget points
         IF(fpoints.GT.0) THEN
+          ! do bisectioning to find proper localization for ntarget
           ! cannot go below number of points in current grid points
           nlim = max(ntarget, 2*INT(wi(i)))
           IF (ntarget.LT.nlim) WRITE(*,*) &
@@ -483,8 +458,8 @@
               sigma2(i)=sigma2(i)+tune
               CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
             ENDDO
-
           ENDIF
+          
           ! fine tuning of localization approach optimal value using bisectioning
           j = 1
           DO WHILE(.TRUE.)
@@ -494,12 +469,9 @@
             ELSE
               sigma2(i) = sigma2(i)+tune/2.0d0**j
             ENDIF
-
             CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-
             ! exit loop if sigma gives correct nlocal
             IF (ANINT(nlocal(i)).EQ.nlim) EXIT
-
             ! adjust scaling factor for new sigma
             j = j+1
           ENDDO
@@ -557,7 +529,7 @@
         
 
         DO j=1,i-1
-          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))          
           distmm(j,i) = distmm(i,j)
         ENDDO
       ENDDO
@@ -710,9 +682,15 @@
          qspath=0
          qspath(1)=i
          counter=1
+         
+         ! maybe use trace of covariance matrix as cutoff
+         
+         ! maximum euclidean distance between two points in a periodic dim 
+         ! is dmax = sqrt(sum(period**2))
+         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm, &
-                                               sigma2(qspath(counter))*(DSQRT(Di(i))+qscut)**2)   
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,sigma2(qspath(counter)))! &
+                                               !sigma2(qspath(counter)))!*(DSQRT(Di(qspath(counter)))+1.0d0)**2*qscut2)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -1288,7 +1266,7 @@
            xxmw(ii,:) = xxm(ii,:) * w/wnorm
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
-         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
+         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0)) 
       END SUBROUTINE covariance
 
       SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
@@ -1830,6 +1808,7 @@
 
          qs_next = idx
          DO j=1,ngrid
+            WRITE(*,*) idx,j,distmm(idx,j),lambda
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
                IF ((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda)) THEN
                  dmin = distmm(idx,j)
