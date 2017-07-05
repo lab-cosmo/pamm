@@ -422,12 +422,20 @@
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
 
       !MC tune = maxeigval(Q,D)
+      ! maximum euclidean distance between two points in a periodic dim 
+      ! is dmax = sqrt(sum(period**2)), thus set tune to this
       tune = 0.0d0
-      DO i=1,D
+      IF(periodic) THEN
+        tune = SUM(period**2)
+        sigma2 = tune
+      ELSE
+        DO i=1,D
           tune = tune+Q(i,i)
-      ENDDO
-      tune = tune/D
-      sigma2 = tune
+        ENDDO
+        tune = tune/D
+        sigma2 = tune
+      ENDIF
+
       ! localization based on fraction of avg. variance
       IF(fspread.GT.0) sigma2 = sigma2*fspread
       
@@ -527,6 +535,10 @@
         ! estimate the logarithmic normalization constants
         normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
         
+        sigma2(i) = 0.d0
+        DO j=1,D
+          sigma2(i) = sigma2(i) + Qi(j,j)
+        ENDDO
 
         DO j=1,i-1
           distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))          
@@ -684,9 +696,7 @@
          counter=1
          
          ! maybe use trace of covariance matrix as cutoff
-         
-         ! maximum euclidean distance between two points in a periodic dim 
-         ! is dmax = sqrt(sum(period**2))
+       
          
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,sigma2(qspath(counter)))! &
