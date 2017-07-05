@@ -1256,12 +1256,15 @@
 
            xxm(ii,:) = x(ii,:) - xm(ii)
            IF (period(ii) > 0.0d0) THEN
-             ! scaled length
-             xxm(ii,:) = xxm(ii,:)/period(ii)
-             ! Finds the smallest separation between the images of the vector elements
-             xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)) ! Minimum Image Convention
-             ! Rescale back the length
-             xxm(ii,:) = xxm(ii,:)*period(ii)
+             ! this is the correct way
+             xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)/period(ii)) * period(ii)
+           
+!             ! scaled length
+!              = xxm(ii,:)/period(ii)
+!             ! Finds the smallest separation between the images of the vector elements
+!             xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)) ! Minimum Image Convention
+!             ! Rescale back the length
+!             xxm(ii,:) = xxm(ii,:)*period(ii)
            ENDIF
            xxmw(ii,:) = xxm(ii,:) * w/wnorm
          ENDDO
