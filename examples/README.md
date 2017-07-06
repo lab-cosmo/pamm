@@ -118,22 +118,21 @@ The PAMM analysis consists of three steps.
     the following bash command:
  
     ```bash
-    cat torsions-pt-525k.dat | awk '{for (i=1;i<=NF-1;i+=2){printf "%.9f %.9f\n",$i,$(i+1)}}' > bb-pt-525k.dat
+    cat torsions-pt-525k-sel.dat | awk '{for (i=1;i<=NF-1;i+=2){printf "%.9f %.9f\n",$i,$(i+1)}}' > bb-pt-525k.dat
     ```
 
 2. **Training of probabilistic motif identifiers (PMIs)**
     Next, one can run the PAMM analysis on the set dodecalanine descriptors:
  
     ```bash
-    ../bin/pamm -d 2 -p 6.28,6,28 (-fpoints 0.3 -qs 0.0) -o dode < bb-pt-525k.dat
+    ../bin/pamm -d 2 -p 6.28,6,28 (-fpoints 0.15 -qs 1.0) -o dode < bb-pt-525k.dat
     ```
 
     Note that most parameters in PAMM are selected automatically to 
     give reasonable defaults. However, we have to specify the periodicity
-    of each dimension using the -p flag. (We also reset the default parameter
-    for the smoothing with -fpoints to 0.3 and the dimensionality compensation factor
-    for the quickshift algorithm to 0.0 with the flag -qs since this is a low 
-    dimensional problem).
+    of each dimension using the -p flag. (default parameter
+    for the smoothing are 0.15 using a fraction of points and scaling factor
+    for the quickshift algorithm is 1.0).
 
     `pamm` generates two files, `dode.grid` that cointains the grid points,
     that have been selected, together with the value of the KDE of the 
