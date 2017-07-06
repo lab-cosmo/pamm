@@ -401,7 +401,7 @@
          CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,ni,iminij,ineigh,wi, &
                   saveidxs,idxgrid,outputfile)
       ENDIF
-
+      
       ! error check of voronoi association
       DO i=1,ngrid
         IF (wi(i).EQ.0.0d0) STOP &
@@ -424,17 +424,19 @@
       !MC tune = maxeigval(Q,D)
       ! maximum euclidean distance between two points in a periodic dim 
       ! is dmax = sqrt(sum(period**2)), thus set tune to this
-      tune = 0.0d0
       IF(periodic) THEN
         tune = SUM(period**2)
         sigma2 = tune
       ELSE
+        tune = 0.0d0
         DO i=1,D
           tune = tune+Q(i,i)
         ENDDO
-        tune = tune/D
+!        tune = tune/D
         sigma2 = tune
       ENDIF
+      
+      IF(verbose) WRITE(*,*) " Debug: initial sqrt(tune) ", DSQRT(tune)
 
       ! localization based on fraction of avg. variance
       IF(fspread.GT.0) sigma2 = sigma2*fspread
@@ -1636,13 +1638,13 @@
          INTEGER, INTENT(IN) :: ngrid
          DOUBLE PRECISION, DIMENSION(D,nsamples), INTENT(IN) :: x
          DOUBLE PRECISION, DIMENSION(nsamples), INTENT(IN) :: wj
+         INTEGER, DIMENSION(ngrid), INTENT(IN) :: idxgrid
 
          DOUBLE PRECISION, DIMENSION(D,ngrid), INTENT(OUT) :: y
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ni
          INTEGER, DIMENSION(ngrid), INTENT(OUT) :: ineigh
          INTEGER, DIMENSION(nsamples), INTENT(OUT) :: iminij
          DOUBLE PRECISION, DIMENSION(ngrid), INTENT(OUT) :: wi
-         INTEGER, DIMENSION(ngrid), INTENT(IN) :: idxgrid
 
          INTEGER i,j,irandom
          DOUBLE PRECISION :: dminij(nsamples), dij, dmax, dneigh
@@ -1650,7 +1652,6 @@
          iminij=0
          y=0.0d0
          ni=0
-
          ! start from first point of user provided grid
          irandom=idxgrid(1)
          y(:,1)=x(:,irandom)
@@ -1821,7 +1822,6 @@
 
          qs_next = idx
          DO j=1,ngrid
-            WRITE(*,*) idx,j,distmm(idx,j),lambda
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
                IF ((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda)) THEN
                  dmin = distmm(idx,j)
