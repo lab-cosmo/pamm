@@ -20,28 +20,30 @@ flip    = False  # plot cluster from low to high probable
 pflag   = False  # no print out of probabilities
 cvxflag = False  # do not use convex hull to illustrate cluster
 smode   = 0      # sort cluster according to size
+single  = -1     # show a single cluster
 lo      = nan    # use min/max of probability as limits for prob plot
 hi      = nan    # use min/max of probability as limits for prob plot
 
 if len(sys.argv) < 5:
-  print "usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
+  print "usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-s id] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
   sys.exit("ERROR: not enough input provided")
 else:
   for i,s in enumerate(sys.argv):
-    if   s == '-D'    : D       = int(sys.argv[i+1])
-    elif s == '-d'    : d       = int(sys.argv[i+1])
-    elif s == '-min'  : minsize = int(sys.argv[i+1])
-    elif s == '-n'    : nplot   = int(sys.argv[i+1])
-    elif s == '-flip' : flip    = True
-    elif s == '-sort' : smode   = int(sys.argv[i+1])
-    elif s == '-p'    : pflag   = True
-    elif s == '-hull' : cvxflag = True
-    elif s == '-lo'   : lo      = float(sys.argv[i+1])
-    elif s == '-hi'   : hi      = float(sys.argv[i+1])
-    elif s == '-v'    : verbose = True
-    elif s == '-h'    : 
+    if   s == '-D'      : D       = int(sys.argv[i+1])
+    elif s == '-d'      : d       = int(sys.argv[i+1])
+    elif s == '-min'    : minsize = int(sys.argv[i+1])
+    elif s == '-n'      : nplot   = int(sys.argv[i+1])
+    elif s == '-s'      : single  = int(sys.argv[i+1])
+    elif s == '-flip'   : flip    = True
+    elif s == '-sort'   : smode   = int(sys.argv[i+1])
+    elif s == '-p'      : pflag   = True
+    elif s == '-hull'   : cvxflag = True
+    elif s == '-lo'     : lo      = float(sys.argv[i+1])
+    elif s == '-hi'     : hi      = float(sys.argv[i+1])
+    elif s == '-v'      : verbose = True
+    elif s == '-h'      : 
       print """
-usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
+usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-s id] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
 
  required:
    
@@ -60,6 +62,8 @@ usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-flip] [-sort mode] [-p] [-hu
    -min min      : minimum size of cluster to plot    [1]
 
    -n N          : plot only N cluster                [all]
+   
+   -s id         : plot single cluster with id        [false]
 
    -flip         : flip sorting                       [false]
 
@@ -155,41 +159,49 @@ print " cluster analysis"
 print "   %d clusters in total " % (ntot)
 
 # if nplot is not set, set it to total number of clusters
-if nplot < 0: nplot = len(uc)
-
-if smode == 1:
-  # sort cluster according to cluster weights (fraction of densities)
-  lnw = zeros(ntot)
-  for i,c in enumerate(uc):
-    lnw[i] = logsumexp(p[cls == c])-logsumexp(p)
-  
-  si = flipud(argsort(lnw))
-  
-  uc = uc[si]
- 
-  print " cluster / weight"
-  w = exp(lnw[si])
-  for i in range(nplot):
-    print "   %d / %f" % (uc[i],w[i])
+if single > 0:
+  # consistency check of input provided
+  if single not in uc: sys.exit("ERROR: unknown cluster id provided")
+  if smode == 1:
+    # cluster weigth according fraction of density
+    lnw = logsumexp(p[cls == single])-logsumexp(p)
+    print " cluster / weight"
+    w = exp(lnw)
+    print "   %d / %f" % (single,w)
+  else:
+    # cluster weight according to size
+    w = sum(wgrid[cls == single])/sum(wgrid)
+    print " cluster / weight"
+    print "   %d / %f" % (single,w)
+  # plot only single cluster
+  pc = array([single])
 else:
+  if nplot < 0: nplot = len(uc)
+  if smode == 1:
+    # sort cluster according to cluster weights (fraction of densities)
+    lnw = zeros(ntot)
+    for i,c in enumerate(uc):
+      lnw[i] = logsumexp(p[cls == c])-logsumexp(p)
+    si = flipud(argsort(lnw))
+    uc = uc[si]
+    print " cluster / weight"
+    w = exp(lnw[si])
+    for i in range(nplot):
+      print "   %d / %f" % (uc[i],w[i])
+  else:
     # sort cluster according to their size
-    
-  wtot = sum(wgrid)
-  w = zeros(ntot)
-  for i,c in enumerate(uc):
-    w[i] = sum(wgrid[cls == c])/wtot
-
-  si = flipud(argsort(w))
-  
-  uc = uc[si]
- 
-  print " cluster / weight"
-  w = w[si]
-  
-  for i in range(nplot):
-    print "   %d / %f" % (uc[i],w[i])
-
-pc = uc[:nplot]
+    wtot = sum(wgrid)
+    w = zeros(ntot)
+    for i,c in enumerate(uc):
+      w[i] = sum(wgrid[cls == c])/wtot
+    si = flipud(argsort(w))
+    uc = uc[si]
+    print " cluster / weight"
+    w = w[si]
+    for i in range(nplot):
+      print "   %d / %f" % (uc[i],w[i])
+  # plot all cluster up to nplot
+  pc = uc[:nplot]
 
 # show smallest (or lowest probable) cluster first
 if flip: pc = flipud(pc)
