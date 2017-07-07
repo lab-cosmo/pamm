@@ -25,7 +25,7 @@ lo      = nan    # use min/max of probability as limits for prob plot
 hi      = nan    # use min/max of probability as limits for prob plot
 
 if len(sys.argv) < 5:
-  print "usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-s id] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
+  print "usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-c id] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
   sys.exit("ERROR: not enough input provided")
 else:
   for i,s in enumerate(sys.argv):
@@ -33,7 +33,7 @@ else:
     elif s == '-d'      : d       = int(sys.argv[i+1])
     elif s == '-min'    : minsize = int(sys.argv[i+1])
     elif s == '-n'      : nplot   = int(sys.argv[i+1])
-    elif s == '-s'      : single  = int(sys.argv[i+1])
+    elif s == '-c'      : single  = int(sys.argv[i+1])
     elif s == '-flip'   : flip    = True
     elif s == '-sort'   : smode   = int(sys.argv[i+1])
     elif s == '-p'      : pflag   = True
@@ -43,7 +43,7 @@ else:
     elif s == '-v'      : verbose = True
     elif s == '-h'      : 
       print """
-usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-s id] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
+usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-c id] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
 
  required:
    
@@ -63,7 +63,7 @@ usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-s id] [-flip] [-sort mode] [
 
    -n N          : plot only N cluster                [all]
    
-   -s id         : plot single cluster with id        [false]
+   -c id         : plot single cluster with id        [false]
 
    -flip         : flip sorting                       [false]
 
