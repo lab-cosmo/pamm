@@ -125,7 +125,7 @@ The PAMM analysis consists of three steps.
     Next, one can run the PAMM analysis on the set dodecalanine descriptors:
  
     ```bash
-    ../bin/pamm -d 2 -p 6.28,6,28 -fspread 0.001 (-qs 1.0) -o dode < bb-pt-525k.dat
+    ../bin/pamm -d 2 -p 6.28,6,28 -fspread 0.03 (-qs 1.0) -o dode < bb-pt-525k.dat
     ```
 
     Note that most parameters in PAMM are selected automatically to 

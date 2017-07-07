@@ -537,6 +537,9 @@
         ! estimate the logarithmic normalization constants
         normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
         
+        ! use sigma to set cutoff for QS
+        IF (ntarget.LE.wi(i)) &
+          WRITE(*,*) " Warning: localization smaller than voronoi (ntarget < points in voronoi), increase grid size!"
         sigma2(i) = 0.d0
         DO j=1,D
           sigma2(i) = sigma2(i) + Qi(j,j)
