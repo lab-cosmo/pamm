@@ -125,14 +125,16 @@ The PAMM analysis consists of three steps.
     Next, one can run the PAMM analysis on the set dodecalanine descriptors:
  
     ```bash
-    ../bin/pamm -d 2 -p 6.28,6,28 (-fpoints 0.15 -qs 1.0) -o dode < bb-pt-525k.dat
+    ../bin/pamm -d 2 -p 6.28,6,28 -fspread 0.001 (-qs 1.0) -o dode < bb-pt-525k.dat
     ```
 
     Note that most parameters in PAMM are selected automatically to 
     give reasonable defaults. However, we have to specify the periodicity
-    of each dimension using the -p flag. (default parameter
+    of each dimension using the -p flag and we reset the default smoothing 
+    by using the fraction of spread which we set to 0.001 (default parameter
     for the smoothing are 0.15 using a fraction of points and scaling factor
-    for the quickshift algorithm is 1.0).
+    for the quickshift algorithm is 1.0). periodic data has typically a nice 
+    regularly spaced grid, thus it makes more sense to use fspread.
 
     `pamm` generates two files, `dode.grid` that cointains the grid points,
     that have been selected, together with the value of the KDE of the 
