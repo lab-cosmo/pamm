@@ -439,7 +439,7 @@
       IF(verbose) WRITE(*,*) " Debug: initial sqrt(tune) ", DSQRT(tune)
 
       ! localization based on fraction of avg. variance
-      IF(fspread.GT.0) sigma2 = sigma2*fspread
+      IF(fspread.GT.0) sigma2 = sigma2*fspread**2
       
       IF(verbose) WRITE(*,*) &
         " Estimating bandwidths and distance matrix"
