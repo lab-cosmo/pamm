@@ -449,10 +449,8 @@
         sigma2 = tune
       ENDIF
 
-      WRITE(*,*) sigma2,fspread**2
       ! localization based on fraction of data spread
       IF(fspread.GT.0) sigma2 = sigma2*fspread**2      
-      WRITE(*,*) sigma2,fspread**2
 
       IF(verbose) WRITE(*,*) &
         " Estimating bandwidths and distance matrix"
