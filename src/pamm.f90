@@ -352,15 +352,6 @@
       ! are set to the square root of the total number of points
       IF (ngrid.EQ.-1) ngrid = int(sqrt(float(nsamples)))
 
-      ! Now sets the localization. It can be set either in terms of a fraction of the
-      ! number samples, or directly as a fraction of the variance of the data
-!      ntarget = int(float(nsamples) * fpoints)
-      ! ROM: we should use the sum of weights instead of number of sample points
-      ntarget = int(normwj * fpoints)
-      
-      ! only one of the methods can be used at a time
-      IF (fspread.GT.0.0d0) fpoints = -1.0d0
-
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
@@ -418,6 +409,32 @@
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,ni,iminij,pnlist,nlist)
 
+
+      ! Now set localizations. It can be set either in terms of a fraction of the
+      ! number samples, or directly as a fraction of the variance of the data
+      ! ROM: ntarget = int(float(nsamples) * fpoints)
+      ! ROM: we should use the sum of weights instead of number of sample points
+      ntarget = INT(ANINT(normwj * fpoints))
+      
+      ! only one of the methods can be used at a time
+      IF (fspread.GT.0.0d0) THEN
+        fpoints = -1.0d0
+        ! distance to closest voronoi
+        mindist=HUGE(0.0d0) !  of the kernel density estimator
+        DO i=1,ngrid
+          DO j=1,i-1
+            ! distance between two voronoi centers
+            dummd1 = pammr2(D,period,y(:,i),y(:,j))
+            IF (dummd1 < mindist(i)) THEN
+              mindist(i) = dummd1
+            ENDIF
+            IF (dummd1 < mindist(j)) THEN
+              mindist(j) = dummd1
+            ENDIF
+          ENDDO
+        ENDDO
+      ENDIF
+
       ! estimate Q from grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
@@ -444,15 +461,22 @@
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         
+        ! get initial nlocal using sigma2 equal to tune
+        CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+        
         ! estimate localization based either on fspread or fpoints  
         IF(fpoints.GT.0) THEN
+          ! ************************************************
+          ! *** localization based on fraction of points ***
+          ! ************************************************
+          
           ! check if ntarget is smaller than points in voronoi available
           nlim = ntarget
-          IF (nlim.LE.CEILING(wi(i))) nlim = CEILING(wi(i))
-          
-          ! get initial nlocal using sigma2 equal to tune
-          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-          
+          IF (nlim.LE.FLOOR(wi(i))) THEN
+            nlim = CEILING(wi(i))+1
+            WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
+          ENDIF
+
           ! quick approach to ntarget if necessary
           IF (nlocal(i).LT.nlim) THEN
             DO WHILE(nlocal(i).LT.nlim)
@@ -478,10 +502,20 @@
             j = j+1
           ENDDO
 
-          ! estimate Q from the grid using localization
           CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
         ELSE
-          STOP "*** Uhm, sorry! Not implemented yet ... ***"
+          ! ************************************************
+          ! *** localization based on fraction of spread ***
+          ! ************************************************
+          
+          ! consistency check if localization is to small
+          IF (sigma2(i).LT.mindist(i)) THEN
+            sigma2(i) = mindist(i) 
+            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+            WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
+          ENDIF
+          
+          CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
         ENDIF
 
         ! estimate local dimensionality
@@ -495,7 +529,6 @@
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
            * nlocal(i)**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
            
-        !TODO since Hi is just a scaling of Qi we can similarly compute Hiinv from Qiinv. This is also useful below   
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
@@ -504,7 +537,7 @@
         ! estimate the logarithmic normalization constants
         normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
         
-        ! store adaptive QS cutoff estimated from local covariance matrices
+        ! adaptive QS cutoff from local covariance 
         qscut2(i) = 0.d0
         DO j=1,D
           qscut2(i) = qscut2(i) + Qi(j,j)
