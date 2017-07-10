@@ -466,9 +466,9 @@
         
         ! estimate localization based either on fspread or fpoints  
         IF(fpoints.GT.0) THEN
-          ! ************************************************
-          ! *** localization based on fraction of points ***
-          ! ************************************************
+        ! ************************************************
+        ! *** localization based on fraction of points ***
+        ! ************************************************
           
           ! check if ntarget is smaller than points in voronoi available
           nlim = ntarget
@@ -501,12 +501,10 @@
             ! adjust scaling factor for new sigma
             j = j+1
           ENDDO
-
-          CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
         ELSE
-          ! ************************************************
-          ! *** localization based on fraction of spread ***
-          ! ************************************************
+        ! ************************************************
+        ! *** localization based on fraction of spread ***
+        ! ************************************************
           
           ! consistency check if localization is to small
           IF (sigma2(i).LT.mindist(i)) THEN
@@ -514,9 +512,14 @@
             CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
             WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
           ENDIF
-          
-          CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
         ENDIF
+        
+        ! ************************************************
+        ! ***  bandwidth estimation from localization  ***
+        ! ************************************************
+        
+        ! estimate local covariance using grid approximation
+        CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
 
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
