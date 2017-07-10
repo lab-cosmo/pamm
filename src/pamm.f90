@@ -409,7 +409,6 @@
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,ni,iminij,pnlist,nlist)
 
-
       ! Now set localizations. It can be set either in terms of a fraction of the
       ! number samples, or directly as a fraction of the variance of the data
       ! ROM: ntarget = int(float(nsamples) * fpoints)
@@ -425,10 +424,10 @@
           DO j=1,i-1
             ! distance between two voronoi centers
             dummd1 = pammr2(D,period,y(:,i),y(:,j))
-            IF (dummd1 < mindist(i)) THEN
+            IF (dummd1.LT.mindist(i)) THEN
               mindist(i) = dummd1
             ENDIF
-            IF (dummd1 < mindist(j)) THEN
+            IF (dummd1.LT.mindist(j)) THEN
               mindist(j) = dummd1
             ENDIF
           ENDDO
@@ -450,8 +449,10 @@
         sigma2 = tune
       ENDIF
 
+      WRITE(*,*) sigma2,fspread**2
       ! localization based on fraction of data spread
-      IF(fspread.GT.0) sigma2 = sigma2*fspread**2
+      IF(fspread.GT.0) sigma2 = sigma2*fspread**2      
+      WRITE(*,*) sigma2,fspread**2
 
       IF(verbose) WRITE(*,*) &
         " Estimating bandwidths and distance matrix"
@@ -553,129 +554,7 @@
         ENDDO
       ENDDO
       ! scale adaptive QS cutoff
-      qscut2 = qscut2 * qsscl
-      
-!      IF(verbose) WRITE(*,*) &
-!        " Estimating bandwidths and distance matrix"
-!      ! set distance matrix to zero
-!      distmm = 0.0d0
-!      DO i=1,ngrid
-!        IF(verbose .AND. (modulo(i,100).EQ.0)) &
-!          WRITE(*,*) i,"/",ngrid
-
-!        IF(fpoints.GT.0) THEN
-!          ! do bisectioning to find proper localization for ntarget
-!          ! cannot go below number of points in current grid points
-!          nlim = max(ntarget, 2*INT(wi(i)))
-!          IF (ntarget.LT.nlim) WRITE(*,*) &
-!            " Warning: fraction of points too small, increase grid size!"
-
-!          ! initial estimate of nlocal using average spread 
-!          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-
-!          ! aproaching quickly ntarget
-!          ! if nlocal is smaller than target value try to approach quickly to target value
-!          ! typically the initial sigma is big enough not to do this, however, nobody knows...
-!          IF (nlocal(i).LT.nlim) THEN
-!            DO WHILE(nlocal(i).LT.nlim)
-!              ! approach the desired value
-!              sigma2(i)=sigma2(i)+tune
-!              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-!            ENDDO
-!          ENDIF
-!          
-!          ! fine tuning of localization approach optimal value using bisectioning
-!          j = 1
-!          DO WHILE(.TRUE.)
-!            ! fine tuning
-!            IF(nlocal(i).GT.nlim) THEN
-!              sigma2(i) = sigma2(i)-tune/2.0d0**j
-!            ELSE
-!              sigma2(i) = sigma2(i)+tune/2.0d0**j
-!            ENDIF
-!            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-!            ! exit loop if sigma gives correct nlocal
-!            IF (ANINT(nlocal(i)).EQ.nlim) EXIT
-!            ! adjust scaling factor for new sigma
-!            j = j+1
-!          ENDDO
-
-!          ! estimate Q from the grid
-!          CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
-
-!        ELSE
-!          ! estimate the localization weights using sigma calculated from fraction of data spread
-!          CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-!          ! if the localization is as small as the size of the voronoi
-!          ! the covariance estimation from the grid is not working.
-!          ! thus, we estimate the exact local covariance by using the sample points
-!          IF (nlocal(i).LE.wi(i)) THEN
-!            CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal2,nlocal(i))
-!            WRITE(*,*) " Warning: localization smaller than Voronoi, increase grid size!"
-!            ! check if we only have a single point in the voronoi using
-!            ! that localization
-!            IF (nlocal(i).LE.1.0d0) THEN
-!              tune = sigma2(i)
-!              DO WHILE(nlocal(i).LE.1.0d0)
-!                ! approach the desired value
-!                sigma2(i)=sigma2(i)+tune
-!                CALL localization(D,period,nsamples,sigma2(i),x,wj,y(:,i),wlocal2,nlocal(i))
-!              ENDDO
-!              WRITE(*,*) " Warning: only one point in local zone, adjusted localization!"
-!            ENDIF
-!            ! estimate Q from all sample points
-!            CALL covariance(D,period,nsamples,nlocal(i),wlocal2,x,Qi)
-!          ELSE
-!            ! estimate Q using grid approximation
-!            CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
-!          ENDIF
-!        ENDIF
-
-!        ! estimate local dimensionality
-!        Di(i) = effdim(D,Qi)
-!        ! oracle shrinkage of covariance matrix
-!        CALL oracle(D,nlocal(i),Qi)
-!        ! inverse local covariance matrix and store it
-!        CALL invmatrix(D,Qi,Qiinv)
-
-!        ! estimate bandwidth from normal reference rule        
-!        Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
-!           * nlocal(i)**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
-!           
-!        !TODO since Hi is just a scaling of Qi we can similarly compute Hiinv from Qiinv. This is also useful below   
-!        ! inverse of the bandwidth matrix
-!        CALL invmatrix(D,Hi,Hiinv(:,:,i))
-
-!        ! estimate logarithmic determinant of local BW H's
-!        logdetHi(i) = logdet(D,Hi)
-!        ! estimate the logarithmic normalization constants
-!        normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
-!        
-!        ! use sigma to set cutoff for QS
-!        IF (ntarget.LE.wi(i)) &
-!          WRITE(*,*) " Warning: localization smaller than voronoi (ntarget < points in voronoi), increase grid size!"
-!        sigma2(i) = 0.d0
-!        DO j=1,D
-!          sigma2(i) = sigma2(i) + Qi(j,j)
-!        ENDDO
-
-!        DO j=1,i-1
-!          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))          
-!          distmm(j,i) = distmm(i,j)
-!        ENDDO
-!      ENDDO
-
-      !!! DEBUG START
-!      CLOSE(UNIT=12)
-      !!! DEBUG END
-
-      !!! DEBUG START
-!      OPEN(UNIT=12,FILE=trim(outputfile)//".distmm",STATUS='REPLACE',ACTION='WRITE')
-!      DO i=1,ngrid
-!        WRITE(12,*) SQRT(distmm(i,:))
-!      ENDDO
-!      CLOSE(UNIT=12)
-      !!! DEBUG END
+      qscut2 = qscut2 * qsscl**2
 
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
