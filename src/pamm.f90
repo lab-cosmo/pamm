@@ -704,7 +704,7 @@
        
          
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,sigma2(qspath(counter)))! &
+            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,sigma2(qspath(counter))*qscut2)! &
                                                !sigma2(qspath(counter)))!*(DSQRT(Di(qspath(counter)))+1.0d0)**2*qscut2)   
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
