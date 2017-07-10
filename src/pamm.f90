@@ -813,10 +813,6 @@
          qspath=0
          qspath(1)=i
          counter=1
-         
-         ! maybe use trace of covariance matrix as cutoff
-       
-         
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2(qspath(counter)))
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
