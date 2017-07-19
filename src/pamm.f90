@@ -54,7 +54,6 @@
       INTEGER nsamples                                          ! Total number points
       INTEGER ngrid                                             ! Number of samples extracted using minmax
       INTEGER seed                                              ! seed for the random number generator
-      INTEGER ntarget, nlim                                     ! ntarget for adaptive bandwidth estimation
       INTEGER nmsopt                                            ! number of mean-shift optimizations of the cluster centers
       INTEGER nbootstrap                                        ! number of bootstrap cycles
       INTEGER rndidx                                            ! random sample point index
@@ -74,6 +73,7 @@
       INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
 
       DOUBLE PRECISION normwj                                   ! accumulator for wj
+      DOUBLE PRECISION ntarget, nlim, delta                     ! ntarget for adaptive bandwidth estimation
       DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
       DOUBLE PRECISION thrpcl                                   ! parmeter controlling the merging of the outlier clusters
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points
@@ -131,12 +131,12 @@
       zeta = 0.0d0
       thrpcl = 0.0d0
       fpoints = 0.15d0       ! fraction of points to be used as standard
-      fspread = -1.0d0          ! fraction of avg. variance to be used (default: off)
+      fspread = -1.0d0       ! fraction of avg. variance to be used (default: off)
       ccmd = 0               ! no parameters specified
       Nk = 0                 ! number of gaussians
       nmsopt = 0             ! number of mean-shift refinements
       ngrid = -1             ! number of samples extracted with minmax
-      ntarget = -1           ! number of sample points for localization
+      ntarget = -1.0d0       ! number of sample points for localization
       seed = 12345           ! seed for the random number generator
       thrmerg = 0.8d0        ! merge different clusters
       qsscl = 1.0d0          ! quick shift cut-off
@@ -400,12 +400,14 @@
           " Error: voronoi has no points associated with - probably two points are perfectly overlapping"
       ENDDO
 
-      lwi = DLOG(wi)  ! precomputes log weights
+      ! precompute log weights
+      lwi = DLOG(wi)  
       lwj = DLOG(wj)
-      ! print out the voronois associations
+      
+      ! print out voronoi associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
 
-      ! Generate the neighbour list
+      ! Generate neighbour list
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,ni,iminij,pnlist,nlist)
 
@@ -413,8 +415,11 @@
       ! number samples, or directly as a fraction of the variance of the data
       ! ROM: ntarget = int(float(nsamples) * fpoints)
       ! ROM: we should use the sum of weights instead of number of sample points
-      ntarget = INT(ANINT(normwj * fpoints))
-      
+!      ntarget = INT(ANINT(normwj * fpoints))
+      ! if weights are normalized we need another criterion and here it is:
+      ntarget = normwj * fpoints
+      delta   = normwj/DBLE(nsamples)
+            
       ! only one of the methods can be used at a time
       IF (fspread.GT.0.0d0) THEN
         fpoints = -1.0d0
@@ -471,8 +476,8 @@
           
           ! check if ntarget is smaller than points in voronoi available
           nlim = ntarget
-          IF (nlim.LE.FLOOR(wi(i))) THEN
-            nlim = CEILING(wi(i))+1
+          IF (ntarget.LE.wi(i)) THEN
+            nlim = wi(i)+delta
             WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
           ENDIF
 
@@ -495,8 +500,8 @@
               sigma2(i) = sigma2(i)+tune/2.0d0**j
             ENDIF
             CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-            ! exit loop if sigma gives correct nlocal
-            IF (ANINT(nlocal(i)).EQ.nlim) EXIT
+            ! exit loop if sigma gives nlocal between nlim +/- delta
+            IF ((nlocal(i).LE.nlim+delta) .AND. (nlocal(i).GE.nlim-delta)) EXIT
             ! adjust scaling factor for new sigma
             j = j+1
           ENDDO
