@@ -73,12 +73,13 @@
       INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
 
       DOUBLE PRECISION normwj                                   ! accumulator for wj
-      DOUBLE PRECISION ntarget, nlim, delta                     ! ntarget for adaptive bandwidth estimation
+      DOUBLE PRECISION lim, delta                               ! lim and delta for bisectioning in adaptive bandwidth estimation
       DOUBLE PRECISION tmppks,normpks                           ! variables to set GM covariances
       DOUBLE PRECISION thrpcl                                   ! parmeter controlling the merging of the outlier clusters
       DOUBLE PRECISION fpoints                                  ! use either a fraction of sample points
       DOUBLE PRECISION fspread                                  ! or a fraction of the global avg. variance
-      DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find nlocal
+      DOUBLE PRECISION nlocal                                   ! local number of points
+      DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find flocal
       DOUBLE PRECISION qsscl                                    ! scaling factor for QS
       DOUBLE PRECISION kdecut2                                  ! squared cutoff for KDE
       DOUBLE PRECISION msw
@@ -94,7 +95,7 @@
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wi, lwi    ! accumulator for wj in each voronoi
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal     ! local weights around grid point for grid points
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: wlocal2    ! local weights around grid point for sample points
-      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: nlocal     ! local number of points around localized grid
+      DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: flocal     ! local number of points around localized grid
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: mindist    ! distance to closest voronoi
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: Di         ! local dimensionality
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:) :: period     ! Periodic lenght in each dimension
@@ -136,7 +137,6 @@
       Nk = 0                 ! number of gaussians
       nmsopt = 0             ! number of mean-shift refinements
       ngrid = -1             ! number of samples extracted with minmax
-      ntarget = -1.0d0       ! number of sample points for localization
       seed = 12345           ! seed for the random number generator
       thrmerg = 0.8d0        ! merge different clusters
       qsscl = 1.0d0          ! quick shift cut-off
@@ -347,6 +347,10 @@
       ! #####################  CLUSTERING MODE  ###################
       ! get the data from standard input
       CALL readinput(D, weighted, nsamples, x, normwj, wj)
+      
+      ! normalize weights
+      wj = wj/normwj
+      normwj = 1.0d0
 
       ! If not specified, the number of voronoi polyhedra
       ! are set to the square root of the total number of points
@@ -358,7 +362,7 @@
                            y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,lwi,lwj,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
-                           wlocal,wlocal2,nlocal,ineigh,rgrid,sigma2,qscut2,tmps2,Di)
+                           wlocal,wlocal2,flocal,ineigh,rgrid,sigma2,qscut2,tmps2,Di)
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -413,12 +417,8 @@
 
       ! Now set localizations. It can be set either in terms of a fraction of the
       ! number samples, or directly as a fraction of the variance of the data
-      ! ROM: ntarget = int(float(nsamples) * fpoints)
-      ! ROM: we should use the sum of weights instead of number of sample points
-!      ntarget = INT(ANINT(normwj * fpoints))
-      ! if weights are normalized we need another criterion and here it is:
-      ntarget = normwj * fpoints
-      delta   = normwj/DBLE(nsamples)
+      ! delta to stop bisectioning
+      delta = normwj/DBLE(nsamples)
             
       ! only one of the methods can be used at a time
       IF (fspread.GT.0.0d0) THEN
@@ -465,8 +465,8 @@
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         
-        ! get initial nlocal using sigma2 equal to tune
-        CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+        ! get initial flocal using sigma2 equal to tune
+        CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
         
         ! estimate localization based either on fspread or fpoints  
         IF(fpoints.GT.0) THEN
@@ -474,19 +474,19 @@
         ! *** localization based on fraction of points ***
         ! ************************************************
           
-          ! check if ntarget is smaller than points in voronoi available
-          nlim = ntarget
-          IF (ntarget.LE.wi(i)) THEN
-            nlim = wi(i)+delta
+          ! check if delta is smaller than weigths in voronoi
+          lim = fpoints
+          IF (fpoints.LE.wi(i)) THEN
+            lim = wi(i)+delta
             WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
           ENDIF
 
           ! quick approach to ntarget if necessary
-          IF (nlocal(i).LT.nlim) THEN
-            DO WHILE(nlocal(i).LT.nlim)
+          IF (flocal(i).LT.lim) THEN
+            DO WHILE(flocal(i).LT.lim)
               ! approach the desired value
               sigma2(i)=sigma2(i)+tune
-              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+              CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
             ENDDO
           ENDIF
           
@@ -494,14 +494,14 @@
           j = 1
           DO WHILE(.TRUE.)
             ! fine tuning
-            IF(nlocal(i).GT.nlim) THEN
+            IF(flocal(i).GT.lim) THEN
               sigma2(i) = sigma2(i)-tune/2.0d0**j
             ELSE
               sigma2(i) = sigma2(i)+tune/2.0d0**j
             ENDIF
-            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
-            ! exit loop if sigma gives nlocal between nlim +/- delta
-            IF ((nlocal(i).LE.nlim+delta) .AND. (nlocal(i).GE.nlim-delta)) EXIT
+            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
+            ! exit loop if sigma gives flocal between lim +/- delta
+            IF ((flocal(i).LE.lim+delta) .AND. (flocal(i).GE.lim-delta)) EXIT
             ! adjust scaling factor for new sigma
             j = j+1
           ENDDO
@@ -513,7 +513,7 @@
           ! consistency check if localization is to small
           IF (sigma2(i).LT.mindist(i)) THEN
             sigma2(i) = mindist(i) 
-            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,nlocal(i))
+            CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
             WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
           ENDIF
         ENDIF
@@ -523,18 +523,21 @@
         ! ************************************************
         
         ! estimate local covariance using grid approximation
-        CALL covariance(D,period,ngrid,nlocal(i),wlocal,y,Qi)
+        CALL covariance(D,period,ngrid,flocal(i),wlocal,y,Qi)
+
+        ! get local number of points
+        nlocal = flocal(i)*DBLE(nsamples)
 
         ! estimate local dimensionality
         Di(i) = effdim(D,Qi)
         ! oracle shrinkage of covariance matrix
-        CALL oracle(D,nlocal(i),Qi)
+        CALL oracle(D,nlocal,Qi)
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi,Qiinv)
 
         ! estimate bandwidth from normal reference rule        
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
-           * nlocal(i)**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
+           * nlocal**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
            
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
@@ -770,7 +773,7 @@
                                               " " , pabserr(i),    &
                                               " " , prelerr(i),    &
                                               " " , sigma2(i),     &
-                                              " " , nlocal(i),     &
+                                              " " , flocal(i),     &
                                               " " , wi(i),         &
                                               " " , Di(i),         &
                                               " " , trmatrix(D,Hi)/DBLE(D)
@@ -891,7 +894,7 @@
       DEALLOCATE(msmu,tmpmsmu)
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
-      DEALLOCATE(wlocal,nlocal,ineigh)
+      DEALLOCATE(wlocal,flocal,ineigh)
       DEALLOCATE(prelerr,pabserr,clustercenters,mergeornot)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot)
@@ -1036,13 +1039,13 @@
                                  y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,lwi,lwj,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
-                                 wlocal,wlocal2,nlocal,ineigh,rgrid,sigma2,qscut2,tmps2,Di)
+                                 wlocal,wlocal2,flocal,ineigh,rgrid,sigma2,qscut2,tmps2,Di)
 
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ni,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,lwi,lwj,logdetHi
-         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wlocal2,nlocal
+         DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wlocal2,flocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,qscut2,rgrid,tmps2,Di,mindist
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qi,Qiinv,Hi,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: y,distmm
@@ -1077,7 +1080,7 @@
          IF (ALLOCATED(dij))        DEALLOCATE(dij)
          IF (ALLOCATED(wlocal))     DEALLOCATE(wlocal)
          IF (ALLOCATED(wlocal2))    DEALLOCATE(wlocal2)
-         IF (ALLOCATED(nlocal))     DEALLOCATE(nlocal)
+         IF (ALLOCATED(flocal))     DEALLOCATE(flocal)
          IF (ALLOCATED(sigma2))     DEALLOCATE(sigma2)
          IF (ALLOCATED(qscut2))     DEALLOCATE(qscut2)
          IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
@@ -1103,7 +1106,7 @@
          ALLOCATE(idxgrid(ngrid),tmps2(ngrid))
          ALLOCATE(wlocal(ngrid))
          ALLOCATE(wlocal2(nsamples))
-         ALLOCATE(nlocal(ngrid))
+         ALLOCATE(flocal(ngrid))
          ALLOCATE(ineigh(ngrid))
       END SUBROUTINE allocatevectors
 
