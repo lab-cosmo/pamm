@@ -300,6 +300,7 @@
             CALL readvmclusters(12,nk,vmclusters)
             CLOSE(12)
             ALLOCATE(pcluster(nk), px(vmclusters(1)%D))
+            
             DO WHILE (.true.) ! read from the stdin
               READ(*,*,IOSTAT=endf) px
               IF(endf>0) STOP "*** Error occurred while reading file. ***"
@@ -309,12 +310,13 @@
               !!! decomment if you want to print out
               !!! just the number of the cluster with
               !!! the higher probability
-              !!dummyi1=1
-              !!DO i=1,nk
-              !!   IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
-              !!ENDDO
-              !!WRITE(*,*) px,dummyi1
-              WRITE(*,*) px,pcluster(:)
+              dummyi1=1
+              DO i=1,nk
+                 IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
+              ENDDO
+              ! write out the number of the
+              ! cluster with the highest probability
+              WRITE(*,*) px,DLOG(pcluster(dummyi1)),dummyi1
             ENDDO
             DEALLOCATE(vmclusters)
          ELSE
@@ -323,10 +325,11 @@
             CLOSE(12)
             ALLOCATE(pcluster(nk), px(clusters(1)%D))
 
-            DO WHILE (.true.)
+            DO WHILE (.true.) ! read from the stdin
               READ(*,*,IOSTAT=endf) px
               IF(endf>0) STOP "*** Error occurred while reading file. ***"
               IF(endf<0) EXIT
+              ! compute the pamm probability for the point px
               CALL pamm_p(px, pcluster, nk, clusters, alpha, zeta)
               dummyi1=1
               DO i=1,nk
@@ -334,7 +337,7 @@
               ENDDO
               ! write out the number of the
               ! cluster with the highest probability
-              WRITE(*,*) dummyi1
+              WRITE(*,*) px,DLOG(pcluster(dummyi1)),dummyi1
             ENDDO
             DEALLOCATE(clusters)
          ENDIF

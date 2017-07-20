@@ -9,7 +9,7 @@ from scipy.spatial import ConvexHull
 from matplotlib.patches import Polygon
 
 import matplotlib.pyplot as P
-import sys
+import sys,matplotlib
 
 D       = -1
 verbose = False  # no verbosity
@@ -21,11 +21,12 @@ pflag   = False  # no print out of probabilities
 cvxflag = False  # do not use convex hull to illustrate cluster
 smode   = 0      # sort cluster according to size
 single  = -1     # show a single cluster
+cmflag  = False  # store colormap
 lo      = nan    # use min/max of probability as limits for prob plot
 hi      = nan    # use min/max of probability as limits for prob plot
 
 if len(sys.argv) < 5:
-  print "usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-c id] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
+  print "usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-c id] [-flip] [-sort mode] [-p] [-hull] [-cm] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
   sys.exit("ERROR: not enough input provided")
 else:
   for i,s in enumerate(sys.argv):
@@ -38,12 +39,13 @@ else:
     elif s == '-sort'   : smode   = int(sys.argv[i+1])
     elif s == '-p'      : pflag   = True
     elif s == '-hull'   : cvxflag = True
+    elif s == '-cm'     : cmflag  = True
     elif s == '-lo'     : lo      = float(sys.argv[i+1])
     elif s == '-hi'     : hi      = float(sys.argv[i+1])
     elif s == '-v'      : verbose = True
     elif s == '-h'      : 
       print """
-usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-c id] [-flip] [-sort mode] [-p] [-hull] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
+usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-c id] [-flip] [-sort mode] [-p] [-hull] [-cm] [-lo lo] [-hi hi] [-v] [-h] grid proj idxs"
 
  required:
    
@@ -70,8 +72,11 @@ usage: pamm2prj -D dim [-d dim] [-min min] [-n N] [-c id] [-flip] [-sort mode] [
    -sort mode    : sort mode                          [0]
                    0   - points in cluster
                    1   - kernel density fraction
+                   2   - pamm definition
                    
    -hull         : use convex hull of cluster         [false]
+   
+   -cm           : save colormap to file              [false]
 
    -p            : plot probabilities on sketchmap    [false]
 
@@ -137,6 +142,8 @@ idxs = loadtxt(idxsfile,dtype=int)
 smap = loadtxt(projfile)
 smap = smap[idxs-1,:2]
 pamm = loadtxt(gridfile)
+if smode==2:
+  gmm = loadtxt(gridfile[:-4] + 'pamm',skiprows=3)
 
 N = pamm.shape[0]
 
@@ -163,11 +170,15 @@ if single > 0:
   # consistency check of input provided
   if single not in uc: sys.exit("ERROR: unknown cluster id provided")
   if smode == 1:
-    # cluster weigth according fraction of density
+    # cluster weight according fraction of density
     lnw = logsumexp(p[cls == single])-logsumexp(p)
     print " cluster / weight"
     w = exp(lnw)
     print "   %d / %f" % (single,w)
+  elif smode == 2:
+    # cluster weight according to pamm definition
+    print " cluster / weight"
+    print "   %d / %f" % (single,w[uc==cls])
   else:
     # cluster weight according to size
     w = sum(wgrid[cls == single])/sum(wgrid)
@@ -186,6 +197,16 @@ else:
     uc = uc[si]
     print " cluster / weight"
     w = exp(lnw[si])
+    for i in range(nplot):
+      print "   %d / %f" % (uc[i],w[i])
+  elif smode == 2:
+    w = gmm[:,0]
+    print w
+    # sort cluster according to pamm definition
+    si = flipud(argsort(w))
+    uc = uc[si]
+    print " cluster / weight"
+    w = w[si]
     for i in range(nplot):
       print "   %d / %f" % (uc[i],w[i])
   else:
@@ -209,8 +230,16 @@ if flip: pc = flipud(pc)
 # plot figures
 fig, ax = P.subplots()
 # create color array for clusters
-cc=cm.rainbow(linspace(0,1,len(pc)))
+cc=cm.Set3(linspace(0,1,len(pc)))
 random.shuffle(cc)
+
+#cc = random.rand(len(pc),3)
+
+if cmflag:
+  savetxt('pamm2prj.cmap',cc,fmt='%f')
+
+palpha = p-min(p)
+palpha = palpha/max(palpha)
 
 if cvxflag:
   # print patches instead of scattered points
@@ -231,10 +260,10 @@ else:
   P.scatter(X[where(~in1d(cls, pc))[0],0],X[where(~in1d(cls, pc))[0],1],c='gray',edgecolor='None')
   # print all other cluster bigger than minsize
   for i,c in enumerate(pc):
-    P.scatter(X[c==cls,0],X[c==cls,1],c=cc[i],edgecolor='None',label=int(c))
+    P.scatter(X[c==cls,0],X[c==cls,1],c=cc[i],edgecolor='None',s=palpha[c==cls]**2*100)
   # mark points with highest probability
   for i,c in enumerate(pc):
-    P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],edgecolor='k',color=cc[i])
+    P.scatter(X[(cls == c) & (p == max(p[cls == c])),0],X[(cls == c) & (p == max(p[cls == c])),1],label=int(c),edgecolor='k',color=cc[i])
   P.axis('equal')
   P.axis('off') 
   P.legend(frameon=False,scatterpoints=1,ncol=nplot,loc=8,columnspacing=0.1,handletextpad=0.1,markerscale=3.)
