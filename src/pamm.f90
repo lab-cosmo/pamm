@@ -1721,7 +1721,7 @@
          wi = 0.0d0
          DO j=1,nsamples
             ni(iminij(j))=ni(iminij(j))+1
-            wi(iminij(j))=wi(iminij(j))+wj(iminij(j))
+            wi(iminij(j))=wi(iminij(j))+wj(j)
          ENDDO
       END SUBROUTINE mkgrid
 
@@ -1809,7 +1809,7 @@
          wi = 0.0d0
          DO j=1,nsamples
             ni(iminij(j))=ni(iminij(j))+1
-            wi(iminij(j))=wi(iminij(j))+wj(iminij(j))
+            wi(iminij(j))=wi(iminij(j))+wj(j)
          ENDDO
       END SUBROUTINE getvoro
 
