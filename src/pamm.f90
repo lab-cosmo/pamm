@@ -484,6 +484,8 @@
             WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
           ENDIF
 
+          WRITE(*,*) normwj,sum(wj),sum(wi)
+
           ! quick approach to ntarget if necessary
           IF (flocal(i).LT.lim) THEN
             DO WHILE(flocal(i).LT.lim)
@@ -493,6 +495,7 @@
             ENDDO
           ENDIF
           
+
           ! fine tuning of localization using bisectioning
           j = 1
           DO WHILE(.TRUE.)
@@ -520,6 +523,8 @@
             WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
           ENDIF
         ENDIF
+        
+        WRITE(*,*) "Done!"
         
         ! ************************************************
         ! ***  bandwidth estimation from localization  ***
@@ -1614,7 +1619,7 @@
          wi = 0.0d0
          DO j=1,nsamples
             ni(iminij(j))=ni(iminij(j))+1
-            wi(iminij(j))=wi(iminij(j))+wj(iminij(j))
+            wi(iminij(j))=wi(iminij(j))+wj(j)
          ENDDO
       END SUBROUTINE mkgrid
 
