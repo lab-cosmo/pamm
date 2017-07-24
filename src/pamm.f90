@@ -37,7 +37,7 @@
       IMPLICIT NONE
 
       CHARACTER(LEN=1024) :: outputfile, clusterfile            ! The output file prefix
-      CHARACTER(LEN=1024) :: gridfile                           ! The output file prefix
+      CHARACTER(LEN=1024) :: gridfile, neighfile                ! The output file prefix
       CHARACTER(LEN=1024) :: cmdbuffer, comment                 ! String used for reading text lines from files
 
       LOGICAL periodic                                          ! flag for using periodic data
@@ -45,6 +45,8 @@
       LOGICAL fpost                                             ! flag for postprocessing
       LOGICAL weighted                                          ! flag for using weigheted data
       LOGICAL savevor, saveadj, saveidxs, readgrid              ! additional IN/OUT logical flags
+      LOGICAL saveneigh, readneigh                              ! gabriel graph IN/OUT logical flags
+      LOGICAL, ALLOCATABLE, DIMENSION(:,:) :: gabriel           ! gabriel graph matrix
       LOGICAL, ALLOCATABLE, DIMENSION(:) :: mergeornot
 
       INTEGER ccmd                                              ! Index used to control the PARSER input parameters
@@ -56,6 +58,7 @@
       INTEGER seed                                              ! seed for the random number generator
       INTEGER nmsopt                                            ! number of mean-shift optimizations of the cluster centers
       INTEGER nbootstrap                                        ! number of bootstrap cycles
+      INTEGER gs                                                ! flag for gabriel clustering (and also number of neigh shells)
       INTEGER rndidx                                            ! random sample point index
       INTEGER nbssample                                         ! number of sample points used for voronoi in bootstrap
       INTEGER nbstot                                            ! accumulator for nbssample
@@ -80,7 +83,7 @@
       DOUBLE PRECISION fspread                                  ! or a fraction of the global avg. variance
       DOUBLE PRECISION nlocal                                   ! local number of points
       DOUBLE PRECISION tune                                     ! tuning used in bisectioning to find flocal
-      DOUBLE PRECISION qsscl                                    ! scaling factor for QS
+      DOUBLE PRECISION qs                                    ! scaling factor for QS
       DOUBLE PRECISION kdecut2                                  ! squared cutoff for KDE
       DOUBLE PRECISION msw
       DOUBLE PRECISION alpha                                    ! cluster smearing
@@ -139,7 +142,8 @@
       ngrid = -1             ! number of samples extracted with minmax
       seed = 12345           ! seed for the random number generator
       thrmerg = 0.8d0        ! merge different clusters
-      qsscl = 1.0d0          ! quick shift cut-off
+      qs = 1.0d0             ! quick shift cut-off
+      gs = -1                ! don't use clustering based on gabriel graph
       verbose = .FALSE.      ! no verbosity
       weighted = .FALSE.     ! don't use the weights
       nbootstrap = 0         ! do not use bootstrap
@@ -147,6 +151,9 @@
       saveidxs = .FALSE.     ! don't save the indexes of the grid points
       saveadj = .FALSE.      ! save adjacency
       readgrid = .FALSE.     ! don't read the grid from the standard input
+      saveneigh = .FALSE.    ! don't save gabriel graph
+      readneigh = .FALSE.    ! don't read gabriel graph
+
 
       D=-1
       periodic=.FALSE.
@@ -195,6 +202,13 @@
             ccmd = 15
          ELSEIF (cmdbuffer == "-merger") THEN       ! cluster with a pk loewr than this are merged with the NN
             ccmd = 16
+         ELSEIF (cmdbuffer == "-saveneigh") THEN    ! save gabriel graph
+            saveneigh= .TRUE.
+         ELSEIF (cmdbuffer == "-readneigh") THEN    ! read gabriel graph
+            readneigh= .TRUE.
+            ccmd = 17
+         ELSEIF (cmdbuffer == "-gs") THEN           ! read gabriel graph neighbor shells
+            ccmd = 18
          ELSEIF (cmdbuffer == "-w") THEN            ! use weights
             weighted = .TRUE.
          ELSEIF (cmdbuffer == "-v") THEN            ! verbosity flag
@@ -218,8 +232,8 @@
             ELSEIF (ccmd == 4) THEN                 ! read the seed for the rng
                READ(cmdbuffer,*) seed
             ELSEIF (ccmd == 5) THEN                 ! read cutoff for quickshift
-               READ(cmdbuffer,*) qsscl
-               IF (qsscl<0) STOP &
+               READ(cmdbuffer,*) qs
+               IF (qs<0) STOP &
                  "The QS scaling should be positive!"
             ELSEIF (ccmd == 6) THEN                 ! read the number of mean-shift refinement steps
                READ(cmdbuffer,*) nmsopt
@@ -237,8 +251,6 @@
                READ(cmdbuffer,*) fspread
             ELSEIF (ccmd == 11) THEN                ! read fraction of points for bandwidth estimation
                READ(cmdbuffer,*) fpoints
-            ELSEIF (ccmd == 16) THEN
-               READ(cmdbuffer,*) thrpcl
             ELSEIF (ccmd == 12) THEN                ! read the periodicity in each dimension
                IF (D<0) STOP &
                  "Dimensionality (-d) must precede the periodic lenghts (-p). "
@@ -266,13 +278,19 @@
                gridfile=trim(cmdbuffer)
             ELSEIF (ccmd == 15) THEN                ! read the threashold for cluster adjancency merging
                READ(cmdbuffer,*) thrmerg
+            ELSEIF (ccmd == 16) THEN
+               READ(cmdbuffer,*) thrpcl
+            ELSEIF (ccmd == 17) THEN                ! read the file containing gabriel graph
+               neighfile=trim(cmdbuffer)   
+            ELSEIF (ccmd == 18) THEN
+               READ(cmdbuffer,*) gs                 ! set the neighbor shell for gabriel shift
             ENDIF
          ENDIF
       ENDDO
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       CALL SRAND(seed) ! initialize the random number generator
-
+  
       ! dimensionalty can't be hard coded by default
       IF (D.EQ.-1) THEN
          WRITE(*,*) ""
@@ -365,7 +383,8 @@
                            y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,lwi,lwj,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
-                           wlocal,wlocal2,flocal,ineigh,rgrid,sigma2,qscut2,tmps2,Di)
+                           wlocal,wlocal2,flocal,ineigh,rgrid,sigma2,qscut2, &
+                           gabriel,gs,tmps2,Di)
 
       ! Extract ngrid points on which the kernel density estimation is to be
       ! evaluated. Also partitions the nsamples points into the Voronoi polyhedra
@@ -422,24 +441,83 @@
       ! number samples, or directly as a fraction of the variance of the data
       ! delta to stop bisectioning
       delta = normwj/DBLE(nsamples)
-            
+      
       ! only one of the methods can be used at a time
-      IF (fspread.GT.0.0d0) THEN
-        fpoints = -1.0d0
-        ! distance to closest voronoi
-        mindist=HUGE(0.0d0) !  of the kernel density estimator
-        DO i=1,ngrid
-          DO j=1,i-1
-            ! distance between two voronoi centers
-            dummd1 = pammr2(D,period,y(:,i),y(:,j))
-            IF (dummd1.LT.mindist(i)) THEN
-              mindist(i) = dummd1
-            ENDIF
-            IF (dummd1.LT.mindist(j)) THEN
-              mindist(j) = dummd1
-            ENDIF
-          ENDDO
+      IF(fspread.GT.0.0d0) fpoints = -1.0d0
+      
+      IF(verbose) WRITE(*,*) &
+        " Precalculate distance matrix between grid points"
+      ! distance to closest voronoi
+      mindist=HUGE(0.0d0) !  of the kernel density estimator
+      DO i=1,ngrid
+        IF(verbose .AND. (modulo(i,1000).EQ.0)) &
+          WRITE(*,*) i,"/",ngrid  
+        DO j=1,i-1
+          ! distance between two voronoi centers
+          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
+          distmm(j,i) = distmm(i,j)
+          IF (distmm(i,j).LT.mindist(i)) THEN
+            mindist(i) = distmm(i,j)
+          ENDIF
+          IF (distmm(i,j).LT.mindist(j)) THEN
+            mindist(j) = distmm(i,j)
+          ENDIF
         ENDDO
+        ! set distance to myself super far away
+        if (gs>0) distmm(i,i) = HUGE(0.0d0)    
+      ENDDO
+      
+      ! gabriel graph creation
+      IF (gs > 0) THEN
+        IF(readneigh) THEN
+          IF(verbose) WRITE(*,*) &
+            " Reading gabriel neighbors graph from file"
+          ! read gabriel graph
+          IF (neighfile.EQ."NULL") THEN
+            WRITE(*,*) &
+            " Error: insert the file containing the gabriel graph! "
+            CALL helpmessage
+            CALL EXIT(-1)
+          ENDIF
+          OPEN(UNIT=12,FILE=neighfile,STATUS='OLD',ACTION='READ')
+          ! read graph from a file
+          DO i=1,ngrid
+             READ(12,*) (gabriel(i,j),j=1,ngrid)
+             IF(MODULO(i,100).EQ.0) WRITE(*,*) i,'/',ngrid
+          ENDDO
+          CLOSE(UNIT=12)
+        ELSE
+          IF(verbose) WRITE(*,*) &
+            " Finding gabriel neighbors between grid points"
+          gabriel = .TRUE.
+          nn = 0
+          !$omp parallel do private(i,j,k) shared(distmm,gabriel,nn)
+          DO i=1,ngrid
+            gabriel(i,i) = .FALSE.
+            DO j=1,ngrid
+              IF (.NOT.gabriel(i,j)) CYCLE
+              DO k=1,ngrid
+                IF (distmm(i,j).GE.(distmm(i,k) + distmm(j,k))) THEN
+                  gabriel(i,j) = .FALSE.
+                  gabriel(j,i) = .FALSE.
+                  EXIT
+                ENDIF
+              ENDDO
+            ENDDO
+            nn = nn+1
+            IF(MODULO(nn,100).EQ.0) WRITE(*,*) nn,'/',ngrid
+          ENDDO   
+        ENDIF
+        
+        IF(saveneigh) THEN
+          IF(verbose) WRITE(*,*) &
+            " Storing gabriel neighbors graph to file"
+          OPEN(UNIT=12,FILE=trim(outputfile)//".neigh",STATUS='REPLACE',ACTION='WRITE')
+          DO i=1,ngrid
+            WRITE(12,*) gabriel(i,:)
+          ENDDO
+          CLOSE(UNIT=12)
+        ENDIF
       ENDIF
 
       ! estimate Q from grid
@@ -461,9 +539,7 @@
       IF(fspread.GT.0) sigma2 = sigma2*fspread**2      
 
       IF(verbose) WRITE(*,*) &
-        " Estimating bandwidths and distance matrix"
-      ! set distance matrix to zero
-      distmm = 0.0d0
+        " Estimating kernel density bandwidths"
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
@@ -556,15 +632,9 @@
         DO j=1,D
           qscut2(i) = qscut2(i) + Qi(j,j)
         ENDDO
-        
-        ! distance matrix between grid points
-        DO j=1,i-1
-          distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))          
-          distmm(j,i) = distmm(i,j)
-        ENDDO
       ENDDO
       ! scale adaptive QS cutoff
-      qscut2 = qscut2 * qsscl**2
+      qscut2 = qscut2 * qs**2
 
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
@@ -703,7 +773,11 @@
          qspath(1)=i
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-            idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2(qspath(counter)))
+            IF (gs > 0) THEN
+              idxroot(qspath(counter)) = gs_next(ngrid,qspath(counter),prob,distmm,gabriel,gs)  
+            ELSE
+              idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2(qspath(counter)))
+            ENDIF
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
             qspath(counter)=idxroot(qspath(counter-1))
@@ -869,7 +943,7 @@
          ! write the VM distributions
          ! write a 2-lines header containig a bit of information
          WRITE(comment,*) "# PAMMv2 clusters analysis. NSamples: ", nsamples, " NGrid: ", &
-                   ngrid, " QSLambda: ", qsscl, ACHAR(10), &
+                   ngrid, " QSLambda: ", qs, ACHAR(10), &
                    "# Dimensionality/NClusters//Pk/Mean/Covariance/Period"
 
          OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
@@ -880,7 +954,7 @@
          ! write the Gaussians
          ! write a 2-lines header
          WRITE(comment,*) "# PAMMv2 clusters analysis. NSamples: ", nsamples, " NGrid: ", &
-                   ngrid, " QSLambda: ", qsscl, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance"
+                   ngrid, " QSLambda: ", qs, ACHAR(10), "# Dimensionality/NClusters//Pk/Mean/Covariance"
 
          OPEN(UNIT=12,FILE=trim(outputfile)//".pamm",STATUS='REPLACE',ACTION='WRITE')
 
@@ -1043,9 +1117,10 @@
                                  y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,lwi,lwj,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
-                                 wlocal,wlocal2,flocal,ineigh,rgrid,sigma2,qscut2,tmps2,Di)
+                                 wlocal,wlocal2,flocal,ineigh,rgrid,sigma2,qscut2, &
+                                 gabriel,gs,tmps2,Di)
 
-         INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid
+         INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid,gs
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ni,ineigh
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,lwi,lwj,logdetHi
@@ -1054,6 +1129,7 @@
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: Q,Qi,Qiinv,Hi,probboot
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: y,distmm
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:,:), INTENT(OUT) :: Hiinv
+         LOGICAL, ALLOCATABLE, DIMENSION(:,:), INTENT(OUT) :: gabriel
 
 
          IF (ALLOCATED(iminij))     DEALLOCATE(iminij)
@@ -1090,6 +1166,8 @@
          IF (ALLOCATED(tmps2))      DEALLOCATE(tmps2)
          IF (ALLOCATED(rgrid))      DEALLOCATE(rgrid)
          IF (ALLOCATED(Di))         DEALLOCATE(Di)
+         IF (ALLOCATED(gabriel))    DEALLOCATE(gabriel)
+         
 
 
          ! Initialize the arrays, since now I know the number of
@@ -1112,6 +1190,8 @@
          ALLOCATE(wlocal2(nsamples))
          ALLOCATE(flocal(ngrid))
          ALLOCATE(ineigh(ngrid))
+         ! allocate gabriel graph if desired
+         IF (gs > 0) ALLOCATE(gabriel(ngrid,ngrid))
       END SUBROUTINE allocatevectors
 
       SUBROUTINE localization(D,period,N,s2,x,w,y,wl,num)
@@ -1832,6 +1912,53 @@
             ENDIF
          ENDDO
       END FUNCTION qs_next
+      
+      INTEGER FUNCTION gs_next(ngrid,idx,probnmm,distmm,gabriel,nn)
+         ! Return the index of the closest point higher in P
+         !
+         ! Args:
+         !    ngrid: number of grid points
+         !    idx: current point
+         !    probnmm: density estimations
+         !    distmm: distance matrix (squared)
+         !    gabriel: gabriel graph
+         !    nn: cut-off in the jumps
+
+         INTEGER, INTENT(IN) :: ngrid
+         INTEGER, INTENT(IN) :: idx
+         INTEGER, INTENT(IN) :: nn                      ! number of neighbor shells
+         DOUBLE PRECISION, INTENT(IN) :: probnmm(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid)
+         LOGICAL, INTENT(IN) :: gabriel(ngrid,ngrid)
+
+         INTEGER i,j
+         DOUBLE PRECISION dmin
+         LOGICAL neighs(ngrid), nneighs(ngrid)
+         
+         ! neighbors and neighbors of neighbors and ...
+         neighs = gabriel(idx,:)
+         ! loop over the nn neighbor shells
+         DO i=2,nn
+            nneighs = .FALSE.
+            DO j=1,ngrid
+              IF (neighs(j)) nneighs = nneighs .OR. gabriel(j,:)
+            ENDDO 
+            ! add new neighbors to neighbor array
+            neighs = neighs .OR. nneighs
+         ENDDO
+         
+         gs_next = idx
+         dmin = HUGE(0.0d0)
+         DO j=1,ngrid
+            IF ( probnmm(j).GT.probnmm(idx) ) THEN 
+               IF ( (distmm(idx,j).LT.dmin) .AND. neighs(j) ) THEN
+                  gs_next = j
+                  dmin = distmm(idx,j)
+               ENDIF
+            ENDIF
+         ENDDO
+      END FUNCTION gs_next
+
 
 !      INTEGER FUNCTION qs_next(D,period,N,i,cutoff,prob,M,y,multi)
 !         ! Return the index of the closest point higher in P
