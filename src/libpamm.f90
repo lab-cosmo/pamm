@@ -87,13 +87,14 @@
          CALL eigval(vmpars%icov,vmpars%D,WR)
 
          ! compute the normaliztion factor
-         tprd=1.0d0
+         tprd=0.0d0
+
          DO i=1,vmpars%D
             ! evaluate the product
-            tprd=tprd*vmpars%period(i)*BESSI0(WR(i))*dexp(-1.0d0*WR(i))
+            tprd=tprd + DLOG(vmpars%period(i)*BESSI0(WR(i))) -1.0d0*WR(i)
          ENDDO
          ! store the log of the normalization factor
-         vmpars%lnorm=dlog(1.0d0/tprd)
+         vmpars%lnorm=-1.0d0*tprd
 
       END SUBROUTINE vm_prepare
 
@@ -746,7 +747,7 @@
             IF (period(k)<=0.0d0) CYCLE
             ! this is the correct periodic distance
             rij(k) = rij(k) - DNINT(rij(k)/period(k)) * period(k)
-            
+
 !            ! scaled lenght
 !            rij(k) = rij(k)/period(k)
 !            ! Finds the smallest separation between the images of the atom i and j

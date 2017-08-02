@@ -281,7 +281,7 @@
             ELSEIF (ccmd == 16) THEN
                READ(cmdbuffer,*) thrpcl
             ELSEIF (ccmd == 17) THEN                ! read the file containing gabriel graph
-               neighfile=trim(cmdbuffer)   
+               neighfile=trim(cmdbuffer)
             ELSEIF (ccmd == 18) THEN
                READ(cmdbuffer,*) gs                 ! set the neighbor shell for gabriel shift
             ENDIF
@@ -290,7 +290,7 @@
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       CALL SRAND(seed) ! initialize the random number generator
-  
+
       ! dimensionalty can't be hard coded by default
       IF (D.EQ.-1) THEN
          WRITE(*,*) ""
@@ -318,7 +318,7 @@
             CALL readvmclusters(12,nk,vmclusters)
             CLOSE(12)
             ALLOCATE(pcluster(nk), px(vmclusters(1)%D))
-            
+
             DO WHILE (.true.) ! read from the stdin
               READ(*,*,IOSTAT=endf) px
               IF(endf>0) STOP "*** Error occurred while reading file. ***"
@@ -328,13 +328,13 @@
               !!! decomment if you want to print out
               !!! just the number of the cluster with
               !!! the higher probability
-              dummyi1=1
-              DO i=1,nk
-                 IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
-              ENDDO
+              !dummyi1=1
+              !DO i=1,nk
+              !   IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
+              !ENDDO
               ! write out the number of the
               ! cluster with the highest probability
-              WRITE(*,*) px,DLOG(pcluster(dummyi1)),dummyi1
+              WRITE(*,*) DLOG(pcluster)
             ENDDO
             DEALLOCATE(vmclusters)
          ELSE
@@ -368,7 +368,7 @@
       ! #####################  CLUSTERING MODE  ###################
       ! get the data from standard input
       CALL readinput(D, weighted, nsamples, x, normwj, wj)
-      
+
       ! normalize weights
       wj = wj/normwj
       normwj = 1.0d0
@@ -419,7 +419,7 @@
          CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,ni,iminij,ineigh,wi, &
                   saveidxs,idxgrid,outputfile)
       ENDIF
-      
+
       ! error check of voronoi association
       DO i=1,ngrid
         IF (wi(i).EQ.0.0d0) STOP &
@@ -427,9 +427,9 @@
       ENDDO
 
       ! precompute log weights
-      lwi = DLOG(wi)  
+      lwi = DLOG(wi)
       lwj = DLOG(wj)
-      
+
       ! print out voronoi associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
 
@@ -441,17 +441,17 @@
       ! number samples, or directly as a fraction of the variance of the data
       ! delta to stop bisectioning
       delta = normwj/DBLE(nsamples)
-      
+
       ! only one of the methods can be used at a time
       IF(fspread.GT.0.0d0) fpoints = -1.0d0
-      
+
       IF(verbose) WRITE(*,*) &
         " Precalculate distance matrix between grid points"
       ! distance to closest voronoi
       mindist=HUGE(0.0d0) !  of the kernel density estimator
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,1000).EQ.0)) &
-          WRITE(*,*) i,"/",ngrid  
+          WRITE(*,*) i,"/",ngrid
         DO j=1,i-1
           ! distance between two voronoi centers
           distmm(i,j) = pammr2(D,period,y(:,i),y(:,j))
@@ -464,9 +464,9 @@
           ENDIF
         ENDDO
         ! set distance to myself super far away
-        if (gs>0) distmm(i,i) = HUGE(0.0d0)    
+        if (gs>0) distmm(i,i) = HUGE(0.0d0)
       ENDDO
-      
+
       ! gabriel graph creation
       IF (gs > 0) THEN
         IF(readneigh) THEN
@@ -506,9 +506,9 @@
             ENDDO
             nn = nn+1
             IF(MODULO(nn,100).EQ.0) WRITE(*,*) nn,'/',ngrid
-          ENDDO   
+          ENDDO
         ENDIF
-        
+
         IF(saveneigh) THEN
           IF(verbose) WRITE(*,*) &
             " Storing gabriel neighbors graph to file"
@@ -536,23 +536,23 @@
       ENDIF
 
       ! localization based on fraction of data spread
-      IF(fspread.GT.0) sigma2 = sigma2*fspread**2      
+      IF(fspread.GT.0) sigma2 = sigma2*fspread**2
 
       IF(verbose) WRITE(*,*) &
         " Estimating kernel density bandwidths"
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
-        
+
         ! get initial flocal using sigma2 equal to tune
         CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
-        
-        ! estimate localization based either on fspread or fpoints  
+
+        ! estimate localization based either on fspread or fpoints
         IF(fpoints.GT.0) THEN
         ! ************************************************
         ! *** localization based on fraction of points ***
         ! ************************************************
-          
+
           ! check if delta is smaller than weigths in voronoi
           lim = fpoints
           IF (fpoints.LE.wi(i)) THEN
@@ -568,7 +568,7 @@
               CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
             ENDDO
           ENDIF
-          
+
 
           ! fine tuning of localization using bisectioning
           j = 1
@@ -589,19 +589,19 @@
         ! ************************************************
         ! *** localization based on fraction of spread ***
         ! ************************************************
-          
+
           ! consistency check if localization is to small
           IF (sigma2(i).LT.mindist(i)) THEN
-            sigma2(i) = mindist(i) 
+            sigma2(i) = mindist(i)
             CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
             WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
           ENDIF
         ENDIF
-        
+
         ! ************************************************
         ! ***  bandwidth estimation from localization  ***
         ! ************************************************
-        
+
         ! estimate local covariance using grid approximation
         CALL covariance(D,period,ngrid,flocal(i),wlocal,y,Qi)
 
@@ -615,10 +615,10 @@
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi,Qiinv)
 
-        ! estimate bandwidth from normal reference rule        
+        ! estimate bandwidth from normal reference rule
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
            * nlocal**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
-           
+
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
@@ -626,8 +626,8 @@
         logdetHi(i) = logdet(D,Hi)
         ! estimate the logarithmic normalization constants
         normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
-        
-        ! adaptive QS cutoff from local covariance 
+
+        ! adaptive QS cutoff from local covariance
         qscut2(i) = 0.d0
         DO j=1,D
           qscut2(i) = qscut2(i) + Qi(j,j)
@@ -688,7 +688,7 @@
         ENDDO
       ENDDO
       prob=prob-DLOG(normwj)
-      
+
       IF(nbootstrap > 0) THEN
         probboot = -HUGE(0.0d0)
         DO nn=1,nbootstrap
@@ -774,7 +774,7 @@
          counter=1
          DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
             IF (gs > 0) THEN
-              idxroot(qspath(counter)) = gs_next(ngrid,qspath(counter),prob,distmm,gabriel,gs)  
+              idxroot(qspath(counter)) = gs_next(ngrid,qspath(counter),prob,distmm,gabriel,gs)
             ELSE
               idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2(qspath(counter)))
             ENDIF
@@ -926,6 +926,7 @@
             vmclusters(k)%weight= &
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             vmclusters(k)%D=D
+            CALL oracle(D,logsumexp(ngrid,idxroot,prob,clustercenters(k))*DBLE(nsamples),vmclusters(k)%cov)
          ELSE
             CALL getlcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),clusters(k)%cov)
             ! If we have a cluster with one point we compute the weighted covariance with
@@ -936,6 +937,7 @@
             clusters(k)%weight=&
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             clusters(k)%D=D
+            CALL oracle(D,logsumexp(ngrid,idxroot,prob,clustercenters(k))*DBLE(nsamples),clusters(k)%cov)
          ENDIF
       ENDDO
 
@@ -1167,7 +1169,7 @@
          IF (ALLOCATED(rgrid))      DEALLOCATE(rgrid)
          IF (ALLOCATED(Di))         DEALLOCATE(Di)
          IF (ALLOCATED(gabriel))    DEALLOCATE(gabriel)
-         
+
 
 
          ! Initialize the arrays, since now I know the number of
@@ -1352,7 +1354,7 @@
            IF (period(ii) > 0.0d0) THEN
              ! this is the correct way
              xxm(ii,:) = xxm(ii,:) - DNINT(xxm(ii,:)/period(ii)) * period(ii)
-           
+
 !             ! scaled length
 !              = xxm(ii,:)/period(ii)
 !             ! Finds the smallest separation between the images of the vector elements
@@ -1363,7 +1365,7 @@
            xxmw(ii,:) = xxm(ii,:) * w/wnorm
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
-         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0)) 
+         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
       END SUBROUTINE covariance
 
       SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
@@ -1912,7 +1914,7 @@
             ENDIF
          ENDDO
       END FUNCTION qs_next
-      
+
       INTEGER FUNCTION gs_next(ngrid,idx,probnmm,distmm,gabriel,nn)
          ! Return the index of the closest point higher in P
          !
@@ -1934,7 +1936,7 @@
          INTEGER i,j
          DOUBLE PRECISION dmin
          LOGICAL neighs(ngrid), nneighs(ngrid)
-         
+
          ! neighbors and neighbors of neighbors and ...
          neighs = gabriel(idx,:)
          ! loop over the nn neighbor shells
@@ -1942,15 +1944,15 @@
             nneighs = .FALSE.
             DO j=1,ngrid
               IF (neighs(j)) nneighs = nneighs .OR. gabriel(j,:)
-            ENDDO 
+            ENDDO
             ! add new neighbors to neighbor array
             neighs = neighs .OR. nneighs
          ENDDO
-         
+
          gs_next = idx
          dmin = HUGE(0.0d0)
          DO j=1,ngrid
-            IF ( probnmm(j).GT.probnmm(idx) ) THEN 
+            IF ( probnmm(j).GT.probnmm(idx) ) THEN
                IF ( (distmm(idx,j).LT.dmin) .AND. neighs(j) ) THEN
                   gs_next = j
                   dmin = distmm(idx,j)
