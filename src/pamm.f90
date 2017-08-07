@@ -369,7 +369,7 @@
       ! get the data from standard input
       CALL readinput(D, weighted, nsamples, x, normwj, wj)
 
-      ! normalize weights
+      ! normalize weights -- wj contains the weights of data points
       wj = wj/normwj
       normwj = 1.0d0
 
@@ -394,8 +394,12 @@
          WRITE(*,*) " Selecting ", ngrid, " points using MINMAX"
       ENDIF
 
+
+      ! #############################################################
+      ! #                 Selects the grid points                   #
+      ! #############################################################
       IF(readgrid)THEN
-         ! Read the grid
+         ! Reads the grid from file
 
          IF (gridfile.EQ."NULL") THEN
             WRITE(*,*) &
@@ -413,38 +417,35 @@
 
          WRITE(*,*) " Building the Voronoi associations"
 
-         ! do the voronoi associations
+         ! does the voronoi associations
          CALL getvoro(D,period,nsamples,ngrid,x,wj,y,ni,iminij,ineigh,wi,idxgrid)
       ELSE
+         ! creates the grid with FPS, and at the same time gets the Voronoi association
          CALL mkgrid(D,period,nsamples,ngrid,x,wj,y,ni,iminij,ineigh,wi, &
                   saveidxs,idxgrid,outputfile)
       ENDIF
 
-      ! error check of voronoi association
+      ! error check of voronoi association 
+      ! -- wi contains the weights of the grid points (wi = sum_{j\in Vi} wj) --
       DO i=1,ngrid
         IF (wi(i).EQ.0.0d0) STOP &
           " Error: voronoi has no points associated with - probably two points are perfectly overlapping"
       ENDDO
 
-      ! precompute log weights
-      lwi = DLOG(wi)
-      lwj = DLOG(wj)
-
       ! print out voronoi associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
-
-      ! Generate neighbour list
+      
+      ! Generate neighbour list between voronoi sets
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,ni,iminij,pnlist,nlist)
 
-      ! Now set localizations. It can be set either in terms of a fraction of the
-      ! number samples, or directly as a fraction of the variance of the data
-      ! delta to stop bisectioning
-      delta = normwj/DBLE(nsamples)
+      ! precomputes log weights 
+      lwi = DLOG(wi)
+      lwj = DLOG(wj)
 
-      ! only one of the methods can be used at a time
-      IF(fspread.GT.0.0d0) fpoints = -1.0d0
-
+      ! #############################################################
+      ! #     Generates distance matrix between grid points         #
+      ! #############################################################
       IF(verbose) WRITE(*,*) &
         " Precalculate distance matrix between grid points"
       ! distance to closest voronoi
@@ -467,8 +468,10 @@
         if (gs>0) distmm(i,i) = HUGE(0.0d0)
       ENDDO
 
-      ! gabriel graph creation
-      IF (gs > 0) THEN
+      ! #############################################################
+      ! #            Computes Gabriel graphs between points         #
+      ! #############################################################
+      IF (gs > 0) THEN ! PROBABLY THIS SHOULD GO
         IF(readneigh) THEN
           IF(verbose) WRITE(*,*) &
             " Reading gabriel neighbors graph from file"
@@ -518,9 +521,21 @@
           ENDDO
           CLOSE(UNIT=12)
         ENDIF
-      ENDIF
+      ENDIF ! ENDS GABRIEL STUFF -- PROBABLY THIS SHOULD GO
 
-      ! estimate Q from grid
+      ! #############################################################
+      ! #            Computes localization weights                  #
+      ! #############################################################
+            
+      ! Now set localizations. It can be set either in terms of a fraction of the
+      ! number samples, or directly as a fraction of the variance of the data
+      ! delta to stop bisectioning
+      delta = normwj/DBLE(nsamples)
+
+      ! only one of the methods can be used at a time
+      IF(fspread.GT.0.0d0) fpoints = -1.0d0
+
+      ! estimate the global covariance from the grid
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
 
@@ -535,8 +550,8 @@
         sigma2 = tune
       ENDIF
 
-      ! localization based on fraction of data spread
-      IF(fspread.GT.0) sigma2 = sigma2*fspread**2
+      ! initialize the localization based on fraction of data spread
+      IF (fspread.GT.0) sigma2 = sigma2*fspread**2
 
       IF(verbose) WRITE(*,*) &
         " Estimating kernel density bandwidths"
@@ -590,11 +605,11 @@
         ! *** localization based on fraction of spread ***
         ! ************************************************
 
-          ! consistency check if localization is to small
+          ! consistency check if localization is too small
           IF (sigma2(i).LT.mindist(i)) THEN
             sigma2(i) = mindist(i)
             CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
-            WRITE(*,*) " Warning: localization smaller than voronoi, increase grid size (meanwhile adjusted localization)!"
+            WRITE(*,*) " Warning: localization smaller than Voronoi diameter, increase grid size (meanwhile adjusted localization)!"
           ENDIF
         ENDIF
 
@@ -615,7 +630,7 @@
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi,Qiinv)
 
-        ! estimate bandwidth from normal reference rule
+        ! estimate bandwidth from normal (Scott's) reference rule
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
            * nlocal**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
 
@@ -633,9 +648,13 @@
           qscut2(i) = qscut2(i) + Qi(j,j)
         ENDDO
       ENDDO
+      
       ! scale adaptive QS cutoff
       qscut2 = qscut2 * qs**2
 
+      ! #############################################################
+      ! #            Computes Kernel Density Estimation             #
+      ! #############################################################      
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
       ! TODO: (1) if we have a mixture of non-periodic and periodic data one could split
