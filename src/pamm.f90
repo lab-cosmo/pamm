@@ -667,9 +667,6 @@
       kdecut2 = 9.0d0 * (DSQRT(DBLE(D))+1.0d0)**2
       ! setting initial probability to the smallest possible value
       prob = -HUGE(0.0d0)
-      ! pre-logarithm weights to increase speed
-      wi = DLOG(wi)
-      wj = DLOG(wj)
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
@@ -708,7 +705,12 @@
       ENDDO
       prob=prob-DLOG(normwj)
 
+
+      ! #############################################################
+      ! #            Computes the Statistical Error on KDE          #
+      ! #############################################################   
       IF(nbootstrap > 0) THEN
+        ! uses bootstrapping to compute the error
         probboot = -HUGE(0.0d0)
         DO nn=1,nbootstrap
           IF(verbose) WRITE(*,*) &
@@ -718,22 +720,31 @@
           ! to apply some simplifications and avoid computing distances
           ! from far-away voronoi
           nbstot = 0
-          DO j=1,ngrid
-            ! using weights explicitly
+          DO j=1,ngrid             
+            ! here we select points and assign them to grid points (i.e. this is an "inside out" version of the KDE code)
+            ! we want to loop over grid points and know how many points we should pick from a bootstrapping sample. 
+            ! this is given by a binomial distribution -- the total number of samples will not be *exactly* nsamples, but will be close enough
             nbssample = random_binomial(nsamples, DBLE(ni(j))/DBLE(nsamples))
+            IF (nbssample .eq. 0) CYCLE
+            
             ! calculate "scaled" weight for contribution from far away voronoi
-            dummd2 = DBLE(nbssample)/ni(j) * lwi(j)
+            ! we take into account the fact that we might have selected a number of samples different from ni(j)
+            dummd2 = DLOG(DBLE(nbssample)/ni(j)) * lwi(j)
+            
             nbstot = nbstot+nbssample
             DO i=1,ngrid
+              ! this is the distance between the grid point from which we're sampling (j) and the one on which we're accumulating the KDE (i)
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
               IF (dummd1.GT.kdecut2) THEN
-                lnK = -0.5d0 * (normkernel(j) + dummd1) + DLOG(dummd2)
+                ! if the two cells are far apart, we just compute an "average contribution" from the far away Voronoi            
+                lnK = -0.5d0 * (normkernel(j) + dummd1) + dummd2
                 IF(probboot(i,nn).GT.lnK) THEN
                   probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
                 ELSE
                   probboot(i,nn) = lnK + DLOG(1.0d0+DEXP(probboot(i,nn)-lnK))
                 ENDIF
               ELSE
+                ! do the actual bootstrapping selection for this Voronoi
                 DO k=1,nbssample
                   rndidx = int(ni(j)*random_uniform())+1
                   rndidx = nlist(pnlist(j)+rndidx)
@@ -749,12 +760,12 @@
               ENDIF
             ENDDO
           ENDDO
-          probboot(:,nn) = probboot(:,nn)-DLOG(DBLE(nbstot))
-        ENDDO
-        prelerr = 0.0d0
-        pabserr = 0.0d0
+          ! normalizes the probability estimate, keeping into account that we might have used a different number of sample points than nsamples
+          probboot(:,nn) = probboot(:,nn)-(DLOG(normwj)+DLOG(DBLE(nbstot)/DBLE(nsamples)))
+        ENDDO ! ends loop on bootstrapping iterations
+        ! computes the bootstrap error from the statistics of the nbootstrap KDE runs
+        pabserr=0.0d0
         DO i=1,ngrid
-          ! use micheles approx. to be numerical stable (and accurate)
           DO j=1,nbootstrap
             IF (probboot(i,j).GT.prob(i)) THEN
               pabserr(i) = pabserr(i) + DEXP(2.0d0*(probboot(i,j)+DLOG(1.0d0-DEXP(prob(i)-probboot(i,j)))))
@@ -762,10 +773,11 @@
               pabserr(i) = pabserr(i) + DEXP(2.0d0*(prob(i)+DLOG(1.0d0-DEXP(probboot(i,j)-prob(i)))))
             ENDIF
           ENDDO
-          pabserr(i) = DSQRT(pabserr(i) / (nbootstrap-1.0d0))
-          prelerr(i) = DEXP(DLOG(pabserr(i)) - prob(i))
+          pabserr(i) = DLOG(DSQRT(pabserr(i) / (nbootstrap-1.0d0)))
+          prelerr(i) = pabserr(i) - prob(i)
         ENDDO
       ELSE
+        ! uses a binomial-distribution ansatz to estimate the error
         DO i=1,ngrid
           prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
                                 (twopi**(-Di(i)/2.0d0))/ &
@@ -782,6 +794,9 @@
         ENDDO
       ENDIF
 
+      ! #############################################################
+      ! #                       Runs quick-shift                    #
+      ! #############################################################   
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       idxroot=0
       DO i=1,ngrid
