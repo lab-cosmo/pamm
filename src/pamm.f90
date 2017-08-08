@@ -425,7 +425,7 @@
                   saveidxs,idxgrid,outputfile)
       ENDIF
 
-      ! error check of voronoi association 
+      ! error check of voronoi association
       ! -- wi contains the weights of the grid points (wi = sum_{j\in Vi} wj) --
       DO i=1,ngrid
         IF (wi(i).EQ.0.0d0) STOP &
@@ -434,12 +434,12 @@
 
       ! print out voronoi associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
-      
+
       ! Generate neighbour list between voronoi sets
       IF(verbose) write(*,*) " Generating neighbour list"
         CALL getnlist(nsamples,ngrid,ni,iminij,pnlist,nlist)
 
-      ! precomputes log weights 
+      ! precomputes log weights
       lwi = DLOG(wi)
       lwj = DLOG(wj)
 
@@ -526,7 +526,7 @@
       ! #############################################################
       ! #            Computes localization weights                  #
       ! #############################################################
-            
+
       ! Now set localizations. It can be set either in terms of a fraction of the
       ! number samples, or directly as a fraction of the variance of the data
       ! delta to stop bisectioning
@@ -648,13 +648,13 @@
           qscut2(i) = qscut2(i) + Qi(j,j)
         ENDDO
       ENDDO
-      
+
       ! scale adaptive QS cutoff
       qscut2 = qscut2 * qs**2
 
       ! #############################################################
       ! #            Computes Kernel Density Estimation             #
-      ! #############################################################      
+      ! #############################################################
       IF(verbose) WRITE(*,*) &
         " Computing kernel density on reference points"
       ! TODO: (1) if we have a mixture of non-periodic and periodic data one could split
@@ -708,7 +708,7 @@
 
       ! #############################################################
       ! #            Computes the Statistical Error on KDE          #
-      ! #############################################################   
+      ! #############################################################
       IF(nbootstrap > 0) THEN
         ! uses bootstrapping to compute the error
         probboot = -HUGE(0.0d0)
@@ -720,23 +720,23 @@
           ! to apply some simplifications and avoid computing distances
           ! from far-away voronoi
           nbstot = 0
-          DO j=1,ngrid             
+          DO j=1,ngrid
             ! here we select points and assign them to grid points (i.e. this is an "inside out" version of the KDE code)
-            ! we want to loop over grid points and know how many points we should pick from a bootstrapping sample. 
+            ! we want to loop over grid points and know how many points we should pick from a bootstrapping sample.
             ! this is given by a binomial distribution -- the total number of samples will not be *exactly* nsamples, but will be close enough
             nbssample = random_binomial(nsamples, DBLE(ni(j))/DBLE(nsamples))
             IF (nbssample .eq. 0) CYCLE
-            
+
             ! calculate "scaled" weight for contribution from far away voronoi
             ! we take into account the fact that we might have selected a number of samples different from ni(j)
             dummd2 = DLOG(DBLE(nbssample)/ni(j)) * lwi(j)
-            
+
             nbstot = nbstot+nbssample
             DO i=1,ngrid
               ! this is the distance between the grid point from which we're sampling (j) and the one on which we're accumulating the KDE (i)
               dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
               IF (dummd1.GT.kdecut2) THEN
-                ! if the two cells are far apart, we just compute an "average contribution" from the far away Voronoi            
+                ! if the two cells are far apart, we just compute an "average contribution" from the far away Voronoi
                 lnK = -0.5d0 * (normkernel(j) + dummd1) + dummd2
                 IF(probboot(i,nn).GT.lnK) THEN
                   probboot(i,nn) = probboot(i,nn) + DLOG(1.0d0+DEXP(lnK-probboot(i,nn)))
@@ -779,24 +779,27 @@
       ELSE
         ! uses a binomial-distribution ansatz to estimate the error
         DO i=1,ngrid
-          prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
-                                (twopi**(-Di(i)/2.0d0))/ &
-                                 DEXP(prob(i)) )-1.0d0)/normwj)
-          IF(prelerr(i) .NE. prelerr(i))THEN
+          prelerr(i) =DLOG(DSQRT(((((mindist(i)*twopi)**(-Di(i)))/DEXP(prob(i)))-1.0d0)/nsamples))
+
+
+          !prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
+          !                      (twopi**(-Di(i)/2.0d0))/ &
+          !                       DEXP(prob(i)) )-1.0d0)/normwj)
+          !IF(prelerr(i) .NE. prelerr(i))THEN
             ! if we get a NaN then we compute directly the log of the relativer error
             ! using a first order exapansion
-            prelerr(i)=DLOG((sigma2(i)**(-Di(i)))*(twopi**(-Di(i)/2.0d0))/normwj) &
-                    -0.5d0*prob(i)
-          ELSE
-            prelerr(i)=DLOG(prelerr(i))
-          ENDIF
+          !  prelerr(i)=DLOG((sigma2(i)**(-Di(i)))*(twopi**(-Di(i)/2.0d0))/normwj) &
+          !          -0.5d0*prob(i)
+          !ELSE
+          !  prelerr(i)=DLOG(prelerr(i))
+          !ENDIF
           pabserr(i)=prelerr(i)+prob(i)
         ENDDO
       ENDIF
 
       ! #############################################################
       ! #                       Runs quick-shift                    #
-      ! #############################################################   
+      ! #############################################################
       IF(verbose) WRITE(*,*) " Starting Quick-Shift"
       idxroot=0
       DO i=1,ngrid
