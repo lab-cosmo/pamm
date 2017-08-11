@@ -1,35 +1,37 @@
 #!/usr/bin/python
 from numpy import *
 from scipy.sparse.csgraph import connected_components
-import sys
+import sys, os
 
 verbose = False  # no verbosity
 saveadj = False  # don't store adjacency
 savegrd = False  # don't store macrogrid
 savebrd = False  # don't store boarder points
 savegrp = False  # don't store gabriel graph
+grpfile = []     # don't read gabriel graph
 errflag = False  # don't use errors
 logflag = True   # logarithm of probabilities as input
 thresh  = 0.9    # threshold to merge cluster
 D       = -1     # dimensionality needs to be specified
 
 if len(sys.argv) < 2:
-  print "usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
+  print "usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-gread graph] [-gsave] [-v] [-h] grid"
   sys.exit("ERROR: no grid file specified")
 else:
   for i,s in enumerate(sys.argv):
-    if   s == '-D'   : D       = int(sys.argv[i+1])
-    elif s == '-t'   : thresh  = float(sys.argv[i+1])
-    elif s == '-err' : errflag = True
-    elif s == '-log' : logflag = False
-    elif s == '-adj' : saveadj = True
-    elif s == '-m'   : savegrd = True
-    elif s == '-b'   : savebrd = True
-    elif s == '-g'   : savegrp = True
-    elif s == '-v'   : verbose = True
-    elif s == '-h'   : 
+    if   s == '-D'     : D       = int(sys.argv[i+1])
+    elif s == '-t'     : thresh  = float(sys.argv[i+1])
+    elif s == '-err'   : errflag = True
+    elif s == '-log'   : logflag = False
+    elif s == '-adj'   : saveadj = True
+    elif s == '-m'     : savegrd = True
+    elif s == '-b'     : savebrd = True
+    elif s == '-gsave' : savegrp = True
+    elif s == '-gread' : grpfile = sys.argv[i+1]
+    elif s == '-v'     : verbose = True
+    elif s == '-h'     : 
       print """
-usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
+usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-gread graph] [-gsave] [-v] [-h] grid"
 
  required:
  
@@ -42,9 +44,11 @@ usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-g] [-v] [-h] grid"
    -err          : use error of KDE in adjacency                [false]
    -log          : use logarithm of probabilities               [true]
    -adj          : write out adjacency matrix                   [false]
-   -m            : write out macrogrid                          [false]         
+   -m            : write out gridfile containing                [false]
+                   new macrogrid              
    -b            : write out boarder points                     [false]
-   -g            : write out gapriel graph connecting points    [false]
+   -gread graph  : read gapriel graph from file                 []
+   -gsave        : write out gapriel graph connecting points    [false]
    -v            : turn verbosity on                            [false]
    -h            : show this message
       """
@@ -57,16 +61,14 @@ print """
  *                                        * 
  ****************************************** 
                                                
- cluster merging based on:    
-   - true log-sum-exp                   
+ cluster merging based on:                  
    - gabriel neighbors                      
-   - adjacency criterion 
-      threshold 
-      kde error (not implemented yet)           
-   - periodic boudaries (not implemented yet)             
+   - adjacency criterion based 
+     on treshold or kde error
+   - true log-sum-exp                       
                                             
  Version: 1.0                               
- Date   : 02/17/17                          
+ Date   : 08/11/17                          
  Author : robert.meissner@epfl.ch                                                           
 """   
 
@@ -82,23 +84,30 @@ try:
     with open(sys.argv[-1]) as file:
         pass
 except IOError as e:
-    print "ERROR: Unable to open file"
+    print "ERROR: Unable to open grid file"
 gridfile = sys.argv[-1]
 
+if grpfile:
+  try:
+      with open(grpfile) as file:
+          pass
+  except IOError as e:
+      print "ERROR: Unable to open neigh file"
+
 # define output names
-if gridfile[-5:] == '.grid': basename = gridfile[:-5] 
-else : basename = gridfile
+if gridfile[-5:] == '.grid': basename = os.path.basename(gridfile[:-5])
+else : basename = os.path.basename(gridfile)
 mgridfile = basename + '.mgrid'
 macrofile = basename + '.macro'
 adjfile   = basename + '.adj'
 brdfile   = basename + '.boarders'
-neighfile = basename + '.graph'
 
 # load data
 data = loadtxt(gridfile)
 
 X    = data[:,:D]
 cid  = array(map(int,data[:,D]))
+oid  = cid*1
 prob = data[:,D+1]
 
 N  = X.shape[0]
@@ -130,40 +139,57 @@ else:
 ###                                                                 ###
 #######################################################################
 
-if verbose: print " Compute Distance Matrix"
-# we need squared distances for gabriel graph
-distsq = zeros([N,N])
-for i,xi in enumerate(X):
-    # matrix is symmetric, loop over upper triangular
-    distsq[i,:] = linalg.norm(xi-X,axis=1)**2
-    
-    # distance to myself is far away
-    distsq[i,i] = inf
-  
-    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
-
-
-if verbose: print " Building Gabriel Graph"
 neighs = zeros([N,N], dtype=bool)
-# find gabriel neighbors of i
-for i in range(N):
-    # matrix is symmetric, loop over upper triangular
-    for j in range(i):        
-        # if i and j are in the same cluster or 
-        # j has lower probability than i skip operation
-        if (cid[i] == cid[j]): continue
-        
-        flag = distsq[i,j] > (distsq[i,:] + distsq[j,:])
-        
-        if not flag.any():     
-          neighs[i,j] = True
-
-    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
-    
+if grpfile:
+  if verbose: print " Loading Gabriel graph"
+  with open(grpfile) as gf:
+      for i,line in enumerate(gf):
+          line = line.replace('F','0')
+          line = line.replace('T','1')
+          neighs[i,:] = array(map(int,line.split()),dtype=bool)
+          if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+else:
+  grpfile = basename + '.neigh'
+  if verbose: print " Compute distance matrix"
+  # we need squared distances for gabriel graph
+  distsq = zeros([N,N])
+  for i,xi in enumerate(X):
+      # matrix is symmetric, loop over upper triangular
+      distsq[i,:] = linalg.norm(xi-X,axis=1)**2
+      # distance to myself is far away
+      distsq[i,i] = inf
+      if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+  if verbose: print " Building Gabriel graph"
+  neighs = zeros([N,N], dtype=bool)
+  # find gabriel neighbors of i
+  for i in range(N):
+      # matrix is symmetric, loop over upper triangular
+      for j in range(i):        
+          # if i and j are in the same cluster or 
+          # j has lower probability than i skip operation
+          if (cid[i] == cid[j]): continue
+          flag = distsq[i,j] > (distsq[i,:] + distsq[j,:])
+          if not flag.any():     
+            neighs[i,j] = True
+      if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+  
+if savebrd: 
+  if verbose: print " Marking border points"
+  # create array to store border points
+  brd = zeros(N,dtype=bool)
+  # loop over all cluster
+  for i in range(N):
+    for j in range(N):
+        # are i and j in two different clusters?
+        if cid[i] == cid[j]: continue
+        # cluster ci and cj are connected if points i and j are gabriel neighbors
+        if neighs[i,j]:
+            # mark points as boarder points
+            brd[i] = True
+            brd[j] = True
     
 if verbose: print " Building adjacency matrix"
-# create array to store border points
-brd = zeros(N,dtype=bool)
+
 # loop over all cluster
 for i in range(N):
     # max prob of cluster ci
@@ -174,9 +200,6 @@ for i in range(N):
         
         # cluster ci and cj are connected if points i and j are gabriel neighbors
         if neighs[i,j]:
-            # mark points as boarder points
-            brd[i] = True
-            brd[j] = True
         
             # max prob of cluster cj
             maxPcj = max(prob[cid==cid[j]])
@@ -200,42 +223,80 @@ for i in range(N):
 
 # rescale adjacency matrix to identify connected nodes
 if verbose: print " Finding macrocluster"
-# create boolean adjacency matrix
-adj_bool = zeros([Nc,Nc])
-for i in range(Nc):
-  # is there an adjacent cluster
-  if sum(adj[i,:]) == 0: continue
-  # connect to cluster with highest adjacency
-  j = argmax(adj[i,:])
-  if adj[i,j] > thresh: 
-    adj_bool[i,j] = True
-  # connect to closest cluster
-  dmin = inf
-  for c in uc[adj[i,:] > thresh]:
 
-# get macrocluster ids
-Nm, m = connected_components(adj_bool)
-print m
-
-
-## rescale adjacency matrix to identify connected nodes
-#if verbose: print " Finding macrocluster"
-#m = zeros(Nc,dtype=int)
-#for i in range(Nc):
-#  m[i] = uc[i]
-#  j = argmax(adj[i,:])
-#  if adj[i,j] > thresh:
-#    m[i] = uc[j]
-#    
-##  print uc[i],m[i],exp(max(adj[i,:]))
-
-#um = unique(m)
-#for i in range(len(um)):
-#  m[m == um[i]] = i
-#m = m+1 
-# 
-#print m
-
+Ntmp = -1
+iteration = 0
+while True:
+  # create boolean adjacency matrix
+  adj_bool = zeros([Nc,Nc],dtype=bool)
+  # store previous number of cluster
+  Ntmp = Nc
+  for i in range(Nc):
+    # is there an adjacent cluster
+    if sum(adj[i,:]) == 0: continue
+    # connect to cluster with highest adjacency
+    j = argmax(adj[i,:])
+    if adj[i,j] > thresh: 
+      adj_bool[i,j] = True
+      adj_bool[j,i] = True
+  # get macrocluster ids and reset number of clusters
+  Nc, m = connected_components(adj_bool)
+  
+  # check if we should stop iterations
+  if Ntmp == Nc: break
+  
+  # write out adjacency matrix to file if desired 
+  if saveadj: 
+    if logflag: savetxt(adjfile+'.%d' % iteration,adj,header="adjacency matrix (log-scaled)") 
+    else:       savetxt(adjfile+'.%d' % iteration,adj,header="adjacency matrix")    
+  
+  # write out cluster association to macrocluster
+  f = open(macrofile+'.%d' % iteration,'w')
+  f.write("# cluster macrocluster\n")
+  for i,c in enumerate(uc):
+    f.write("%d %d\n" % (c,m[i]+1))
+  f.close
+  
+  iteration = iteration + 1
+  
+  # reset cluster ids according to new macroclusters
+  for i,c in enumerate(cid):
+    cid[i] = m[c-1]+1
+  uc = unique(cid)
+  # redo the adjacency matrix for macrocluster
+  if logflag: 
+    adj = ones([Nc,Nc])*-inf
+  else:
+    adj = zeros([Nc,Nc])
+  if verbose: print " Building adjacency matrix"
+  for i in range(N):
+      # max prob of cluster ci
+      maxPci = max(prob[cid==cid[i]])
+      for j in range(N):
+          # are i and j in two different clusters?
+          if cid[i] == cid[j]: continue
+          
+          # cluster ci and cj are connected if points i and j are gabriel neighbors
+          if neighs[i,j]:
+              # max prob of cluster cj
+              maxPcj = max(prob[cid==cid[j]])
+              
+              # store highest adjacency between cluster 
+              if logflag:
+                  # use micheles log-approximation for sums
+                  if prob[i] > prob[j]: avgP = prob[i] + log(1.+exp(prob[j]-prob[i]))
+                  else:                 avgP = prob[j] + log(1.+exp(prob[i]-prob[j]))
+                  tmp = avgP - min(maxPci,maxPcj) - log(2)
+                  
+                  if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
+              else:
+                  # straightforward adjacency without log-exp-prob
+                  tmp = (prob[i]+prob[j])/(2.*min(maxPci,maxPcj))
+                  
+                  if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
+                
+      if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+ 
 #######################################################################
 ###                                                                 ###
 ###                       output of program                         ###
@@ -245,7 +306,7 @@ print m
 if verbose: print " Write out"
 
 # write gabriel graph to file if desired
-if savegrp: savetxt(neighfile,neighs,header="gabriel graph",fmt='%d')
+if savegrp: savetxt(grpfile,neighs,header="gabriel graph",fmt='%d')
     
 # write adjacency matrix to file if desired 
 if saveadj: 
@@ -262,19 +323,21 @@ if savegrd:
       if '#' in line: continue
       # convert cluster from grid to macrocluster and write out
       data = map(float,line.split()) 
-      data[D] = m[int(data[D])-1]+1
+      data[D] = cid[i]
       # append flag to identify boarder points if desired
       if savebrd: 
         if brd[i]: b = 1
         else: b = 0
         data.append(b)
-        i = i+1
+      i = i+1
       fout.write(' '.join(map(str,data))+'\n')
   fout.close()
       
 # write out cluster association to macrocluster
 f = open(macrofile,'w')
-f.write("# cluster macrocluster adjacency\n")
-for i,c in enumerate(uc):
-  f.write("%d %d\n" % (c,m[i]+1))
+f.write("# cluster macrocluster\n")
+for i,c in enumerate(unique(oid)):
+  cnew = unique(cid[oid == c])
+  if len(cnew) > 1: sys.exit("ERROR: something wrong with macroclustering")
+  f.write("%d %d\n" % (c,cnew))
 f.close()
