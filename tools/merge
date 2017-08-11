@@ -143,11 +143,14 @@ neighs = zeros([N,N], dtype=bool)
 if grpfile:
   if verbose: print " Loading Gabriel graph"
   with open(grpfile) as gf:
-      for i,line in enumerate(gf):
+      i = 0
+      for line in gf:
+          if '#' in line: continue
           line = line.replace('F','0')
           line = line.replace('T','1')
           neighs[i,:] = array(map(int,line.split()),dtype=bool)
           if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+          i = i+1
 else:
   grpfile = basename + '.neigh'
   if verbose: print " Compute distance matrix"
@@ -224,13 +227,12 @@ for i in range(N):
 # rescale adjacency matrix to identify connected nodes
 if verbose: print " Finding macrocluster"
 
-Ntmp = -1
 iteration = 0
 while True:
   # create boolean adjacency matrix
   adj_bool = zeros([Nc,Nc],dtype=bool)
   # store previous number of cluster
-  Ntmp = Nc
+  Ntmp = Nc*1
   for i in range(Nc):
     # is there an adjacent cluster
     if sum(adj[i,:]) == 0: continue
@@ -257,12 +259,31 @@ while True:
     f.write("%d %d\n" % (c,m[i]+1))
   f.close
   
-  iteration = iteration + 1
-  
   # reset cluster ids according to new macroclusters
   for i,c in enumerate(cid):
     cid[i] = m[c-1]+1
   uc = unique(cid)
+  
+  # write out macrogrid file and boarder points if desired 
+  if savegrd: 
+    fout = open(mgridfile+'.%d' % iteration,'w')
+    with open(gridfile) as fin:
+      i = 0
+      for line in fin:
+        # skip comments
+        if '#' in line: continue
+        # convert cluster from grid to macrocluster and write out
+        data = map(float,line.split()) 
+        data[D] = cid[i]
+        # append flag to identify boarder points if desired
+        if savebrd: 
+          if brd[i]: b = 1
+          else: b = 0
+          data.append(b)
+        i = i+1
+        fout.write(' '.join(map(str,data))+'\n')
+    fout.close()
+  
   # redo the adjacency matrix for macrocluster
   if logflag: 
     adj = ones([Nc,Nc])*-inf
@@ -296,6 +317,9 @@ while True:
                   if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
                 
       if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
+
+  # increase iteration counter
+  iteration = iteration + 1
  
 #######################################################################
 ###                                                                 ###
@@ -306,7 +330,7 @@ while True:
 if verbose: print " Write out"
 
 # write gabriel graph to file if desired
-if savegrp: savetxt(grpfile,neighs,header="gabriel graph",fmt='%d')
+if savegrp: savetxt(grpfile,neighs,fmt='%d')
     
 # write adjacency matrix to file if desired 
 if saveadj: 
