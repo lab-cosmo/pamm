@@ -6,7 +6,7 @@ import sys, os
 verbose = False  # no verbosity
 saveadj = False  # don't store adjacency
 savegrd = False  # don't store macrogrid
-savebrd = False  # don't store boarder points
+savebrd = False  # don't store border points
 savegrp = False  # don't store gabriel graph
 grpfile = []     # don't read gabriel graph
 errflag = False  # don't use errors
@@ -46,7 +46,7 @@ usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-gread graph] [-gsave
    -adj          : write out adjacency matrix                   [false]
    -m            : write out gridfile containing                [false]
                    new macrogrid              
-   -b            : write out boarder points                     [false]
+   -b            : write out border points                      [false]
    -gread graph  : read gapriel graph from file                 []
    -gsave        : write out gapriel graph connecting points    [false]
    -v            : turn verbosity on                            [false]
@@ -100,7 +100,7 @@ else : basename = os.path.basename(gridfile)
 mgridfile = basename + '.mgrid'
 macrofile = basename + '.macro'
 adjfile   = basename + '.adj'
-brdfile   = basename + '.boarders'
+brdfile   = basename + '.borders'
 
 # load data
 data = loadtxt(gridfile)
@@ -187,7 +187,7 @@ if savebrd:
         if cid[i] == cid[j]: continue
         # cluster ci and cj are connected if points i and j are gabriel neighbors
         if neighs[i,j]:
-            # mark points as boarder points
+            # mark points as border points
             brd[i] = True
             brd[j] = True
     
@@ -264,7 +264,7 @@ while True:
     cid[i] = m[c-1]+1
   uc = unique(cid)
   
-  # write out macrogrid file and boarder points if desired 
+  # write out macrogrid file and border points if desired 
   if savegrd: 
     fout = open(mgridfile+'.%d' % iteration,'w')
     with open(gridfile) as fin:
@@ -275,7 +275,7 @@ while True:
         # convert cluster from grid to macrocluster and write out
         data = map(float,line.split()) 
         data[D] = cid[i]
-        # append flag to identify boarder points if desired
+        # append flag to identify border points if desired
         if savebrd: 
           if brd[i]: b = 1
           else: b = 0
@@ -337,7 +337,7 @@ if saveadj:
   if logflag: savetxt(adjfile,adj,header="adjacency matrix (log-scaled)") 
   else:       savetxt(adjfile,adj,header="adjacency matrix")              
 
-# write out macrogrid file and boarder points if desired 
+# write out macrogrid file and border points if desired 
 if savegrd: 
   fout = open(mgridfile,'w')
   with open(gridfile) as fin:
@@ -348,7 +348,7 @@ if savegrd:
       # convert cluster from grid to macrocluster and write out
       data = map(float,line.split()) 
       data[D] = cid[i]
-      # append flag to identify boarder points if desired
+      # append flag to identify border points if desired
       if savebrd: 
         if brd[i]: b = 1
         else: b = 0

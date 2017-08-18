@@ -780,19 +780,6 @@
         ! uses a binomial-distribution ansatz to estimate the error
         DO i=1,ngrid
           prelerr(i) =DLOG(DSQRT(((((mindist(i)*twopi)**(-Di(i)))/DEXP(prob(i)))-1.0d0)/nsamples))
-
-
-          !prelerr(i)= DSQRT(( ( (sigma2(i)**(-Di(i))) * &
-          !                      (twopi**(-Di(i)/2.0d0))/ &
-          !                       DEXP(prob(i)) )-1.0d0)/normwj)
-          !IF(prelerr(i) .NE. prelerr(i))THEN
-            ! if we get a NaN then we compute directly the log of the relativer error
-            ! using a first order exapansion
-          !  prelerr(i)=DLOG((sigma2(i)**(-Di(i)))*(twopi**(-Di(i)/2.0d0))/normwj) &
-          !          -0.5d0*prob(i)
-          !ELSE
-          !  prelerr(i)=DLOG(prelerr(i))
-          !ENDIF
           pabserr(i)=prelerr(i)+prob(i)
         ENDDO
       ENDIF
@@ -829,10 +816,13 @@
       ! get the cluster centers
       CALL unique(ngrid,idxroot,clustercenters)
       ! get the number of the clusters
-      Nk=SIZE(clustercenters)
+      Nk=SIZE(clustercenters)            
       ! get sum of the probs, the normalization factor
       normpks=logsumexp(ngrid,idxroot/idxroot,prob,1)
-      ! check if there are outliers that should be merged to the others
+      
+      ! #############################################################
+      ! #            Merges isolated points                         #
+      ! #############################################################
       ALLOCATE(mergeornot(Nk))
       DO k=1,Nk
          ! compute the relative weight of the cluster
@@ -897,6 +887,9 @@
 
       CLOSE(UNIT=11)
 
+      ! #############################################################
+      ! #            Compute the GMM based on the clusters          #
+      ! #############################################################
       ! now we can procede and complete the definition of probability model
       ! now qspath contains the indexes of Nk gaussians
       IF(periodic) THEN
@@ -922,7 +915,7 @@
          ENDIF
 
          ! optionally do a few mean-shift steps to find a better estimate
-         ! of the cluster mode
+         ! of the cluster mode (useful with very sparse grids)
 
          DO j=1,nmsopt
             msmu=0.0d0
