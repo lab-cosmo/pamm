@@ -795,7 +795,7 @@
           ! get the number of the clusters
           Nk=SIZE(clustercenters)
 
-          WRITE(comment, "(I3)") nn
+          WRITE(comment,'(I0.3)') nn
           OPEN(UNIT=11,FILE=trim(outputfile)//"-bs"//trim(comment)//".grid",STATUS='REPLACE',ACTION='WRITE')
           DO i=1,ngrid
              DO j=1,D
