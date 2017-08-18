@@ -762,6 +762,55 @@
           ENDDO
           ! normalizes the probability estimate, keeping into account that we might have used a different number of sample points than nsamples
           probboot(:,nn) = probboot(:,nn)-(DLOG(normwj)+DLOG(DBLE(nbstot)/DBLE(nsamples)))
+
+          !@@@@@@@@@@@@@@@
+
+          ! #############################################################
+          ! #                       Runs quick-shift                    #
+          ! #############################################################
+          IF(verbose) WRITE(*,*) " Starting Quick-Shift"
+          idxroot=0
+          DO i=1,ngrid
+             IF(idxroot(i).NE.0) CYCLE
+             IF(verbose .AND. (modulo(i,1000).EQ.0)) &
+                   WRITE(*,*) i,"/",ngrid
+             qspath=0
+             qspath(1)=i
+             counter=1
+             DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
+                idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),probboot(:,nn),distmm,qscut2(qspath(counter)))
+                IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
+                counter=counter+1
+                qspath(counter)=idxroot(qspath(counter-1))
+             ENDDO
+             DO j=1,counter
+                ! we found a new root, and we now set this point as the root
+                ! for all the point that are in this qspath
+                idxroot(qspath(j))=idxroot(idxroot(qspath(counter)))
+             ENDDO
+          ENDDO
+
+          ! get the cluster centers
+          CALL unique(ngrid,idxroot,clustercenters)
+          ! get the number of the clusters
+          Nk=SIZE(clustercenters)
+
+          WRITE(comment, "(I3)") nn
+          OPEN(UNIT=11,FILE=trim(outputfile)//"-bs"//trim(comment)//".grid",STATUS='REPLACE',ACTION='WRITE')
+          DO i=1,ngrid
+             DO j=1,D
+               WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
+             ENDDO
+
+             CALL invmatrix(D,Hiinv(:,:,i),Hi)
+
+             !print out grid file with additional information on probability, errors, localization, weights in voronoi, dim
+             WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") &
+                 " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
+                                                  " " , prob(i)
+
+          ENDDO
+          CLOSE(UNIT=11)
         ENDDO ! ends loop on bootstrapping iterations
         ! computes the bootstrap error from the statistics of the nbootstrap KDE runs
         pabserr=0.0d0
