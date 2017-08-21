@@ -1785,6 +1785,10 @@
             ni(iminij(j))=ni(iminij(j))+1
             wi(iminij(j))=wi(iminij(j))+wj(j)
          ENDDO
+         
+         IF (saveidxs) THEN
+            CLOSE(12)
+         ENDIF
       END SUBROUTINE mkgrid
 
       SUBROUTINE getvoro(D,period,nsamples,ngrid,x,wj,y,ni,iminij, &
