@@ -190,36 +190,42 @@ if savebrd:
             # mark points as border points
             brd[i] = True
             brd[j] = True
+
+# store maximum probability and error within each cluster
+maxP = zeros(Nc)
+for i,c in enumerate(uc):
+    # create temp array for probabilities
+    maxP[i] = max(prob[cid==c])    
+    
     
 if verbose: print " Building adjacency matrix"
 
 # loop over all cluster
 for i in range(N):
-    # max prob of cluster ci
-    maxPci = max(prob[cid==cid[i]])
     for j in range(N):
         # are i and j in two different clusters?
         if cid[i] == cid[j]: continue
         
         # cluster ci and cj are connected if points i and j are gabriel neighbors
         if neighs[i,j]:
-        
-            # max prob of cluster cj
-            maxPcj = max(prob[cid==cid[j]])
             
             # store highest adjacency between cluster 
             if logflag:
                 # use micheles log-approximation for sums
                 if prob[i] > prob[j]: avgP = prob[i] + log(1.+exp(prob[j]-prob[i]))
                 else:                 avgP = prob[j] + log(1.+exp(prob[i]-prob[j]))
-                tmp = avgP - min(maxPci,maxPcj) - log(2)
+                tmp = avgP - min(maxP[cid[i]],maxP[cid[j]]) - log(2)
                 
                 if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
             else:
                 # straightforward adjacency without log-exp-prob
-                tmp = (prob[i]+prob[j])/(2.*min(maxPci,maxPcj))
+                tmp = (prob[i]+prob[j])/(2.*min(maxP[cid[i]],maxP[cid[j]]))
                 
                 if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
+            
+            # get error of adjacency (derived from error propagation)
+            if errflag: 
+                adjerr = 1. 
               
     if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
 
@@ -240,7 +246,7 @@ while True:
     j = argmax(adj[i,:])
     if adj[i,j] > thresh: 
       adj_bool[i,j] = True
-      adj_bool[j,i] = True
+#      adj_bool[j,i] = True
   # get macrocluster ids and reset number of clusters
   Nc, m = connected_components(adj_bool)
   
@@ -289,7 +295,7 @@ while True:
     adj = ones([Nc,Nc])*-inf
   else:
     adj = zeros([Nc,Nc])
-  if verbose: print " Building adjacency matrix"
+  if verbose: print " Building adjacency matrix (iteration: %d)" % (iteration+1)
   for i in range(N):
       # max prob of cluster ci
       maxPci = max(prob[cid==cid[i]])
