@@ -462,7 +462,7 @@
             idmindist(i)=j
           ENDIF
           IF (distmm(i,j).LT.mindist(j)) THEN
-            !mindist(j) = distmm(i,j)
+            mindist(j) = distmm(i,j)
             idmindist(j)=i
           ENDIF
         ENDDO
@@ -714,6 +714,8 @@
       IF(nbootstrap > 0) THEN
         ! uses bootstrapping to compute the error
         probboot = -HUGE(0.0d0)
+        ! open output file for bootstrap containing cluster assignation for each bootstrap run
+        OPEN(UNIT=11,FILE=trim(outputfile)//".bs",STATUS='REPLACE',ACTION='WRITE')
         DO nn=1,nbootstrap
           IF(verbose) WRITE(*,*) &
                 " Bootstrapping, run ", nn
@@ -798,22 +800,23 @@
           ! get the number of the clusters
           Nk=SIZE(clustercenters)
 
-          WRITE(comment,'(I0.3)') nn
-          OPEN(UNIT=11,FILE=trim(outputfile)//"-bs"//trim(comment)//".grid",STATUS='REPLACE',ACTION='WRITE')
+!          WRITE(comment,'(I0.5)') nn
+!          OPEN(UNIT=11,FILE=trim(outputfile)//"-bs"//trim(comment)//".grid",STATUS='REPLACE',ACTION='WRITE')
           DO i=1,ngrid
-             DO j=1,D
-               WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
-             ENDDO
-
-             CALL invmatrix(D,Hiinv(:,:,i),Hi)
+!             DO j=1,D
+!               WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
+!             ENDDO
 
              !print out grid file with additional information on probability, errors, localization, weights in voronoi, dim
-             WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") &
-                 " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
-                                                  " " , prob(i)
-
+!             WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") &
+!                 " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
+!                                                  " " , prob(i)
+              
+             ! for the merging we just need the cluster assignation of each bootstrap run
+             WRITE(11,"(A1,I5)",ADVANCE="NO") " ",MINLOC(ABS(clustercenters-idxroot(i)),1)
           ENDDO
-          CLOSE(UNIT=11)
+          WRITE(11,*) " "
+!          CLOSE(UNIT=11)
         ENDDO ! ends loop on bootstrapping iterations
         ! computes the bootstrap error from the statistics of the nbootstrap KDE runs
         pabserr=0.0d0
@@ -828,6 +831,7 @@
           pabserr(i) = DLOG(DSQRT(pabserr(i) / (nbootstrap-1.0d0)))
           prelerr(i) = pabserr(i) - prob(i)
         ENDDO
+        CLOSE(UNIT=11)
       ELSE
         ! uses a binomial-distribution ansatz to estimate the error
         DO i=1,ngrid
