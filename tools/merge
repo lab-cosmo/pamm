@@ -11,10 +11,8 @@ parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpForm
   ****************************************** 
                                                
   cluster merging based on:                  
-    - gabriel neighbors                      
-    - adjacency criterion based 
-      on treshold or kde error
-    - true log-sum-exp                       
+    - bootstrap                
+    - log-sum-exp (not implemented)
                                             
   Version: 1.0                               
   Date   : 08/11/17                          
@@ -24,6 +22,7 @@ parser.add_argument("D", type=int, help="dimensionality")
 parser.add_argument("grid", type=str, help="reference grid file")
 parser.add_argument("bootstrap", type=str, help="bootstrap file")
 parser.add_argument("-t", "--thresh", type=float, default=0.9, help="threshold to merge cluster. (default=0.9)")
+parser.add_argument("-m", "--mode", type=str, default='flood', help="merging mode. iterative (iter) or flooding (flood) (default=flood)")
 parser.add_argument("--nolog", help="do not use log probabilities.", action="store_false")
 
 parser.add_argument("-v", "--verbose", help="increase output verbosity.", action="store_true")
@@ -48,14 +47,31 @@ def main():
   clus = array(grid[:,args.D],dtype=int)  
   prob = grid[:,args.D+1]
   boot = loadtxt(args.bootstrap,dtype=int)   
+  
+  # total number of grid points
+  N = len(grid)
+  # total number of cluster
+  Nc = len(unique(clus))
    
   # run adjacency calculation
   adj,ic = adjacency(prob,clus,boot)
   
   # merging step
-  macro = merge(adj,ic,args.thresh,len(grid))
-  
-  savetxt('macro',array([macro,clus]).T,fmt='%d')
+  if args.mode=='flood':  macro = merge(adj,ic,args.thresh,N)
+  elif args.mode=='iter': 
+    while True:
+      # merge to highest adjacent cluster
+      macro = merge(adj,ic,args.thresh,N,'iter')
+      # total number of new macrocluster
+      Ntmp = len(unique(macro))
+      # break if we reached convergence and no new macrocluster is found
+      if Nc == Ntmp: break
+      # reset total number of cluster
+      Nc = Ntmp
+      # run adjacency calculation again
+      adj,ic = adjacency(prob,macro,boot)
+
+  savetxt('macro',array([macro+1,clus]).T,fmt='%d')
   
   savetxt('adj',adj,fmt="%f")  
       
@@ -96,23 +112,40 @@ def adjacency(prob,clus,boot):
           
   return (aij,lc)
 
-def merge(adj,ic,thresh,N):
+def merge(adj,ic,thresh,N,mode='flood'):
   Nc = len(adj)
  
-  cij = adj > thresh
-  
-  cgraph=csg.csgraph_from_dense(cij, null_value=False)
-  cc=csg.connected_components(cgraph)
-  
-  macro = []
-  imacro = ones(N)*-1
-  for i in xrange(cc[0]):
-      mci = zeros(0,int)
-      for j in xrange(Nc):
-          if cc[1][j] == i:
-              mci = union1d(mci, ic[j])
-              imacro[ic[j]] = i
-      macro.append(mci)
+  imacro = ones(N,dtype=int)*-1
+ 
+  if mode=='flood':
+    cij = adj > thresh
+    cgraph=csg.csgraph_from_dense(cij, null_value=False)
+    cc=csg.connected_components(cgraph) 
+
+    for i in xrange(cc[0]):
+        for j in xrange(Nc):
+            if cc[1][j] == i:
+                imacro[ic[j]] = i
+                
+  elif mode=='iter':
+    # set the diagonal elements to -inf
+    fill_diagonal(adj,-inf)
+    # create boolean adjacency matrix
+    cij = zeros([Nc,Nc],dtype=bool)
+    for i in range(Nc):
+      # is there an adjacent cluster
+      if sum(adj[i,:]) == 0: continue
+      # connect to cluster with highest adjacency
+      j = argmax(adj[i,:])
+      
+      if adj[i,j] > thresh: 
+        cij[i,j] = True
+        cij[j,i] = True
+    # get macrocluster ids and reset number of clusters
+    _, macro = csg.connected_components(cij)
+    
+    for i,idxs in enumerate(ic):
+      imacro[idxs] = macro[i]
   return imacro
 
 if __name__ == "__main__":
