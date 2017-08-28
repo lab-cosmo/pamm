@@ -1310,6 +1310,7 @@
          ! estimate weights for localization as product from
          ! spherical gaussian weights and weights in voronoi
          wl = DEXP(-0.5d0/s2*SUM(xy*xy,1))*w
+         write(*,*)  wl
          ! estimate local number of sample points
          num = SUM(wl)
       END SUBROUTINE localization
@@ -1407,6 +1408,7 @@
          END DO
       END SUBROUTINE argsort
 
+      ! computes a weighted covariance
       SUBROUTINE covariance(D,period,N,wnorm,w,x,Q)
          INTEGER, INTENT(IN) :: D
          INTEGER, INTENT(IN) :: N
@@ -1451,7 +1453,7 @@
            xxmw(ii,:) = xxm(ii,:) * w/wnorm
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
-         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
+         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))                  
       END SUBROUTINE covariance
 
       SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
