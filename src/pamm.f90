@@ -73,7 +73,7 @@
       INTEGER, ALLOCATABLE, DIMENSION(:) :: idxroot, qspath
       ! macrocluster
       INTEGER, ALLOCATABLE, DIMENSION(:) :: macrocl,sortmacrocl,clustercenters
-      INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh
+      INTEGER, ALLOCATABLE, DIMENSION(:) :: ineigh,idmindist
 
       DOUBLE PRECISION normwj                                   ! accumulator for wj
       DOUBLE PRECISION lim, delta                               ! lim and delta for bisectioning in adaptive bandwidth estimation
@@ -380,7 +380,7 @@
       ! Initialize the arrays, since now I know the number of
       ! points and the dimensionality
       CALL allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                           y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
+                           y,ni,idmindist,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                            distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                            wi,lwi,lwj,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                            wlocal,wlocal2,flocal,ineigh,rgrid,sigma2,qscut2, &
@@ -459,9 +459,11 @@
           distmm(j,i) = distmm(i,j)
           IF (distmm(i,j).LT.mindist(i)) THEN
             mindist(i) = distmm(i,j)
+            idmindist(i)=j
           ENDIF
           IF (distmm(i,j).LT.mindist(j)) THEN
             mindist(j) = distmm(i,j)
+            idmindist(j)=i
           ENDIF
         ENDDO
         ! set distance to myself super far away
@@ -712,6 +714,8 @@
       IF(nbootstrap > 0) THEN
         ! uses bootstrapping to compute the error
         probboot = -HUGE(0.0d0)
+        ! open output file for bootstrap containing cluster assignation for each bootstrap run
+        OPEN(UNIT=11,FILE=trim(outputfile)//".bs",STATUS='REPLACE',ACTION='WRITE')
         DO nn=1,nbootstrap
           IF(verbose) WRITE(*,*) &
                 " Bootstrapping, run ", nn
@@ -778,7 +782,8 @@
              qspath(1)=i
              counter=1
              DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-                idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),probboot(:,nn),distmm,qscut2(qspath(counter)))
+                idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),idmindist(qspath(counter)), &
+                                           probboot(:,nn),distmm,qscut2(qspath(counter)))
                 IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
                 counter=counter+1
                 qspath(counter)=idxroot(qspath(counter-1))
@@ -795,22 +800,23 @@
           ! get the number of the clusters
           Nk=SIZE(clustercenters)
 
-          WRITE(comment,'(I0.3)') nn
-          OPEN(UNIT=11,FILE=trim(outputfile)//"-bs"//trim(comment)//".grid",STATUS='REPLACE',ACTION='WRITE')
+!          WRITE(comment,'(I0.5)') nn
+!          OPEN(UNIT=11,FILE=trim(outputfile)//"-bs"//trim(comment)//".grid",STATUS='REPLACE',ACTION='WRITE')
           DO i=1,ngrid
-             DO j=1,D
-               WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
-             ENDDO
-
-             CALL invmatrix(D,Hiinv(:,:,i),Hi)
+!             DO j=1,D
+!               WRITE(11,"((A1,ES15.4E4))",ADVANCE = "NO") " ", y(j,i)
+!             ENDDO
 
              !print out grid file with additional information on probability, errors, localization, weights in voronoi, dim
-             WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") &
-                 " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
-                                                  " " , prob(i)
-
+!             WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") &
+!                 " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
+!                                                  " " , prob(i)
+              
+             ! for the merging we just need the cluster assignation of each bootstrap run
+             WRITE(11,"(A1,I5)",ADVANCE="NO") " ",MINLOC(ABS(clustercenters-idxroot(i)),1)
           ENDDO
-          CLOSE(UNIT=11)
+          WRITE(11,*) " "
+!          CLOSE(UNIT=11)
         ENDDO ! ends loop on bootstrapping iterations
         ! computes the bootstrap error from the statistics of the nbootstrap KDE runs
         pabserr=0.0d0
@@ -825,6 +831,7 @@
           pabserr(i) = DLOG(DSQRT(pabserr(i) / (nbootstrap-1.0d0)))
           prelerr(i) = pabserr(i) - prob(i)
         ENDDO
+        CLOSE(UNIT=11)
       ELSE
         ! uses a binomial-distribution ansatz to estimate the error
         DO i=1,ngrid
@@ -862,7 +869,8 @@
             IF (gs > 0) THEN
               idxroot(qspath(counter)) = gs_next(ngrid,qspath(counter),prob,distmm,gabriel,gs)
             ELSE
-              idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),prob,distmm,qscut2(qspath(counter)))
+              idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),idmindist(qspath(counter)), &
+                                         prob,distmm,qscut2(qspath(counter)))
             ENDIF
             IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
             counter=counter+1
@@ -1060,7 +1068,7 @@
       DEALLOCATE(msmu,tmpmsmu)
       DEALLOCATE(Q,Qi,Hi,Hiinv,Qiinv,normkernel)
       DEALLOCATE(dij,tmps2)
-      DEALLOCATE(wlocal,flocal,ineigh)
+      DEALLOCATE(wlocal,flocal,ineigh,mindist,idmindist)
       DEALLOCATE(prelerr,pabserr,clustercenters,mergeornot)
       IF(saveadj) DEALLOCATE(macrocl,sortmacrocl)
       IF(nbootstrap>0) DEALLOCATE(probboot)
@@ -1202,7 +1210,7 @@
       END FUNCTION median
 
       SUBROUTINE allocatevectors(D,nsamples,nbootstrap,ngrid,iminij,pnlist,nlist, &
-                                 y,ni,mindist,prob,probboot,idxroot,idxgrid,qspath, &
+                                 y,ni,idmindist,mindist,prob,probboot,idxroot,idxgrid,qspath, &
                                  distmm,msmu,tmpmsmu,pabserr,prelerr,normkernel, &
                                  wi,lwi,lwj,Q,Qi,logdetHi,Hi,Hiinv,Qiinv,dij, &
                                  wlocal,wlocal2,flocal,ineigh,rgrid,sigma2,qscut2, &
@@ -1210,7 +1218,7 @@
 
          INTEGER, INTENT(IN) :: D,nsamples,nbootstrap,ngrid,gs
          INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT):: iminij,pnlist,nlist,idxroot,idxgrid,qspath
-         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ni,ineigh
+         INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: ni,ineigh,idmindist
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: prob,msmu,tmpmsmu,wi,lwi,lwj,logdetHi
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: pabserr,prelerr,normkernel,wlocal,wlocal2,flocal
          DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:), INTENT(OUT) :: dij,sigma2,qscut2,rgrid,tmps2,Di,mindist
@@ -1226,6 +1234,7 @@
          IF (ALLOCATED(y))          DEALLOCATE(y)
          IF (ALLOCATED(ni))         DEALLOCATE(ni)
          IF (ALLOCATED(mindist))    DEALLOCATE(mindist)
+         IF (ALLOCATED(idmindist))    DEALLOCATE(idmindist)
          IF (ALLOCATED(prob))       DEALLOCATE(prob)
          IF (ALLOCATED(probboot))   DEALLOCATE(probboot)
          IF (ALLOCATED(idxroot))    DEALLOCATE(idxroot)
@@ -1262,7 +1271,7 @@
          ! points and the dimensionality
          ALLOCATE(iminij(nsamples))
          ALLOCATE(pnlist(ngrid+1), nlist(nsamples), lwj(nsamples))
-         ALLOCATE(y(D,ngrid), ni(ngrid), mindist(ngrid))
+         ALLOCATE(y(D,ngrid), ni(ngrid), mindist(ngrid), idmindist(ngrid))
          ALLOCATE(prob(ngrid), sigma2(ngrid), qscut2(ngrid), rgrid(ngrid))
          ALLOCATE(idxroot(ngrid), qspath(ngrid), distmm(ngrid,ngrid))
          ALLOCATE(msmu(D), tmpmsmu(D),logdetHi(ngrid))
@@ -1975,7 +1984,7 @@
       END FUNCTION
 
 
-      INTEGER FUNCTION qs_next(ngrid,idx,probnmm,distmm,lambda)
+      INTEGER FUNCTION qs_next(ngrid,idx,idxn,probnmm,distmm,lambda)
          ! Return the index of the closest point higher in P
          !
          ! Args:
@@ -1986,7 +1995,7 @@
          !    distmm: distances matrix
 
          INTEGER, INTENT(IN) :: ngrid
-         INTEGER, INTENT(IN) :: idx
+         INTEGER, INTENT(IN) :: idx,idxn
          DOUBLE PRECISION, INTENT(IN) :: lambda
          DOUBLE PRECISION, INTENT(IN) :: probnmm(ngrid)
          DOUBLE PRECISION, INTENT(IN) :: distmm(ngrid,ngrid)
@@ -1997,6 +2006,9 @@
          dmin = HUGE(0.0d0)
 
          qs_next = idx
+         If (probnmm(idxn).GT.probnmm(idx) ) THEN
+           qs_next=idxn
+         ENDIF
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
                IF ((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda)) THEN
