@@ -57,14 +57,18 @@ def main():
   adj,ic = adjacency(prob,clus,boot)
   
   # merging step
-  if args.mode=='flood':  macro = merge(adj,ic,args.thresh,N)
+  if args.mode=='flood': macro = merge(adj,ic,args.thresh,N)
   elif args.mode=='iter': 
+    if args.verbose: print ' starting iterative merging'
     while True:
       # merge to highest adjacent cluster
       macro = merge(adj,ic,args.thresh,N,'iter')
       # total number of new macrocluster
       Ntmp = len(unique(macro))
       # break if we reached convergence and no new macrocluster is found
+      
+      if args.verbose: print ' %d -> %d' % (Nc,Ntmp)
+      
       if Nc == Ntmp: break
       # reset total number of cluster
       Nc = Ntmp

@@ -328,13 +328,13 @@
               !!! decomment if you want to print out
               !!! just the number of the cluster with
               !!! the higher probability
-              !dummyi1=1
-              !DO i=1,nk
-              !   IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
-              !ENDDO
+              dummyi1=1
+              DO i=1,nk
+                 IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
+              ENDDO
               ! write out the number of the
               ! cluster with the highest probability
-              WRITE(*,*) DLOG(pcluster)
+              WRITE(*,*) px,DLOG(pcluster),dummyi1
             ENDDO
             DEALLOCATE(vmclusters)
          ELSE
