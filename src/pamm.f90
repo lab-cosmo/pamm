@@ -811,7 +811,7 @@
 !             WRITE(11,"(A1,I5,A1,ES18.7E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4,A1,ES15.4E4)") &
 !                 " " , MINLOC(ABS(clustercenters-idxroot(i)),1) ,      &
 !                                                  " " , prob(i)
-              
+
              ! for the merging we just need the cluster assignation of each bootstrap run
              WRITE(11,"(A1,I5)",ADVANCE="NO") " ",MINLOC(ABS(clustercenters-idxroot(i)),1)
           ENDDO
@@ -1319,7 +1319,6 @@
          ! estimate weights for localization as product from
          ! spherical gaussian weights and weights in voronoi
          wl = DEXP(-0.5d0/s2*SUM(xy*xy,1))*w
-         write(*,*)  wl
          ! estimate local number of sample points
          num = SUM(wl)
       END SUBROUTINE localization
@@ -1462,7 +1461,7 @@
            xxmw(ii,:) = xxm(ii,:) * w/wnorm
          ENDDO
          CALL DGEMM("N", "T", D, D, N, 1.0d0, xxm, D, xxmw, D, 0.0d0, Q, D)
-         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))                  
+         Q = Q / (1.0d0-SUM((w/wnorm)**2.0d0))
       END SUBROUTINE covariance
 
       SUBROUTINE getlcovcluster(D,period,N,prob,x,clroots,idcl,Q)
@@ -1796,7 +1795,7 @@
             ni(iminij(j))=ni(iminij(j))+1
             wi(iminij(j))=wi(iminij(j))+wj(j)
          ENDDO
-         
+
          IF (saveidxs) THEN
             CLOSE(12)
          ENDIF
