@@ -77,7 +77,7 @@ def main():
       # run adjacency calculation again
       adj,ic = adjacency(prob,macro,boot)
 
-  savetxt('%s.%s' % (oname,'macro'),array([macro+1,clus]).T,fmt='%d')
+  savetxt('%s.%s' % (oname,'macro'),array([macro+1,clus+1]).T,fmt='%d')
 
   savetxt('%s.%s' % (oname,'adj'),adj,fmt="%f")
 
