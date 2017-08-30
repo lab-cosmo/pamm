@@ -3,21 +3,21 @@ from numpy import *
 import scipy.sparse.csgraph as csg
 import sys, os, argparse, time
 
-parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,description=""" 
-  ****************************************** 
-  *                                        * 
-  *               PAMM Tools               * 
-  *                                        * 
-  ****************************************** 
-                                               
-  cluster merging based on:                  
-    - bootstrap                
+parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,description="""
+  ******************************************
+  *                                        *
+  *               PAMM Tools               *
+  *                                        *
+  ******************************************
+
+  cluster merging based on:
+    - bootstrap
     - log-sum-exp (not implemented)
-                                            
-  Version: 1.0                               
-  Date   : 08/11/17                          
-  Author : robert.meissner@epfl.ch 
-""")   
+
+  Version: 1.0
+  Date   : 08/11/17
+  Author : robert.meissner@epfl.ch
+""")
 parser.add_argument("D", type=int, help="dimensionality")
 parser.add_argument("grid", type=str, help="reference grid file")
 parser.add_argument("bootstrap", type=str, help="bootstrap file")
@@ -42,23 +42,25 @@ def main():
         pass
   except IOError as e:
       print "ERROR: Unable to open bootstrap file"
-  
+
   grid = loadtxt(args.grid)
-  clus = array(grid[:,args.D],dtype=int)  
+  clus = array(grid[:,args.D],dtype=int)-1
   prob = grid[:,args.D+1]
-  boot = loadtxt(args.bootstrap,dtype=int)   
-  
+  boot = loadtxt(args.bootstrap,dtype=int)-1
+
+  oname = os.path.splitext(args.grid)[0]
+
   # total number of grid points
   N = len(grid)
   # total number of cluster
   Nc = len(unique(clus))
-   
+
   # run adjacency calculation
   adj,ic = adjacency(prob,clus,boot)
-  
+
   # merging step
   if args.mode=='flood': macro = merge(adj,ic,args.thresh,N)
-  elif args.mode=='iter': 
+  elif args.mode=='iter':
     if args.verbose: print ' starting iterative merging'
     while True:
       # merge to highest adjacent cluster
@@ -66,71 +68,83 @@ def main():
       # total number of new macrocluster
       Ntmp = len(unique(macro))
       # break if we reached convergence and no new macrocluster is found
-      
+
       if args.verbose: print ' %d -> %d' % (Nc,Ntmp)
-      
+
       if Nc == Ntmp: break
       # reset total number of cluster
       Nc = Ntmp
       # run adjacency calculation again
       adj,ic = adjacency(prob,macro,boot)
 
-  savetxt('macro',array([macro+1,clus]).T,fmt='%d')
-  
-  savetxt('adj',adj,fmt="%f")  
-      
+  savetxt('%s.%s' % (oname,'macro'),array([macro+1,clus]).T,fmt='%d')
+
+  savetxt('%s.%s' % (oname,'adj'),adj,fmt="%f")
+
   if args.verbose: sys.stderr.write("Finished in %.2f seconds.\n"%(time.time()-starttime))
   return 0
 ####### END MAIN ########
 
-def adjacency(prob,clus,boot):
+def adjacency(pi,clus,boot):
   uc = unique(clus)
-  Nc = len(uc)
-  Nb = len(boot)
+  ncls = len(uc)
+  nbs = len(boot)
+  nclsbs = zeros(nbs,int)
+  for bs in xrange(nbs):
+    nclsbs[bs] = max(boot[bs])+1
 
-  # calculate reference Qs
-  lc = []
-  Qi = zeros(Nc)
-  for i,c in enumerate(uc):
-    ic = where(clus == c)[0]
-    Qi[i] = exp(prob[ic]).sum()
-    lc.append(ic)
-  
-  # calculate overlap Qs
-  QAi = zeros((Nb,boot.flatten().max(),Nc))
-  for i in xrange(Nb):
-      for j,c in enumerate(unique(boot[i,:])):
-          ic = where(boot[i,:] == c)[0]
-          for k in xrange(Nc):
-              itmp = intersect1d(ic, lc[k])
-              QAi[i,j,k] = exp(prob[itmp]).sum() 
-  
-  aij = zeros((Nc,Nc))
-  for i in xrange(Nc):
-      for j in xrange(i+1):
-          tij = 0
-          for bs in xrange(Nb):
-              for k in xrange(boot[bs,:].max()):
-                  tij += QAi[bs,k,i] * QAi[bs,k,j]
-          aij[i,j] = aij[j,i] = tij/(Qi[i]*Qi[j]*Nb) 
-          
-  return (aij,lc)
+  lcls = []
+  Qi = zeros(ncls)
+  for i in xrange(ncls):
+    icls = where(clus == i)[0]
+    Qi[i] = exp(pi[icls]).sum()
+    lcls.append(icls)
+
+  QA = zeros((nbs,max(nclsbs)))
+  for bs in xrange(nbs):
+    for i in xrange(nclsbs[bs]):
+      icls = where(boot[bs] == i)[0]
+      QA[bs,i] = exp(pi[icls]).sum()
+
+  QAi = zeros((nbs,max(nclsbs),ncls))
+  for bs in xrange(nbs):
+    for i in xrange(nclsbs[bs]):
+      icls = where(boot[bs] == i)[0]
+      for j in xrange(ncls):
+        inter = intersect1d(icls, lcls[j])
+        QAi[bs,i,j] = exp(pi[inter]).sum()
+
+  nij = zeros((ncls,ncls))
+  for i in xrange(ncls):
+    for j in xrange(i+1):
+      tij = 0
+      for bs in xrange(nbs):
+        for k in xrange(nclsbs[bs]):
+          tij += QAi[bs,k,i] * QAi[bs,k,j] / (QA[bs,k])
+      nij[i,j] = nij[j,i] = tij/nbs
+  nij /= exp(pi).sum()
+
+  Qi /= exp(pi).sum()
+
+  nnij = nij/ sqrt(multiply.outer(Qi,Qi))
+
+  return (nnij,lcls)
 
 def merge(adj,ic,thresh,N,mode='flood'):
   Nc = len(adj)
- 
+
   imacro = ones(N,dtype=int)*-1
- 
+
   if mode=='flood':
     cij = adj > thresh
     cgraph=csg.csgraph_from_dense(cij, null_value=False)
-    cc=csg.connected_components(cgraph) 
+    cc=csg.connected_components(cgraph)
 
     for i in xrange(cc[0]):
         for j in xrange(Nc):
             if cc[1][j] == i:
                 imacro[ic[j]] = i
-                
+
   elif mode=='iter':
     # set the diagonal elements to -inf
     fill_diagonal(adj,-inf)
@@ -141,20 +155,20 @@ def merge(adj,ic,thresh,N,mode='flood'):
       if sum(adj[i,:]) == 0: continue
       # connect to cluster with highest adjacency
       j = argmax(adj[i,:])
-      
-      if adj[i,j] > thresh: 
+
+      if adj[i,j] > thresh:
         cij[i,j] = True
         cij[j,i] = True
     # get macrocluster ids and reset number of clusters
     _, macro = csg.connected_components(cij)
-    
+
     for i,idxs in enumerate(ic):
       imacro[idxs] = macro[i]
   return imacro
 
 if __name__ == "__main__":
     sys.exit(main())
-    
+
 #verbose = False  # no verbosity
 #saveadj = False  # don't store adjacency
 #savegrd = False  # don't store macrogrid
@@ -181,15 +195,15 @@ if __name__ == "__main__":
 #    elif s == '-gsave' : savegrp = True
 #    elif s == '-gread' : grpfile = sys.argv[i+1]
 #    elif s == '-v'     : verbose = True
-#    elif s == '-h'     : 
+#    elif s == '-h'     :
 #      print """
 #usage: merge -D dim [-t tresh] [-e] [-l] [-adj] [-m] [-b] [-gread graph] [-gsave] [-v] [-h] grid"
 
 # required:
-# 
+#
 #   -D dim        : dimensionality
 #   grid          : pamm grid file
-#       
+#
 # optional:
 
 #   -t thresh     : threshold to merge cluster                   [0.9]
@@ -197,7 +211,7 @@ if __name__ == "__main__":
 #   -log          : use logarithm of probabilities               [true]
 #   -adj          : write out adjacency matrix                   [false]
 #   -m            : write out gridfile containing                [false]
-#                   new macrogrid              
+#                   new macrogrid
 #   -b            : write out boarder points                     [false]
 #   -gread graph  : read gapriel graph from file                 []
 #   -gsave        : write out gapriel graph connecting points    [false]
@@ -206,23 +220,23 @@ if __name__ == "__main__":
 #      """
 #      sys.exit()
 
-#print """ 
-# ****************************************** 
-# *                                        * 
-# *               PAMM Tools               * 
-# *                                        * 
-# ****************************************** 
-#                                               
-# cluster merging based on:                  
-#   - gabriel neighbors                      
-#   - adjacency criterion based 
+#print """
+# ******************************************
+# *                                        *
+# *               PAMM Tools               *
+# *                                        *
+# ******************************************
+#
+# cluster merging based on:
+#   - gabriel neighbors
+#   - adjacency criterion based
 #     on treshold or kde error
-#   - true log-sum-exp                       
-#                                            
-# Version: 1.0                               
-# Date   : 08/11/17                          
-# Author : robert.meissner@epfl.ch                                                           
-#"""   
+#   - true log-sum-exp
+#
+# Version: 1.0
+# Date   : 08/11/17
+# Author : robert.meissner@epfl.ch
+#"""
 
 ########################################################################
 ####                                                                 ###
@@ -278,7 +292,7 @@ if __name__ == "__main__":
 #steps = 10**multi
 
 ## prepare adjacency matrix skeleton
-#if logflag: 
+#if logflag:
 #  thresh = log(thresh)
 #  adj = ones([Nc,Nc])*-inf
 #else:
@@ -319,16 +333,16 @@ if __name__ == "__main__":
 #  # find gabriel neighbors of i
 #  for i in range(N):
 #      # matrix is symmetric, loop over upper triangular
-#      for j in range(i):        
-#          # if i and j are in the same cluster or 
+#      for j in range(i):
+#          # if i and j are in the same cluster or
 #          # j has lower probability than i skip operation
 #          if (cid[i] == cid[j]): continue
 #          flag = distsq[i,j] > (distsq[i,:] + distsq[j,:])
-#          if not flag.any():     
+#          if not flag.any():
 #            neighs[i,j] = True
 #      if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
-#  
-#if savebrd: 
+#
+#if savebrd:
 #  if verbose: print " Marking border points"
 #  # create array to store border points
 #  brd = zeros(N,dtype=bool)
@@ -342,7 +356,7 @@ if __name__ == "__main__":
 #            # mark points as boarder points
 #            brd[i] = True
 #            brd[j] = True
-#    
+#
 #if verbose: print " Building adjacency matrix"
 
 ## loop over all cluster
@@ -352,27 +366,27 @@ if __name__ == "__main__":
 #    for j in range(N):
 #        # are i and j in two different clusters?
 #        if cid[i] == cid[j]: continue
-#        
+#
 #        # cluster ci and cj are connected if points i and j are gabriel neighbors
 #        if neighs[i,j]:
-#        
+#
 #            # max prob of cluster cj
 #            maxPcj = max(prob[cid==cid[j]])
-#            
-#            # store highest adjacency between cluster 
+#
+#            # store highest adjacency between cluster
 #            if logflag:
 #                # use micheles log-approximation for sums
 #                if prob[i] > prob[j]: avgP = prob[i] + log(1.+exp(prob[j]-prob[i]))
 #                else:                 avgP = prob[j] + log(1.+exp(prob[i]-prob[j]))
 #                tmp = avgP - min(maxPci,maxPcj) - log(2)
-#                
+#
 #                if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
 #            else:
 #                # straightforward adjacency without log-exp-prob
 #                tmp = (prob[i]+prob[j])/(2.*min(maxPci,maxPcj))
-#                
+#
 #                if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
-#              
+#
 #    if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
 
 
@@ -390,34 +404,34 @@ if __name__ == "__main__":
 #    if sum(adj[i,:]) == 0: continue
 #    # connect to cluster with highest adjacency
 #    j = argmax(adj[i,:])
-#    if adj[i,j] > thresh: 
+#    if adj[i,j] > thresh:
 #      adj_bool[i,j] = True
 #      adj_bool[j,i] = True
 #  # get macrocluster ids and reset number of clusters
 #  Nc, m = connected_components(adj_bool)
-#  
+#
 #  # check if we should stop iterations
 #  if Ntmp == Nc: break
-#  
-#  # write out adjacency matrix to file if desired 
-#  if saveadj: 
-#    if logflag: savetxt(adjfile+'.%d' % iteration,adj,header="adjacency matrix (log-scaled)") 
-#    else:       savetxt(adjfile+'.%d' % iteration,adj,header="adjacency matrix")    
-#  
+#
+#  # write out adjacency matrix to file if desired
+#  if saveadj:
+#    if logflag: savetxt(adjfile+'.%d' % iteration,adj,header="adjacency matrix (log-scaled)")
+#    else:       savetxt(adjfile+'.%d' % iteration,adj,header="adjacency matrix")
+#
 #  # write out cluster association to macrocluster
 #  f = open(macrofile+'.%d' % iteration,'w')
 #  f.write("# cluster macrocluster\n")
 #  for i,c in enumerate(uc):
 #    f.write("%d %d\n" % (c,m[i]+1))
 #  f.close
-#  
+#
 #  # reset cluster ids according to new macroclusters
 #  for i,c in enumerate(cid):
 #    cid[i] = m[c-1]+1
 #  uc = unique(cid)
-#  
-#  # write out macrogrid file and boarder points if desired 
-#  if savegrd: 
+#
+#  # write out macrogrid file and boarder points if desired
+#  if savegrd:
 #    fout = open(mgridfile+'.%d' % iteration,'w')
 #    with open(gridfile) as fin:
 #      i = 0
@@ -425,19 +439,19 @@ if __name__ == "__main__":
 #        # skip comments
 #        if '#' in line: continue
 #        # convert cluster from grid to macrocluster and write out
-#        data = map(float,line.split()) 
+#        data = map(float,line.split())
 #        data[D] = cid[i]
 #        # append flag to identify boarder points if desired
-#        if savebrd: 
+#        if savebrd:
 #          if brd[i]: b = 1
 #          else: b = 0
 #          data.append(b)
 #        i = i+1
 #        fout.write(' '.join(map(str,data))+'\n')
 #    fout.close()
-#  
+#
 #  # redo the adjacency matrix for macrocluster
-#  if logflag: 
+#  if logflag:
 #    adj = ones([Nc,Nc])*-inf
 #  else:
 #    adj = zeros([Nc,Nc])
@@ -448,49 +462,49 @@ if __name__ == "__main__":
 #      for j in range(N):
 #          # are i and j in two different clusters?
 #          if cid[i] == cid[j]: continue
-#          
+#
 #          # cluster ci and cj are connected if points i and j are gabriel neighbors
 #          if neighs[i,j]:
 #              # max prob of cluster cj
 #              maxPcj = max(prob[cid==cid[j]])
-#              
-#              # store highest adjacency between cluster 
+#
+#              # store highest adjacency between cluster
 #              if logflag:
 #                  # use micheles log-approximation for sums
 #                  if prob[i] > prob[j]: avgP = prob[i] + log(1.+exp(prob[j]-prob[i]))
 #                  else:                 avgP = prob[j] + log(1.+exp(prob[i]-prob[j]))
 #                  tmp = avgP - min(maxPci,maxPcj) - log(2)
-#                  
+#
 #                  if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
 #              else:
 #                  # straightforward adjacency without log-exp-prob
 #                  tmp = (prob[i]+prob[j])/(2.*min(maxPci,maxPcj))
-#                  
+#
 #                  if tmp > adj[uc==cid[i],uc==cid[j]] : adj[uc==cid[i],uc==cid[j]] = tmp
-#                
+#
 #      if verbose and (mod(i+1,steps)==0): print "  %d / %d" % (i+1,N)
 
 #  # increase iteration counter
 #  iteration = iteration + 1
-# 
+#
 ########################################################################
 ####                                                                 ###
 ####                       output of program                         ###
 ####                                                                 ###
-########################################################################    
+########################################################################
 
 #if verbose: print " Write out"
 
 ## write gabriel graph to file if desired
 #if savegrp: savetxt(grpfile,neighs,fmt='%d')
-#    
-## write adjacency matrix to file if desired 
-#if saveadj: 
-#  if logflag: savetxt(adjfile,adj,header="adjacency matrix (log-scaled)") 
-#  else:       savetxt(adjfile,adj,header="adjacency matrix")              
+#
+## write adjacency matrix to file if desired
+#if saveadj:
+#  if logflag: savetxt(adjfile,adj,header="adjacency matrix (log-scaled)")
+#  else:       savetxt(adjfile,adj,header="adjacency matrix")
 
-## write out macrogrid file and boarder points if desired 
-#if savegrd: 
+## write out macrogrid file and boarder points if desired
+#if savegrd:
 #  fout = open(mgridfile,'w')
 #  with open(gridfile) as fin:
 #    i = 0
@@ -498,17 +512,17 @@ if __name__ == "__main__":
 #      # skip comments
 #      if '#' in line: continue
 #      # convert cluster from grid to macrocluster and write out
-#      data = map(float,line.split()) 
+#      data = map(float,line.split())
 #      data[D] = cid[i]
 #      # append flag to identify boarder points if desired
-#      if savebrd: 
+#      if savebrd:
 #        if brd[i]: b = 1
 #        else: b = 0
 #        data.append(b)
 #      i = i+1
 #      fout.write(' '.join(map(str,data))+'\n')
 #  fout.close()
-#      
+#
 ## write out cluster association to macrocluster
 #f = open(macrofile,'w')
 #f.write("# cluster macrocluster\n")
