@@ -1519,7 +1519,7 @@
            Re2 = DBLE(Ntot)/(DBLE(Ntot)-1.0d0) * ((SUM(DCOS(ww*x(:,i)))**2 + &
                  SUM(DSIN(ww*x(:,i)))**2)-1.0d0/DBLE(Ntot))
            ! one could iterate this, but this first approximation should already be enough
-           Q(i,i) = DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2)
+           Q(i,i) = 1.0d0/DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2)
          ENDDO
       END SUBROUTINE getlcovclusterp
 
