@@ -1500,7 +1500,7 @@
          INTEGER, INTENT(IN) :: clroots(N)
          DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
 
-         DOUBLE PRECISION :: ww(N),normww,Re2
+         DOUBLE PRECISION :: ww(N),normww,Re2,xx(D,N)
          INTEGER :: i
 
          ! get the norm of the weights
@@ -1516,8 +1516,10 @@
 
          Q = 0.0d0
          DO i=1,D
-           Re2 = DBLE(Ntot)/(DBLE(Ntot)-1.0d0) * ((SUM(DCOS(ww*x(:,i)))**2 + &
-                 SUM(DSIN(ww*x(:,i)))**2)-1.0d0/DBLE(Ntot))
+           ! let's apply the M.I.C. to the angle
+           xx(i,:) = x(i,:) - DNINT(x(i,:)/period(i)) * period(i)
+           Re2 = DBLE(Ntot)/(DBLE(Ntot)-1.0d0) * ((SUM(DCOS(ww*xx(:,i)))**2 + &
+                 SUM(DSIN(ww*xx(:,i)))**2)-1.0d0/DBLE(Ntot))
            ! one could iterate this, but this first approximation should already be enough
            Q(i,i) = 1.0d0/DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2)
          ENDDO
