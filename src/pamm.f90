@@ -1011,11 +1011,12 @@
          ! compute the gaussians covariance from the data in the clusters
 
          IF(periodic)THEN
-            CALL getlcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),vmclusters(k)%cov)
+            CALL getlcovclusterp(D,period,ngrid,nsamples,prob,y,idxroot,clustercenters(k),vmclusters(k)%cov)
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-              CALL getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov)
+              !CALL getcovclusterp(D,period,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov)
+              WRITE(*,*) " Warning: single point cluster!!! "
             ENDIF
             vmclusters(k)%weight= &
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
@@ -1026,7 +1027,8 @@
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-              CALL getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov)
+              !CALL getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov)
+              WRITE(*,*) " Warning: single point cluster!!! "
             ENDIF
             clusters(k)%weight=&
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
@@ -1488,6 +1490,38 @@
 
          CALL covariance(D,period,N,1.0d0,ww,x,Q)
       END SUBROUTINE getlcovcluster
+
+      SUBROUTINE getlcovclusterp(D,period,N,Ntot,prob,x,clroots,idcl,Q)
+      ! log version
+         INTEGER, INTENT(IN) :: D,N,Ntot,idcl
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: prob(N)
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         INTEGER, INTENT(IN) :: clroots(N)
+         DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
+
+         DOUBLE PRECISION :: ww(N),normww,Re2
+         INTEGER :: i
+
+         ! get the norm of the weights
+         normww = logsumexp(ngrid,clroots,prob,idcl)
+
+         ! select just the probabilities of the element
+         ! that belongs to the cluster tgt
+         WHERE (clroots .EQ. idcl)
+            ww = DEXP(prob - normww)
+         ELSEWHERE
+            ww = 0.0d0
+         END WHERE
+
+         Q = 0.0d0
+         DO i=1,D
+           Re2 = DBLE(Ntot)/(DBLE(Ntot)-1.0d0) * ((SUM(DCOS(ww*x(:,i)))**2 + &
+                 SUM(DSIN(ww*x(:,i)))**2)-1.0d0/DBLE(Ntot))
+           ! one could iterate this, but this first approximation should already be enough
+           Q(i,i) = DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2)
+         ENDDO
+      END SUBROUTINE getlcovclusterp
 
       SUBROUTINE getcovcluster(D,period,N,prob,x,clroots,idcl,Q)
       ! non log version
