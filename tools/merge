@@ -81,6 +81,8 @@ def main():
 
   savetxt('%s.%s' % (oname,'adj'),adj,fmt="%f")
 
+  print max(macro)+1
+
   if args.verbose: sys.stderr.write("Finished in %.2f seconds.\n"%(time.time()-starttime))
   return 0
 ####### END MAIN ########

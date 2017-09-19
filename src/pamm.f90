@@ -1011,6 +1011,8 @@
 
          IF(periodic)THEN
             CALL getlcovclusterp(D,period,ngrid,nsamples,prob,y,idxroot,clustercenters(k),vmclusters(k)%cov)
+
+  !write(*,*) vmclusters(k)%cov
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
@@ -1020,9 +1022,10 @@
             vmclusters(k)%weight= &
              DEXP(logsumexp(ngrid,idxroot,prob,clustercenters(k))-normpks)
             vmclusters(k)%D=D
-            CALL oracle(D,logsumexp(ngrid,idxroot,prob,clustercenters(k))*DBLE(nsamples),vmclusters(k)%cov)
+            !CALL oracle(D,logsumexp(ngrid,idxroot,prob,clustercenters(k))*DBLE(nsamples),vmclusters(k)%cov)
          ELSE
             CALL getlcovcluster(D,period,ngrid,prob,y,idxroot,clustercenters(k),clusters(k)%cov)
+  !write(*,*) clusters(k)%cov
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
@@ -1499,26 +1502,50 @@
          INTEGER, INTENT(IN) :: clroots(N)
          DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
 
-         DOUBLE PRECISION :: ww(N),normww,Re2
+         DOUBLE PRECISION :: ww(N),totnormp,nlk,R2,Re2,xx(D,N)
          INTEGER :: i
-
-         ! get the norm of the weights
-         normww = logsumexp(ngrid,clroots,prob,idcl)
+         ! get the total sum of the p(i)
+         totnormp = logsumexp(ngrid,clroots/clroots,prob,1)
+!WRITE(*,*) "clust , ", idcl
+!WRITE(*,*) "totp: ", totnormp
 
          ! select just the probabilities of the element
-         ! that belongs to the cluster tgt
+         ! that belongs to the cluster target and normalize them by totnormp
          WHERE (clroots .EQ. idcl)
-            ww = DEXP(prob - normww)
+            ww = DEXP(prob - totnormp)
          ELSEWHERE
             ww = 0.0d0
          END WHERE
-
+         ! Rescale the weights to the size of the dataset,
+         ! in order to obtain the fraction of samples corresponding to the gridpoint i
+         ww = Ntot * ww
+         ! get the amount of points that belong to this cluster
+         nlk = SUM(ww)
+!WRITE(*,*) x(1,1),x(2,1)
+!WRITE(*,*) "nk: ", nlk
+!DO i=1,D
+!WRITE(*,*) x(1,i),DCOS(x(1,i)),ww(i),ww(i)*DCOS(x(1,i))
+!ENDDO
+!STOP
          Q = 0.0d0
          DO i=1,D
-           Re2 = DBLE(Ntot)/(DBLE(Ntot)-1.0d0) * ((SUM(DCOS(ww*x(:,i)))**2 + &
-                 SUM(DSIN(ww*x(:,i)))**2)-1.0d0/DBLE(Ntot))
+           ! let's apply the M.I.C. to the angle
+           xx(i,:) = x(i,:) - DNINT(x(i,:)/period(i)) * period(i)
+           ! see the wiki:
+           ! https://en.wikipedia.org/wiki/Von_Mises_distribution
+           ! Section: Estimation of parameters
+           R2 = (SUM(ww*DCOS(xx(i,:)))/nlk)**2 + (SUM(ww*DSIN(xx(i,:)))/nlk)**2
+!WRITE(*,*) "dim, rr2: ",i, R2
+           ! get the unbiased estimator
+           Re2 = (nlk/(nlk-1.0d0))*(R2-(1.0d0/nlk))
+!WRITE(*,*) "dim, urr2: ",i, R2
            ! one could iterate this, but this first approximation should already be enough
-           Q(i,i) = DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2)
+           ! See: https://en.wikipedia.org/wiki/Von_Mises%E2%80%93Fisher_distribution
+           ! Section: Estimation of parameters
+           ! and get the inverse of the concetration paramater
+           ! that correspond to a variance
+           Q(i,i) = 1.0d0/(DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2))
+!WRITE(*,*) "dim, k: ",i, DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2)
          ENDDO
       END SUBROUTINE getlcovclusterp
 
