@@ -672,7 +672,6 @@
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
-        ! setting lnK to the smallest possible number
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
           dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
