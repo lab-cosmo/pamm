@@ -22,7 +22,7 @@ parser.add_argument("D", type=int, help="dimensionality")
 parser.add_argument("grid", type=str, help="reference grid file")
 parser.add_argument("bootstrap", type=str, help="bootstrap file")
 parser.add_argument("-t", "--thresh", type=float, default=0.9, help="threshold to merge cluster. (default=0.9)")
-parser.add_argument("-m", "--mode", type=str, default='flood', help="merging mode. iterative (iter) or flooding (flood) (default=flood)")
+parser.add_argument("-m", "--mode", type=str, default='flood', help="merging mode. iterative (iter), flooding (flood) or dendrogram (hier) (default=flood)")
 parser.add_argument("--nolog", help="do not use log probabilities.", action="store_false")
 
 parser.add_argument("-v", "--verbose", help="increase output verbosity.", action="store_true")
@@ -57,6 +57,8 @@ def main():
 
   # run adjacency calculation
   adj,ic = adjacency(prob,clus,boot)
+  
+  savetxt('%s.%s' % (oname,'adj'),adj,fmt="%f")
 
   # merging step
   if args.mode=='flood': macro = merge(adj,ic,args.thresh,N)
@@ -64,22 +66,35 @@ def main():
     if args.verbose: print ' starting iterative merging'
     while True:
       # merge to highest adjacent cluster
-      macro = merge(adj,ic,args.thresh,N,'iter')
+      macro = merge(adj,ic,args.thresh,N,args.mode)
       # total number of new macrocluster
       Ntmp = len(unique(macro))
-      # break if we reached convergence and no new macrocluster is found
-
       if args.verbose: print ' %d -> %d' % (Nc,Ntmp)
-
+      # break if we reached convergence and no new macrocluster is found
       if Nc == Ntmp: break
       # reset total number of cluster
       Nc = Ntmp
       # run adjacency calculation again
       adj,ic = adjacency(prob,macro,boot)
+  elif args.mode=='hier':
+    if args.verbose: print ' starting hierarchy merging'
+    f = open('hierarchy','w')
+    f.write(' '.join(map(str,clus))+'\n')
+    while True:
+      # merge to highest adjacent cluster
+      macro = merge(adj,ic,args.thresh,N,args.mode)
+      # total number of new macrocluster
+      Ntmp = len(unique(macro))
+      f.write(' '.join(map(str,macro))+'\n')
+      if args.verbose: print ' %d -> %d' % (Nc,Ntmp)
+      # reset total number of cluster
+      Nc = Ntmp
+      if Nc==1: break
+      # run adjacency calculation again
+      adj,ic = adjacency(prob,macro,boot)
+    f.close()
 
   savetxt('%s.%s' % (oname,'macro'),array([macro+1,clus+1]).T,fmt='%d')
-
-  savetxt('%s.%s' % (oname,'adj'),adj,fmt="%f")
 
   print max(macro)+1
 
@@ -151,15 +166,13 @@ def merge(adj,ic,thresh,N,mode='flood'):
     cij = adj > thresh
     cgraph=csg.csgraph_from_dense(cij, null_value=False)
     cc=csg.connected_components(cgraph)
-
     for i in xrange(cc[0]):
         for j in xrange(Nc):
             if cc[1][j] == i:
                 imacro[ic[j]] = i
-
   elif mode=='iter':
-    # set the diagonal elements to -inf
-    fill_diagonal(adj,-inf)
+    # set the diagonal elements to zero
+    fill_diagonal(adj,0)
     # create boolean adjacency matrix
     cij = zeros([Nc,Nc],dtype=bool)
     for i in range(Nc):
@@ -167,16 +180,35 @@ def merge(adj,ic,thresh,N,mode='flood'):
       if sum(adj[i,:]) == 0: continue
       # connect to cluster with highest adjacency
       j = argmax(adj[i,:])
-
       if adj[i,j] > thresh:
         cij[i,j] = True
         cij[j,i] = True
     # get macrocluster ids and reset number of clusters
     _, macro = csg.connected_components(cij)
-
     for i,idxs in enumerate(ic):
       imacro[idxs] = macro[i]
+  elif mode=='hier':
+    # set the diagonal elements to zero
+    fill_diagonal(adj,0)
+    # find indices of highest adjacent cluster and merge both
+    imax,jmax = argwhere(adj == max(adj.flatten()))[0]
+    
+    # create boolean adjacency matrix
+    cij = zeros([Nc,Nc],dtype=bool)
+    
+    cij[imax,jmax] = True
+    cij[jmax,imax] = True
+    
+    # get macrocluster ids and reset number of clusters
+    _, macro = csg.connected_components(cij)
+    
+    print macro,adj[imax,jmax]
+    for i,idxs in enumerate(ic):
+      imacro[idxs] = macro[i]
+
   return imacro
+  
+  
 
 if __name__ == "__main__":
     sys.exit(main())
