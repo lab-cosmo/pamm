@@ -781,8 +781,12 @@
              qspath(1)=i
              counter=1
              DO WHILE(qspath(counter).NE.idxroot(qspath(counter)))
-                idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),idmindist(qspath(counter)), &
-                                           probboot(:,nn),distmm,qscut2(qspath(counter)))
+                IF (gs > 0) THEN
+                  idxroot(qspath(counter)) = gs_next(ngrid,qspath(counter),probboot(:,nn),distmm,gabriel,gs)
+                ELSE
+                  idxroot(qspath(counter)) = qs_next(ngrid,qspath(counter),idmindist(qspath(counter)), &
+                                             probboot(:,nn),distmm,qscut2(qspath(counter)))
+                ENDIF
                 IF(idxroot(idxroot(qspath(counter))).NE.0) EXIT
                 counter=counter+1
                 qspath(counter)=idxroot(qspath(counter-1))

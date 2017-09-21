@@ -3,6 +3,8 @@ from numpy import *
 import scipy.sparse.csgraph as csg
 import sys, os, argparse, time
 
+import pylab as P
+
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,description="""
   ******************************************
   *                                        *
@@ -55,44 +57,25 @@ def main():
   # total number of cluster
   Nc = len(unique(clus))
 
-  # run adjacency calculation
-  adj,ic = adjacency(prob,clus,boot)
-  
-  savetxt('%s.%s' % (oname,'adj'),adj,fmt="%f")
-
   # merging step
-  if args.mode=='flood': macro = merge(adj,ic,args.thresh,N)
+  if args.mode=='flood':
+    if args.verbose: print ' merging by flooding' 
+    # run adjacency calculation
+    adj,ic = adjacency(prob,clus,boot)
+    # merge cluster
+    macro = merge(adj,ic,args.thresh,N)
+    # store adjacency matrix
+    savetxt('%s.%s' % (oname,'adj'),adj,fmt="%f")
   elif args.mode=='iter':
     if args.verbose: print ' starting iterative merging'
-    while True:
-      # merge to highest adjacent cluster
-      macro = merge(adj,ic,args.thresh,N,args.mode)
-      # total number of new macrocluster
-      Ntmp = len(unique(macro))
-      if args.verbose: print ' %d -> %d' % (Nc,Ntmp)
-      # break if we reached convergence and no new macrocluster is found
-      if Nc == Ntmp: break
-      # reset total number of cluster
-      Nc = Ntmp
-      # run adjacency calculation again
-      adj,ic = adjacency(prob,macro,boot)
+    # run adjacency calculation
+    adj,ic = adjacency(prob,clus,boot)
+    # merge cluster
+    macro = iterate(prob,boot,adj,ic,args.thresh,N,Nc)
   elif args.mode=='hier':
-    if args.verbose: print ' starting hierarchy merging'
-    f = open('hierarchy','w')
-    f.write(' '.join(map(str,clus))+'\n')
-    while True:
-      # merge to highest adjacent cluster
-      macro = merge(adj,ic,args.thresh,N,args.mode)
-      # total number of new macrocluster
-      Ntmp = len(unique(macro))
-      f.write(' '.join(map(str,macro))+'\n')
-      if args.verbose: print ' %d -> %d' % (Nc,Ntmp)
-      # reset total number of cluster
-      Nc = Ntmp
-      if Nc==1: break
-      # run adjacency calculation again
-      adj,ic = adjacency(prob,macro,boot)
-    f.close()
+    if args.verbose: print ' starting (iterative) dendrogram merging'
+    # create linkage matrix
+    Z = linkage(prob,clus,boot)
 
   savetxt('%s.%s' % (oname,'macro'),array([macro+1,clus+1]).T,fmt='%d')
 
@@ -102,60 +85,55 @@ def main():
   return 0
 ####### END MAIN ########
 
-def adjacency(pi,clus,boot):
-  uc = unique(clus)
-  ncls = len(uc)
-  nbs = len(boot)
-  nclsbs = zeros(nbs,int)
-  for bs in xrange(nbs):
-    nclsbs[bs] = max(boot[bs])+1
+def linkage(prob,clus,boot):
+  #estimate initial adjacency
+  adj,ic = adjacency(prob,clus,boot)
+  # set the diagonal elements to zero
+  fill_diagonal(adj,0)
+  
+  # create a scipy dendrogram compatible linkage matrix
+  Z = array([]).reshape(-1,4)
 
-  print "calculating Qi"
+  # cluster associations
+  macro = arange(adj.shape[0])
+  m = max(macro)+1
+  for _ in range(adj.shape[0]-1):
+    # connect highest adjacent pair
+    i,j = argwhere(adj == max(adj.flatten()))[0]
+    
+    # create link
+    link = array([macro[i],macro[j],adj[i,j],m])
+    print link
+    
+    # keep track of cluster associations
+    macro[i] = macro[j] = m
+    m = m+1
 
-  lcls = []
-  Qi = zeros(ncls)
-  for i in xrange(ncls):
-    icls = where(clus == i)[0]
-    Qi[i] = exp(pi[icls]).sum()
-    lcls.append(icls)
+    # add to linkage matrix
+    Z = vstack([Z,link])
+    
+    # assign grid points to new cluster
+    for i,idxs in enumerate(ic):
+      clus[idxs] = macro[i]
 
-  print "calculating Qa"
+    # rerun adjacency calculation
+    adj,ic = adjacency(prob,clus,boot)
+    # set the diagonal elements to zero
+    fill_diagonal(adj,0)
 
-  QA = zeros((nbs,max(nclsbs)))
-  for bs in xrange(nbs):
-    for i in xrange(nclsbs[bs]):
-      icls = where(boot[bs] == i)[0]
-      QA[bs,i] = exp(pi[icls]).sum()
-
-  print "calculating Qai"
-
-  QAi = zeros((nbs,max(nclsbs),ncls))
-  for bs in xrange(nbs):
-    print "%d/%d" % (bs,nbs)
-    for i in xrange(nclsbs[bs]):
-      icls = where(boot[bs] == i)[0]
-      for j in xrange(ncls):
-        inter = intersect1d(icls, lcls[j])
-        QAi[bs,i,j] = exp(pi[inter]).sum()
-
-  print "calculating nij"
-
-  nij = zeros((ncls,ncls))
-  for i in xrange(ncls):
-    print "%d/%d" % (i,ncls)
-    for j in xrange(i+1):
-      tij = 0
-      for bs in xrange(nbs):
-        for k in xrange(nclsbs[bs]):
-          tij += QAi[bs,k,i] * QAi[bs,k,j] / (QA[bs,k])
-      nij[i,j] = nij[j,i] = tij/nbs
-  nij /= exp(pi).sum()
-
-  Qi /= exp(pi).sum()
-
-  nnij = nij/ sqrt(multiply.outer(Qi,Qi))
-
-  return (nnij,lcls)
+def iterate(prob,boot,adj,ic,thresh,N,Nc):
+  while True:
+    # merge to highest adjacent cluster
+    macro = merge(adj,ic,thresh,N,'iter')
+    # total number of new macrocluster
+    Ntmp = len(unique(macro))
+    # break if we reached convergence and no new macrocluster is found
+    if Nc == Ntmp: break
+    # reset total number of cluster
+    Nc = Ntmp
+    # run adjacency calculation again
+    adj,ic = adjacency(prob,macro,boot)
+  return macro
 
 def merge(adj,ic,thresh,N,mode='flood'):
   Nc = len(adj)
@@ -187,29 +165,77 @@ def merge(adj,ic,thresh,N,mode='flood'):
     _, macro = csg.connected_components(cij)
     for i,idxs in enumerate(ic):
       imacro[idxs] = macro[i]
-  elif mode=='hier':
-    # set the diagonal elements to zero
-    fill_diagonal(adj,0)
-    # find indices of highest adjacent cluster and merge both
-    imax,jmax = argwhere(adj == max(adj.flatten()))[0]
-    
-    # create boolean adjacency matrix
-    cij = zeros([Nc,Nc],dtype=bool)
-    
-    cij[imax,jmax] = True
-    cij[jmax,imax] = True
-    
-    # get macrocluster ids and reset number of clusters
-    _, macro = csg.connected_components(cij)
-    
-    print macro,adj[imax,jmax]
-    for i,idxs in enumerate(ic):
-      imacro[idxs] = macro[i]
-
   return imacro
   
-  
+def adjacency(prob,clus,boot):
+  # tried to implement a faster (and more cleaner) version
+#  uc = unique(clus)
+#  nc = len(uc)
+#  nb = boot.shape[0]
+#  
+#  Q = exp(prob).sum()
+#  
+#  Qk = zeros(nc)
+#  for i in xrange(nc):
+#    Qk[i] = exp(prob[clus == uc[i]]).sum()
 
+#  Qmk = []
+#  for m in xrange(nb):
+#    um = unique(boot[m])
+#    nm = len(um)
+#    qmk = zeros(nm)
+#    for k in xrange(nm):
+#      qmk[k] = exp(prob[boot[m]==um[k]]).sum()
+#    Qmk.append(qmk)
+#    
+#  Qjkm = zeros([nc,nb])
+#  for j in xrange(nc):
+#    ic = where(clus == uc[j])[0]
+#    for m in xrange(nb):
+#      um = unique(boot[m])
+#      nm = len(um)
+#      
+#      im = where(boot[m] == 
+#      Qjkm[j,m] = 
+  
+  # micheles approach to estimate adjacency
+  uc = unique(clus)
+  ncls = len(uc)
+  nbs = len(boot)
+  nclsbs = zeros(nbs,int)
+  for bs in xrange(nbs):
+    nclsbs[bs] = max(boot[bs])+1
+  lcls = []
+  Qi = zeros(ncls)
+  for i in xrange(ncls):
+    icls = where(clus == uc[i])[0]
+    Qi[i] = exp(prob[icls]).sum()
+    lcls.append(icls)
+  QA = zeros((nbs,max(nclsbs)))
+  for bs in xrange(nbs):
+    for i in xrange(nclsbs[bs]):
+      icls = where(boot[bs] == i)[0]
+      QA[bs,i] = exp(prob[icls]).sum()
+  QAi = zeros((nbs,max(nclsbs),ncls))
+  for bs in xrange(nbs):
+    for i in xrange(nclsbs[bs]):
+      icls = where(boot[bs] == i)[0]
+      for j in xrange(ncls):
+        inter = intersect1d(icls, lcls[j])
+        QAi[bs,i,j] = exp(prob[inter]).sum()
+  nij = zeros((ncls,ncls))
+  for i in xrange(ncls):
+    for j in xrange(i+1):
+      tij = 0
+      for bs in xrange(nbs):
+        for k in xrange(nclsbs[bs]):
+          tij += QAi[bs,k,i] * QAi[bs,k,j] / (QA[bs,k])
+      nij[i,j] = nij[j,i] = tij/nbs
+  nij /= exp(prob).sum()
+  Qi /= exp(prob).sum()
+  nnij = nij/ sqrt(multiply.outer(Qi,Qi))
+  return (nnij,lcls)
+  
 if __name__ == "__main__":
     sys.exit(main())
 
