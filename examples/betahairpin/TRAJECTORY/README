@@ -1,0 +1,13 @@
+Files
+
+traj.tgz.001  traj.tgz.002  traj.tgz.003 : Compressed PT (WTE) trajectory - 300ns . The output file is called bhp_32r.300ns.xtc 
+refstructure.pdb  : reference structure (to load the proper topology when visualizing the trajectory with VMD) 
+
+To decompress the file : 
+
+cat traj.tgz.001  traj.tgz.002  traj.tgz.003 > traj.tgz
+tar xzvf traj.tgz
+
+To visualize the trajectory: 
+
+vmd refstructure.pdb bhp_32r.300ns.xtc
