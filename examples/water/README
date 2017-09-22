@@ -1,0 +1,11 @@
+AUTOMATIC DEFINITION OF HYDROGEN BOND IN WATER
+
+h2o-blyp-piglet.xyz : short water trajectory
+
+Command to run to get the pamm clusters and the PMIs definition:
+
+../../bin/hbpamm -ta O -td O -th H -ct 4.5 -w < h2o-blyp-piglet.xyz | ../../bin/pamm -d 3 -w -o hbdef -v
+
+Command to run to postprocess the trajectory and get sh,sd,sa
+
+../../bin/hbpamm -ta O -td O -th H  -gf hbdef.pamm < h2o-blyp-piglet.xyz > output.dat
