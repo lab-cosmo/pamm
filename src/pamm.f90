@@ -635,6 +635,9 @@
         ! estimate bandwidth from normal (Scott's) reference rule
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
            * nlocal**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
+        
+!        Hi = (4.0d0 / ( DBLE(D)+2.0d0) )**( 2.0d0 / (DBLE(D)+4.0d0) ) &
+!           * nlocal**( -2.0d0 / (DBLE(D)+4.0d0) ) * Qi
 
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))

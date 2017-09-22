@@ -3,8 +3,6 @@ from numpy import *
 import scipy.sparse.csgraph as csg
 import sys, os, argparse, time
 
-import pylab as P
-
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,description="""
   ******************************************
   *                                        *
