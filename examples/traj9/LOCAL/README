@@ -1,0 +1,20 @@
+LJ38 -- LOCAL CLUSTERING
+
+Clustering parameters: fpoints=0.02 ; qs=1
+
+Command to get the unscaled descriptors (coordination,q4,q6):
+
+python2.7 scripts/getdescriptors.py ../TRAJECTORY/traj9.xyz 14.5 > c_q4_q6_ct14.5_gamma2
+
+Since the lenght scale of the coordination number is very differnt from that of q4 and q6,
+we apply a standard scaling by doing: 
+ 
+python2.7 scripts/doscaling c_q4_q6_ct14.5_gamma2 scalededata 
+
+Command to get the clusters and the PMIs: 
+
+pamm -d 3 -ngrid 12000 -readgrid ref.idxs -savevoronois -fpoints 0.02 -qs 1 -o fp0.02-qs1 -v
+
+Build the adjacency: 
+
+python2.7 ../../../tools/merge 3 fp0.02-qs1.grid fp0.02-qs1.bs

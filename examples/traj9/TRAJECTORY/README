@@ -1,0 +1,11 @@
+Files
+
+traj9.tgz : Compressed PT trajectory of the LJ38 cluster. The output file is called traj9.xyz
+
+To decompress the file : 
+
+tar xzvf traj9.tgz
+
+To visualize the trajectory: 
+
+vmd traj9.xyz 

@@ -1,0 +1,9 @@
+#!/usr/bin/python
+from numpy import *
+from sklearn import manifold, datasets
+from sklearn.preprocessing import StandardScaler as SC
+import sys
+
+X = loadtxt(sys.argv[1])
+J = SC().fit_transform(X)
+savetxt(sys.argv[2], J)
