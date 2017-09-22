@@ -6,7 +6,7 @@ Files needed: colvar.wt.30cv.4 ref.idxs
 
 Command to get the clusters and the PMIs: 
 
-../../../bin/pamm -d 30 -p 6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28 -ngrid 30000 -readgrid ref.idxs -savevoronois -fpoints 0.1 -qs 1 -o fp0.1-qs1 -v < colvar.wt.30cv.4
+../../../bin/pamm -d 30 -p 6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28,6.28 -ngrid 30000 -readgrid ref.idxs -savevoronois -fpoints 0.1 -qs 1 -o fp0.1-qs1 -bootstrap 41 -v < colvar.wt.30cv.4
 
 Build the adjacency: 
 

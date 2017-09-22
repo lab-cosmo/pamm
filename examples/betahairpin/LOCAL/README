@@ -1,4 +1,4 @@
-BETA-HAIRPIN -- GLOBAL CLUSTERING
+BETA-HAIRPIN -- LOCAL CLUSTERING
 
 Clustering parameters: fpoints=0.15 ; qs=1
 
@@ -6,7 +6,7 @@ Files needed: ../GLOBAL/colvar.wt.30cv.4 ref.idxs
 
 Command to get the clusters and the PMIs: 
 
-awk '{for(i=1;i<=14;i++)print $i,$(i+16)}' ../GLOBAL/colvar.wt.30cv.4 | ../../../bin/pamm -d 2 -p 6.28,6.28 -ngrid 5000 -readgrid ref.idxs -savevoronois -fpoints 0.15 -qs 1 -o fp0.15-qs1 -v
+awk '{for(i=1;i<=14;i++)print $i,$(i+16)}' ../GLOBAL/colvar.wt.30cv.4 | ../../../bin/pamm -d 2 -p 6.28,6.28 -ngrid 5000 -readgrid ref.idxs -savevoronois -fpoints 0.15 -qs 1 -o fp0.15-qs1 -bootstrap 64-v
 
 Build the adjacency: 
 
