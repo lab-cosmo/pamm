@@ -6,8 +6,8 @@ Files needed: ../GLOBAL/colvar.wt.30cv.4 ref.idxs
 
 Command to get the clusters and the PMIs: 
 
-awk '{for(i=1;i<=14;i++)print $i,$(i+16)}' ../GLOBAL/colvar.wt.30cv.4 | pamm -d 2 -p 6.28,6.28 -ngrid 5000 -readgrid ref.idxs -savevoronois -fpoints 0.15 -qs 1 -o fp0.15-qs1 -v
+awk '{for(i=1;i<=14;i++)print $i,$(i+16)}' ../GLOBAL/colvar.wt.30cv.4 | ../../../bin/pamm -d 2 -p 6.28,6.28 -ngrid 5000 -readgrid ref.idxs -savevoronois -fpoints 0.15 -qs 1 -o fp0.15-qs1 -v
 
 Build the adjacency: 
 
-python2.7 ~/sources/pammbts/pamm/tools/merge 2 fp0.15-qs1.grid fp0.15-qs1.bs
+python2.7 ../../../tools/merge 2 fp0.15-qs1.grid fp0.15-qs1.bs

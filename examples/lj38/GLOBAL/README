@@ -6,7 +6,7 @@ Files needed: traj9.cv ref.idxs
 
 Command to get the clusters and the PMIs: 
 
-pamm -d 15 -ngrid 20000 -readgrid ref.idxs -savevoronois -fpoints 0.05 -qs 1 -o fp0.05-qs1 -v < traj9.cv
+../../../bin/pamm -d 15 -ngrid 20000 -readgrid ref.idxs -savevoronois -fpoints 0.05 -qs 1 -o fp0.05-qs1 -v < traj9.cv
 
 Build the adjacency: 
 

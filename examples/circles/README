@@ -6,8 +6,8 @@ Files needed: data-rings.dat ref.idxs
 
 Command to get the clusters and the PMIs: 
 
-~/sources/pammbts/pamm/bin/pamm -d 2 -ngrid 2000 -readgrid ../ref.idxs -o fs0.15-qs0.95 -fspread 0.15 -qs 0.95 -v < data-rings.dat
+./../bin/pamm -d 2 -ngrid 2000 -readgrid ../ref.idxs -o fs0.15-qs0.95 -fspread 0.15 -qs 0.95 -v < data-rings.dat
 
 Build the adjacency: 
 
-python2.7 ~/sources/pammbts/pamm/tools/merge 2 fs0.15-qs0.95.grid fs0.15-qs0.95.bs
+python2.7 ../../tools/merge 2 fs0.15-qs0.95.grid fs0.15-qs0.95.bs

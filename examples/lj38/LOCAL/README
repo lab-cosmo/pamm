@@ -13,7 +13,7 @@ python2.7 scripts/doscaling c_q4_q6_ct14.5_gamma2 scalededata
 
 Command to get the clusters and the PMIs: 
 
-pamm -d 3 -ngrid 12000 -readgrid ref.idxs -savevoronois -fpoints 0.02 -qs 1 -o fp0.02-qs1 -v
+../../../bin/pamm -d 3 -ngrid 12000 -readgrid ref.idxs -savevoronois -fpoints 0.02 -qs 1 -o fp0.02-qs1 -v
 
 Build the adjacency: 
 
