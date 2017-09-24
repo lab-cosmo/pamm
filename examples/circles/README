@@ -1,13 +1,13 @@
 CONCENTRIC RINGS
 
-Clustering parameters: fspread=0.15 ; qs=0.95
+Clustering parameters: fspread=0.15 ; qs=1.0
 
 Files needed: data-rings.dat ref.idxs
 
 Command to get the clusters and the PMIs: 
 
-../../bin/pamm -d 2 -ngrid 2000 -readgrid ../ref.idxs -o fs0.15-qs0.95 -fspread 0.15 -qs 0.95 -bootstrap 32 -v < data-rings.dat
+../../bin/pamm -d 2 -ngrid 2000 -readgrid ref.idxs -o fs0.15-qs1.0 -fspread 0.15 -qs 1.0 -bootstrap 32 -v < data-rings.dat
 
 Build the adjacency: 
 
-python2.7 ../../tools/merge 2 fs0.15-qs0.95.grid fs0.15-qs0.95.bs
+python2.7 ../../tools/merge 2 fs0.15-qs1.0.grid fs0.15-qs1.0.bs
