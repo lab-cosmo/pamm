@@ -203,7 +203,7 @@
          DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha, zeta
          DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
 
-         DOUBLE PRECISION pnormpk, palpha, pzeta, mxpk !normalization factor
+         DOUBLE PRECISION pnormpk, palpha, pzeta!, mxpk !normalization factor
          INTEGER k
 
          palpha=1.0d0
@@ -214,17 +214,18 @@
          pnks=0.0d0
          pnormpk=pzeta ! normalization factor (mixture weight)
 
-         mxpk=-1d100
-         DO k=1,nk
-            ! optionally apply a smoothing based on alpha
-            pnks(k) = gauss_logeval(clusters(k),x)
-            if (pnks(k).gt.mxpk) mxpk=pnks(k)
-         ENDDO
+         !mxpk=-1d100
+         !DO k=1,nk
+         !   ! optionally apply a smoothing based on alpha
+         !   pnks(k) = gauss_logeval(clusters(k),x)
+         !   if (pnks(k).gt.mxpk) mxpk=pnks(k)
+         !ENDDO
 
 
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
-            pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha
+            !pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha
+            pnks(k) = (dexp(pnks(k))*clusters(k)%weight)**palpha
             ! calculate the mixture weight
             pnormpk = pnormpk+pnks(k)
          ENDDO
@@ -252,7 +253,7 @@
          DOUBLE PRECISION, INTENT(IN), OPTIONAL :: alpha, zeta
          DOUBLE PRECISION, INTENT(OUT) :: pnks(nk)
 
-         DOUBLE PRECISION pnormpk, palpha, pzeta, mxpk !normalization factor
+         DOUBLE PRECISION pnormpk, palpha, pzeta!, mxpk !normalization factor
          INTEGER k
 
          palpha=1.0d0
@@ -263,16 +264,17 @@
          pnks=0.0d0
          pnormpk=pzeta ! normalization factor (mixture weight)
 
-         mxpk=-1d100
-         DO k=1,nk
-            ! optionally apply a smoothing based on alpha
-            pnks(k) = vm_logeval(clusters(k),x)
-            if (pnks(k).gt.mxpk) mxpk=pnks(k)
-         ENDDO
+         !mxpk=-1d100
+         !DO k=1,nk
+         !   ! optionally apply a smoothing based on alpha
+         !   pnks(k) = vm_logeval(clusters(k),x)
+         !   if (pnks(k).gt.mxpk) mxpk=pnks(k)
+         !ENDDO
 
          DO k=1,nk
             ! optionally apply a smoothing based on alpha
-            pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha
+            !pnks(k) = (dexp(pnks(k)-mxpk)*clusters(k)%weight)**palpha
+            pnks(k) = (dexp(pnks(k))*clusters(k)%weight)**alpha
             ! calculate the mixture weight
             pnormpk = pnormpk+pnks(k)
          ENDDO

@@ -427,11 +427,16 @@
 
       ! error check of voronoi association
       ! -- wi contains the weights of the grid points (wi = sum_{j\in Vi} wj) --
+!@@@@@@@@@@
       DO i=1,ngrid
-        IF (wi(i).EQ.0.0d0) STOP &
-          " Error: voronoi has no points associated with - probably two points are perfectly overlapping"
+        IF (wi(i).EQ.0.0d0)  wi(i)=DEXP(-350.0d0)!STOP &
+          !" Error: voronoi has no points associated with - probably two points are perfectly overlapping"
       ENDDO
-
+      
+      DO i=1,nsamples
+        IF (wj(i).EQ.0.0d0)  wj(i)=DEXP(-350.0d0)!STOP &
+          !" Error: voronoi has no points associated with - probably two points are perfectly overlapping"
+      ENDDO
       ! print out voronoi associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
 
@@ -541,6 +546,7 @@
       CALL covariance(D,period,ngrid,normwj,wi,y,Q)
       WRITE(*,*) "Global eff. dim. ", effdim(D,Q)
 
+      
       IF(periodic) THEN
         tune = SUM(period**2)
         sigma2 = tune
@@ -554,7 +560,7 @@
 
       ! initialize the localization based on fraction of data spread
       IF (fspread.GT.0) sigma2 = sigma2*fspread**2
-
+      
       IF(verbose) WRITE(*,*) &
         " Estimating kernel density bandwidths"
       DO i=1,ngrid
@@ -608,13 +614,14 @@
         ! ************************************************
 
           ! consistency check if localization is too small
+          
           IF (sigma2(i).LT.mindist(i)) THEN
             sigma2(i) = mindist(i)
             CALL localization(D,period,ngrid,sigma2(i),y,wi,y(:,i),wlocal,flocal(i))
             WRITE(*,*) " Warning: localization smaller than Voronoi diameter, increase grid size (meanwhile adjusted localization)!"
           ENDIF
         ENDIF
-
+    
         ! ************************************************
         ! ***  bandwidth estimation from localization  ***
         ! ************************************************
@@ -626,15 +633,17 @@
         nlocal = flocal(i)*DBLE(nsamples)
 
         ! estimate local dimensionality
-        Di(i) = effdim(D,Qi)
+        Di(i) = effdim(D,Qi)     
         ! oracle shrinkage of covariance matrix
         CALL oracle(D,nlocal,Qi)
+
         ! inverse local covariance matrix and store it
         CALL invmatrix(D,Qi,Qiinv)
 
         ! estimate bandwidth from normal (Scott's) reference rule
         Hi = (4.0d0 / ( Di(i)+2.0d0) )**( 2.0d0 / (Di(i)+4.0d0) ) &
            * nlocal**( -2.0d0 / (Di(i)+4.0d0) ) * Qi
+           
         
 !        Hi = (4.0d0 / ( DBLE(D)+2.0d0) )**( 2.0d0 / (DBLE(D)+4.0d0) ) &
 !           * nlocal**( -2.0d0 / (DBLE(D)+4.0d0) ) * Qi
@@ -642,8 +651,16 @@
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
+
         ! estimate logarithmic determinant of local BW H's
         logdetHi(i) = logdet(D,Hi)
+        IF(logdetHi(i)/=logdetHi(i))THEN
+           DO k=1,D
+              Hi(k,k)=ABS(Hi(k,k))
+           ENDDO
+           logdetHi(i) = logdet(D,Hi)
+        ENDIF
+
         ! estimate the logarithmic normalization constants
         normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
 
@@ -672,36 +689,47 @@
       kdecut2 = 9.0d0 * (DSQRT(DBLE(D))+1.0d0)**2
       ! setting initial probability to the smallest possible value
       prob = -HUGE(0.0d0)
+
+
       DO i=1,ngrid
         IF(verbose .AND. (modulo(i,100).EQ.0)) &
           WRITE(*,*) i,"/",ngrid
         DO j=1,ngrid
           ! renormalize the distance taking into accout the anisotropy of the multidimensional data
           dummd1 = mahalanobis(D,period,y(:,i),y(:,j),Hiinv(:,:,j))
+!write(*,*) "dmd", i, j, dummd1, kdecut2          
           IF (dummd1.GT.kdecut2) THEN
+!write(*,*) "ENTRO IF 1"          
             ! assume distribution in far away grid point is narrow
             ! and store sum of all contributions in grid point
             ! exponent of the gaussian
             ! natural logarithm of kernel
             lnK = -0.5d0 * (normkernel(j) + dummd1) + lwi(j)
+
             IF(prob(i).GT.lnK) THEN
               prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
             ELSE
               prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
             ENDIF
+
           ELSE
+
             ! cycle just inside the polyhedra using the neighbour list
             DO k=pnlist(j)+1,pnlist(j+1)
               ! this is the self correction
               IF(nlist(k).EQ.idxgrid(i)) CYCLE
               ! exponent of the gaussian
               dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
+!WRITE(*,*) "dummd1else ",i,j,k,dummd1
               ! weighted natural logarithm of kernel
               lnK = -0.5d0 * (normkernel(j) + dummd1) + lwj(nlist(k))
+!WRITE(*,*) "lnk1 ", normkernel(j),dummd1,lwj(nlist(k))
+!WRITE(*,*) "lnk ",lnk
               IF(prob(i).GT.lnK) THEN
                 prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
               ELSE
                 prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
+!WRITE(*,*) "prbelse ",prob(i), DLOG(1.0d0+DEXP(prob(i)-lnK)),  DEXP(prob(i)-lnK), prob(i)-lnK
               ENDIF
             ENDDO
           ENDIF
@@ -1606,7 +1634,6 @@
             ELSE
                READ(5,*, IOSTAT=io_status) vbuff(:,counter+1)
             ENDIF
-
             IF(io_status<0 .or. io_status==5008) EXIT    ! also intercepts a weird error given by some compilers when reading past of EOF
             IF(io_status>0) STOP "*** Error occurred while reading file. ***"
 
@@ -2072,9 +2099,6 @@
          dmin = HUGE(0.0d0)
 
          qs_next = idx
-         If (probnmm(idxn).GT.probnmm(idx) ) THEN
-           qs_next=idxn
-         ENDIF
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
                IF ((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda)) THEN
@@ -2083,6 +2107,9 @@
                ENDIF
             ENDIF
          ENDDO
+         If((qs_next.EQ.idx) .AND. (probnmm(idxn).GT.probnmm(idx) ) )THEN
+           qs_next=idxn
+         ENDIF
       END FUNCTION qs_next
 
       INTEGER FUNCTION gs_next(ngrid,idx,probnmm,distmm,gabriel,nn)
