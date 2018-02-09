@@ -720,16 +720,12 @@
               IF(nlist(k).EQ.idxgrid(i)) CYCLE
               ! exponent of the gaussian
               dummd1 = mahalanobis(D,period,y(:,i),x(:,nlist(k)),Hiinv(:,:,j))
-!WRITE(*,*) "dummd1else ",i,j,k,dummd1
               ! weighted natural logarithm of kernel
               lnK = -0.5d0 * (normkernel(j) + dummd1) + lwj(nlist(k))
-!WRITE(*,*) "lnk1 ", normkernel(j),dummd1,lwj(nlist(k))
-!WRITE(*,*) "lnk ",lnk
               IF(prob(i).GT.lnK) THEN
                 prob(i) = prob(i) + DLOG(1.0d0+DEXP(lnK-prob(i)))
               ELSE
                 prob(i) = lnK + DLOG(1.0d0+DEXP(prob(i)-lnK))
-!WRITE(*,*) "prbelse ",prob(i), DLOG(1.0d0+DEXP(prob(i)-lnK)),  DEXP(prob(i)-lnK), prob(i)-lnK
               ENDIF
             ENDDO
           ENDIF
@@ -1541,8 +1537,6 @@
          INTEGER :: i
          ! get the total sum of the p(i)
          totnormp = logsumexp(ngrid,clroots/clroots,prob,1)
-!WRITE(*,*) "clust , ", idcl
-!WRITE(*,*) "totp: ", totnormp
 
          ! select just the probabilities of the element
          ! that belongs to the cluster target and normalize them by totnormp
@@ -1556,12 +1550,7 @@
          ww = Ntot * ww
          ! get the amount of points that belong to this cluster
          nlk = SUM(ww)
-!WRITE(*,*) x(1,1),x(2,1)
-!WRITE(*,*) "nk: ", nlk
-!DO i=1,D
-!WRITE(*,*) x(1,i),DCOS(x(1,i)),ww(i),ww(i)*DCOS(x(1,i))
-!ENDDO
-!STOP
+
          Q = 0.0d0
          DO i=1,D
            ! let's apply the M.I.C. to the angle
@@ -1570,17 +1559,14 @@
            ! https://en.wikipedia.org/wiki/Von_Mises_distribution
            ! Section: Estimation of parameters
            R2 = (SUM(ww*DCOS(xx(i,:)))/nlk)**2 + (SUM(ww*DSIN(xx(i,:)))/nlk)**2
-!WRITE(*,*) "dim, rr2: ",i, R2
            ! get the unbiased estimator
            Re2 = (nlk/(nlk-1.0d0))*(R2-(1.0d0/nlk))
-!WRITE(*,*) "dim, urr2: ",i, R2
            ! one could iterate this, but this first approximation should already be enough
            ! See: https://en.wikipedia.org/wiki/Von_Mises%E2%80%93Fisher_distribution
            ! Section: Estimation of parameters
            ! and get the inverse of the concetration paramater
            ! that correspond to a variance
            Q(i,i) = 1.0d0/(DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2))
-!WRITE(*,*) "dim, k: ",i, DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2)
          ENDDO
       END SUBROUTINE getlcovclusterp
 
@@ -2107,6 +2093,9 @@
                ENDIF
             ENDIF
          ENDDO
+         ! If we end up having a single point cluster, check if the
+         ! the first neighbour is higher in probability. If so, merge
+         ! them.
          If((qs_next.EQ.idx) .AND. (probnmm(idxn).GT.probnmm(idx) ) )THEN
            qs_next=idxn
          ENDIF
