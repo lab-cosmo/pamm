@@ -1213,7 +1213,7 @@
          ! that belongs to the cluster tgt
          tmpv = prob
          WHERE (v1 .EQ. clusterid)
-            tmpv = DEXP(prob)+DEXP(abser)
+            tmpv = DEXP(prob) !+DEXP(abser)
          ELSEWHERE
             tmpv = -HUGE(0.0d0)
          END WHERE
