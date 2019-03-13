@@ -65,7 +65,7 @@
       INTEGER nghb ! number of gaussians describing the HB
       INTEGER, DIMENSION(MAXPARS) :: vghb ! indexes of the gaussians describing the HB
       CHARACTER(LEN=4), ALLOCATABLE, DIMENSION(:) :: labels
-      CHARACTER(LEN=1024) :: header, dummyc
+      CHARACTER(LEN=1024) :: header!, dummyc
       ! PARSER
       INTEGER ccmd     ! parser index
       INTEGER isep1, isep2, par_count  ! temporary indices for parsing command line arguments
@@ -272,7 +272,8 @@
             CALL xyz_read(5,natoms,header,labels,positions,endf)
             IF(endf<0) EXIT ! time to go!
            
-            IF (ALLOCATED(masktypes).and.SIZE(masktypes)/=natoms) DEALLOCATE(masktypes)
+            !IF (ALLOCATED(masktypes).and.SIZE(masktypes)/=natoms) DEALLOCATE(masktypes)
+            IF (ALLOCATED(masktypes)) DEALLOCATE(masktypes)
             IF (.not. ALLOCATED(masktypes)) THEN ! first step, must allocate stuff
                ! inizialize the mask types
                ALLOCATE(masktypes(natoms))
@@ -326,7 +327,54 @@
             IF (nptm .or. cell(1,1) == 0.0d0) THEN 
                ! NPT mode: this means variable cell!
                ! Try to read the cell parameters the header in input stream
-               READ(header, *) dummyc,dummyc,cell(1,1),cell(2,2),cell(3,3)
+               !READ(header, *) dummyc,dummyc,cell(1,1),cell(2,2),cell(3,3)
+               !cell(1,1)=2000
+               !cell(2,2)=2000
+               !cell(3,3)=2000
+
+               READ(header, *) dummyc, dummyc, aa, bb, cc, al, be, ga 
+               IF ((al .NE. 90.0d0) .OR. (be .NE. 90.0d0) .OR. (ga .NE. 90.0d0)) THEN
+                  cosalpha = DCOS(TWOPI*al/360.0d0)
+                  cosbeta = DCOS(TWOPI*be/360.0d0)
+                  cosgamma = DCOS(TWOPI*ga/360.0d0)
+                  singamma = DSIN(TWOPI*ga/360.0d0)
+
+                  vaa = (/ aa, 0.0d0, 0.0d0 /)
+                  vbb = (/ bb*cosgamma, bb*singamma, 0.0d0 /)
+                  ccx = cosbeta
+                  ccy = (cosalpha-cosbeta*cosgamma)/singamma
+                  ccz = DSQRT(1.0d0 - ccx*ccx - ccy*ccy) 
+                  vcc = (/ cc*ccx, cc*ccy, cc*ccz /)
+
+                  waa = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vbb, vcc))
+                  wbb = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vcc, vaa))
+                  wcc = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vaa, vbb))
+                  DO i=1,3
+                     cell(i,1) = vaa(i)
+                     cell(i,2) = vbb(i)
+                     cell(i,3) = vcc(i)
+                  ENDDO
+               ELSE
+                  waa = aa
+                  wbb = bb
+                  wcc = cc
+                  cell(1,1) = aa
+                  cell(2,2) = bb
+                  cell(3,3) = cc
+                  DO i=1,3
+                     DO j=1,3
+                        IF (i .NE. j) cell(i,j) = 0.0d0
+                     ENDDO
+                  ENDDO
+               ENDIF
+	       !WRITE(*,*) cell(1,1), " ", cell(1,2), " ", cell(1,3)
+	       !WRITE(*,*) cell(2,1), " ", cell(2,2), " ", cell(2,3)
+	       !WRITE(*,*) cell(3,1), " ", cell(3,2), " ", cell(3,3)
+	       !WRITE(*,*) cosalpha, " ", cosbeta, " ", cosgamma, " ", singamma
+
+               IF ((mucutoff .GE. waa) .OR. (mucutoff .GE. wbb) .OR. (mucutoff .GE. wcc)) &
+                  WRITE(*,*) "WARNING: Cell is non-orthorhombic and cutoff is > 0.5*(box size)"
+
                CALL invmatrix(3,cell,icell)
             END IF
             
@@ -528,5 +576,14 @@
             IF (.NOT. swapped) EXIT
          ENDDO
       END SUBROUTINE sortclusters
+
+      FUNCTION cross(a, b)
+         DOUBLE PRECISION, DIMENSION(3) :: cross
+         DOUBLE PRECISION, DIMENSION(3), INTENT(IN) :: a, b
+
+         cross(1) = a(2)*b(3) - a(3)*b(2)
+         cross(2) = a(3)*b(1) - a(1)*b(3)
+         cross(3) = a(1)*b(2) - a(2)*b(1)
+      END FUNCTION cross
 
       END PROGRAM hbpamm
