@@ -58,19 +58,23 @@
       INTEGER ia,id,ih ! simples indexes
       ! for a faster reading
       ! counters
-      INTEGER i,ts
+      INTEGER i,ts,j
       LOGICAL convert,dopamm,dosad,nptm,weighted
       INTEGER delta
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions 
       INTEGER nghb ! number of gaussians describing the HB
       INTEGER, DIMENSION(MAXPARS) :: vghb ! indexes of the gaussians describing the HB
       CHARACTER(LEN=4), ALLOCATABLE, DIMENSION(:) :: labels
-      CHARACTER(LEN=1024) :: header!, dummyc
+      CHARACTER(LEN=1024) :: header, dummyc
       ! PARSER
       INTEGER ccmd     ! parser index
       INTEGER isep1, isep2, par_count  ! temporary indices for parsing command line arguments
       CHARACTER(LEN=4), DIMENSION(MAXPARS) :: vta,vtd,vth
       INTEGER endf
+      DOUBLE PRECISION cosalpha, cosbeta, cosgamma, singamma
+      DOUBLE PRECISION al, be, ga, aa, bb, cc, ccx, ccy, ccz
+      DOUBLE PRECISION, DIMENSION(3) :: vaa, vbb, vcc
+      DOUBLE PRECISION waa, wbb, wcc
       
 !!!!!!! Default value of the parameters !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       vta(:)        = "NULL"
