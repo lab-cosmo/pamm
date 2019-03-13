@@ -152,7 +152,7 @@
             tmpsum1=tmpsum1+vmpars%icov(i,i)*(1.0d0-dcos(dv(i)/vmpars%period(i)))
             DO j=i+1,vmpars%D
                tmpsum2=tmpsum2+vmpars%icov(i,j)*dsin(dv(i)/vmpars%period(i))* &
-                       dsin(dv(j)/vmpars%period(i))
+                       dsin(dv(j)/vmpars%period(j))
             ENDDO
          ENDDO
          vm_r2=2.0d0*(tmpsum1+tmpsum2)
@@ -215,11 +215,11 @@
          pnormpk=pzeta ! normalization factor (mixture weight)
 
          !mxpk=-1d100
-         !DO k=1,nk
-         !   ! optionally apply a smoothing based on alpha
-         !   pnks(k) = gauss_logeval(clusters(k),x)
-         !   if (pnks(k).gt.mxpk) mxpk=pnks(k)
-         !ENDDO
+         DO k=1,nk
+            ! optionally apply a smoothing based on alpha
+            pnks(k) = gauss_logeval(clusters(k),x)
+            !if (pnks(k).gt.mxpk) mxpk=pnks(k)
+         ENDDO
 
 
          DO k=1,nk
@@ -265,11 +265,11 @@
          pnormpk=pzeta ! normalization factor (mixture weight)
 
          !mxpk=-1d100
-         !DO k=1,nk
-         !   ! optionally apply a smoothing based on alpha
-         !   pnks(k) = vm_logeval(clusters(k),x)
-         !   if (pnks(k).gt.mxpk) mxpk=pnks(k)
-         !ENDDO
+         DO k=1,nk
+            ! optionally apply a smoothing based on alpha
+            pnks(k) = vm_logeval(clusters(k),x)
+            !if (pnks(k).gt.mxpk) mxpk=pnks(k)
+         ENDDO
 
          DO k=1,nk
             ! optionally apply a smoothing based on alpha

@@ -332,8 +332,7 @@
               DO i=1,nk
                  IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
               ENDDO
-              ! write out the number of the
-              ! cluster with the highest probability
+              ! write out clusters
               WRITE(*,*) px,DLOG(pcluster),dummyi1
             ENDDO
             DEALLOCATE(vmclusters)
@@ -353,9 +352,9 @@
               DO i=1,nk
                  IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
               ENDDO
-              ! write out the number of the
-              ! cluster with the highest probability
-              WRITE(*,*) px,DLOG(pcluster(dummyi1)),dummyi1
+              ! write out clusters
+              !WRITE(*,*) px,DLOG(pcluster(dummyi1)),dummyi1
+              WRITE(*,*) px,DLOG(pcluster),dummyi1
             ENDDO
             DEALLOCATE(clusters)
          ENDIF
@@ -427,16 +426,11 @@
 
       ! error check of voronoi association
       ! -- wi contains the weights of the grid points (wi = sum_{j\in Vi} wj) --
-!@@@@@@@@@@
       DO i=1,ngrid
-        IF (wi(i).EQ.0.0d0)  wi(i)=DEXP(-350.0d0)!STOP &
-          !" Error: voronoi has no points associated with - probably two points are perfectly overlapping"
+        IF (wi(i).EQ.0.0d0)  STOP & 
+          " Error: voronoi has no points associated with - probably two points are perfectly overlapping"
       ENDDO
       
-      DO i=1,nsamples
-        IF (wj(i).EQ.0.0d0)  wj(i)=DEXP(-350.0d0)!STOP &
-          !" Error: voronoi has no points associated with - probably two points are perfectly overlapping"
-      ENDDO
       ! print out voronoi associations
       IF(savevor) CALL savevoronois(nsamples,iminij,outputfile)
 
@@ -651,15 +645,8 @@
         ! inverse of the bandwidth matrix
         CALL invmatrix(D,Hi,Hiinv(:,:,i))
 
-
         ! estimate logarithmic determinant of local BW H's
         logdetHi(i) = logdet(D,Hi)
-        IF(logdetHi(i)/=logdetHi(i))THEN
-           DO k=1,D
-              Hi(k,k)=ABS(Hi(k,k))
-           ENDDO
-           logdetHi(i) = logdet(D,Hi)
-        ENDIF
 
         ! estimate the logarithmic normalization constants
         normkernel(i) = DBLE(D)*DLOG(twopi) + logdetHi(i)
@@ -953,7 +940,7 @@
          ! get the real maxima in the cluster, considering the errorbar
          DO i=1,Nk
             dummyi1=clustercenters(i)
-            clustercenters(i) = getidmax(ngrid,idxroot,prob,pabserr,clustercenters(i))
+            clustercenters(i) = getidmax(ngrid,idxroot,prob,clustercenters(i))
             ! reassign the proper cluster root to each cluster points
             WHERE(idxroot.EQ.dummyi1) idxroot=clustercenters(i)
          ENDDO
@@ -1047,7 +1034,8 @@
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-              !CALL getcovclusterp(D,period,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov)
+              CALL getcovclusterp(D,period,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
+              !CALL getlcovclusterp(D,period,ngrid,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
               WRITE(*,*) " Warning: single point cluster!!! "
             ENDIF
             vmclusters(k)%weight= &
@@ -1060,7 +1048,8 @@
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-              !CALL getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov)
+              CALL getcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov) !!
+              !CALL getlcovcluster(D,period,nsamples,wj,x,iminij,clustercenters(k),clusters(k)%cov) !!
               WRITE(*,*) " Warning: single point cluster!!! "
             ENDIF
             clusters(k)%weight=&
@@ -1203,9 +1192,9 @@
          ENDDO
       END FUNCTION logsumexp
 
-      INTEGER FUNCTION getidmax(ngrid,v1,prob,abser,clusterid)
+      INTEGER FUNCTION getidmax(ngrid,v1,prob,clusterid)
          INTEGER, INTENT(IN) :: ngrid,v1(ngrid),clusterid
-         DOUBLE PRECISION, INTENT(IN) :: prob(ngrid),abser(ngrid)
+         DOUBLE PRECISION, INTENT(IN) :: prob(ngrid)
 
          DOUBLE PRECISION :: tmpv(ngrid)
 
@@ -1213,7 +1202,7 @@
          ! that belongs to the cluster tgt
          tmpv = prob
          WHERE (v1 .EQ. clusterid)
-            tmpv = DEXP(prob) !+DEXP(abser)
+            tmpv = DEXP(prob)
          ELSEWHERE
             tmpv = -HUGE(0.0d0)
          END WHERE
@@ -1511,7 +1500,7 @@
          DOUBLE PRECISION :: ww(N),normww
 
          ! get the norm of the weights
-         normww = logsumexp(ngrid,clroots,prob,idcl)
+         normww = logsumexp(N,clroots,prob,idcl)
 
          ! select just the probabilities of the element
          ! that belongs to the cluster tgt
@@ -1521,7 +1510,7 @@
             ww = 0.0d0
          END WHERE
 
-         CALL covariance(D,period,N,1.0d0,ww,x,Q)
+         CALL covariance(D,period,N,SUM(ww),ww,x,Q)
       END SUBROUTINE getlcovcluster
 
       SUBROUTINE getlcovclusterp(D,period,N,Ntot,prob,x,clroots,idcl,Q)
@@ -2085,6 +2074,9 @@
          dmin = HUGE(0.0d0)
 
          qs_next = idx
+         If (probnmm(idxn).GT.probnmm(idx) ) THEN
+           qs_next=idxn
+         ENDIF
          DO j=1,ngrid
             IF ( probnmm(j).GT.probnmm(idx) ) THEN
                IF ((distmm(idx,j).LT.dmin) .AND. (distmm(idx,j).LT.lambda)) THEN
@@ -2093,12 +2085,6 @@
                ENDIF
             ENDIF
          ENDDO
-         ! If we end up having a single point cluster, check if the
-         ! the first neighbour is higher in probability. If so, merge
-         ! them.
-         If((qs_next.EQ.idx) .AND. (probnmm(idxn).GT.probnmm(idx) ) )THEN
-           qs_next=idxn
-         ENDIF
       END FUNCTION qs_next
 
       INTEGER FUNCTION gs_next(ngrid,idx,probnmm,distmm,gabriel,nn)
