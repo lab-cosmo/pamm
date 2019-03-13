@@ -1034,7 +1034,7 @@
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-              CALL getcovclusterp(D,period,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
+              CALL getcovclusterp(D,period,ngrid,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
               !CALL getlcovclusterp(D,period,ngrid,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
               WRITE(*,*) " Warning: single point cluster!!! "
             ENDIF
@@ -1580,6 +1580,52 @@
          CALL covariance(D,period,N,SUM(ww),ww,x,Q)
       END SUBROUTINE getcovcluster
 
+      SUBROUTINE getcovclusterp(D,period,N,Ntot,prob,x,clroots,idcl,Q)
+         INTEGER, INTENT(IN) :: D,N,Ntot,idcl
+         DOUBLE PRECISION, INTENT(IN) :: period(D)
+         DOUBLE PRECISION, INTENT(IN) :: prob(N)
+         DOUBLE PRECISION, INTENT(IN) :: x(D,N)
+         INTEGER, INTENT(IN) :: clroots(N)
+         DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
+
+         DOUBLE PRECISION :: ww(N),totnormp,nlk,R2,Re2,xx(D,N)
+         INTEGER :: i
+         ! get the total sum of the p(i)
+         totnormp = logsumexp(ngrid,clroots/clroots,prob,1)
+
+         ! select just the probabilities of the element
+         ! that belongs to the cluster target and normalize them by totnormp
+         WHERE (clroots .EQ. idcl)
+            ww = prob
+         ELSEWHERE
+            ww = 0.0d0
+         END WHERE
+         ! Rescale the weights to the size of the dataset,
+         ! in order to obtain the fraction of samples corresponding to the gridpoint i
+         ww = Ntot * ww
+         ! get the amount of points that belong to this cluster
+         nlk = SUM(ww)
+
+         WRITE(*,*) nlk
+
+         Q = 0.0d0
+         DO i=1,D
+           ! let's apply the M.I.C. to the angle
+           xx(i,:) = x(i,:) - DNINT(x(i,:)/period(i)) * period(i)
+           ! see the wiki:
+           ! https://en.wikipedia.org/wiki/Von_Mises_distribution
+           ! Section: Estimation of parameters
+           R2 = (SUM(ww*DCOS(xx(i,:)))/nlk)**2 + (SUM(ww*DSIN(xx(i,:)))/nlk)**2
+           ! get the unbiased estimator
+           Re2 = (nlk/(nlk-1.0d0))*(R2-(1.0d0/nlk))
+           ! one could iterate this, but this first approximation should already be enough
+           ! See: https://en.wikipedia.org/wiki/Von_Mises%E2%80%93Fisher_distribution
+           ! Section: Estimation of parameters
+           ! and get the inverse of the concetration paramater
+           ! that correspond to a variance
+           Q(i,i) = 1.0d0/(DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2))
+         ENDDO
+      END SUBROUTINE getcovclusterp
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
          INTEGER, INTENT(IN) :: D
