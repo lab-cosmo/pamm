@@ -1034,8 +1034,8 @@
             ! If we have a cluster with one point we compute the weighted covariance with
             ! the points in the Voronoi
             IF(COUNT(idxroot.EQ.clustercenters(k)).EQ.1) THEN
-              CALL getcovclusterp(D,period,ngrid,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
-              !CALL getlcovclusterp(D,period,ngrid,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
+              CALL getcovclusterp(D,period,nsamples,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
+              !CALL getlcovclusterp(D,period,nsamples,nsamples,wj,x,iminij,clustercenters(k),vmclusters(k)%cov) !!
               WRITE(*,*) " Warning: single point cluster!!! "
             ENDIF
             vmclusters(k)%weight= &
@@ -1589,7 +1589,7 @@
          DOUBLE PRECISION, INTENT(OUT) :: Q(D,D)
 
          DOUBLE PRECISION :: ww(N),totnormp,nlk,R2,Re2,xx(D,N)
-         INTEGER :: i
+         INTEGER :: i,j
          ! get the total sum of the p(i)
          totnormp = logsumexp(ngrid,clroots/clroots,prob,1)
 
@@ -1605,8 +1605,6 @@
          ww = Ntot * ww
          ! get the amount of points that belong to this cluster
          nlk = SUM(ww)
-
-         WRITE(*,*) nlk
 
          Q = 0.0d0
          DO i=1,D
@@ -1626,6 +1624,7 @@
            Q(i,i) = 1.0d0/(DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2))
          ENDDO
       END SUBROUTINE getcovclusterp
+
       SUBROUTINE readinput(D, fweight, nsamples, xj, totw, wj)
          IMPLICIT NONE
          INTEGER, INTENT(IN) :: D
