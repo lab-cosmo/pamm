@@ -58,8 +58,8 @@
       INTEGER ia,id,ih ! simples indexes
       ! for a faster reading
       ! counters
-      INTEGER i,ts,j
-      LOGICAL convert,dopamm,dosad,nptm,weighted
+      INTEGER i,j,ts
+      LOGICAL convert,dopamm,dosad,nptm,nstm,weighted
       INTEGER delta
       DOUBLE PRECISION, ALLOCATABLE, DIMENSION(:,:) :: positions 
       INTEGER nghb ! number of gaussians describing the HB
@@ -94,6 +94,7 @@
       dopamm        = .false.
       dosad         = .false.
       nptm          = .false.
+      nstm          = .false.      
       weighted      = .false.   ! don't use wfactor by default
       endf          = 0
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -129,6 +130,8 @@
             dosad = .true.
          ELSEIF (cmdbuffer == "-npt") THEN ! npt mode
             nptm = .true.
+         ELSEIF (cmdbuffer == "-nst") THEN ! npt mode
+            nstm = .true.            
          ELSEIF (cmdbuffer == "-w") THEN ! weighted  mode
             weighted = .true.
          ELSE
@@ -328,7 +331,6 @@
                ENDIF
             ENDIF
             
-            IF (nptm .or. cell(1,1) == 0.0d0) THEN 
                ! NPT mode: this means variable cell!
                ! Try to read the cell parameters the header in input stream
                !READ(header, *) dummyc,dummyc,cell(1,1),cell(2,2),cell(3,3)
@@ -336,50 +338,63 @@
                !cell(2,2)=2000
                !cell(3,3)=2000
 
-               READ(header, *) dummyc, dummyc, aa, bb, cc, al, be, ga 
-               IF ((al .NE. 90.0d0) .OR. (be .NE. 90.0d0) .OR. (ga .NE. 90.0d0)) THEN
-                  cosalpha = DCOS(TWOPI*al/360.0d0)
-                  cosbeta = DCOS(TWOPI*be/360.0d0)
-                  cosgamma = DCOS(TWOPI*ga/360.0d0)
-                  singamma = DSIN(TWOPI*ga/360.0d0)
+               !READ(header, *) dummyc, dummyc, aa, bb, cc, al, be, ga 
+               !IF ((al .NE. 90.0d0) .OR. (be .NE. 90.0d0) .OR. (ga .NE. 90.0d0)) THEN
+               !   cosalpha = DCOS(TWOPI*al/360.0d0)
+               !   cosbeta = DCOS(TWOPI*be/360.0d0)
+               !   cosgamma = DCOS(TWOPI*ga/360.0d0)
+               !   singamma = DSIN(TWOPI*ga/360.0d0)
 
-                  vaa = (/ aa, 0.0d0, 0.0d0 /)
-                  vbb = (/ bb*cosgamma, bb*singamma, 0.0d0 /)
-                  ccx = cosbeta
-                  ccy = (cosalpha-cosbeta*cosgamma)/singamma
-                  ccz = DSQRT(1.0d0 - ccx*ccx - ccy*ccy) 
-                  vcc = (/ cc*ccx, cc*ccy, cc*ccz /)
+               !   vaa = (/ aa, 0.0d0, 0.0d0 /)
+               !   vbb = (/ bb*cosgamma, bb*singamma, 0.0d0 /)
+               !   ccx = cosbeta
+               !   ccy = (cosalpha-cosbeta*cosgamma)/singamma
+               !   ccz = DSQRT(1.0d0 - ccx*ccx - ccy*ccy) 
+               !   vcc = (/ cc*ccx, cc*ccy, cc*ccz /)
 
-                  waa = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vbb, vcc))
-                  wbb = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vcc, vaa))
-                  wcc = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vaa, vbb))
-                  DO i=1,3
-                     cell(i,1) = vaa(i)
-                     cell(i,2) = vbb(i)
-                     cell(i,3) = vcc(i)
-                  ENDDO
-               ELSE
-                  waa = aa
-                  wbb = bb
-                  wcc = cc
-                  cell(1,1) = aa
-                  cell(2,2) = bb
-                  cell(3,3) = cc
-                  DO i=1,3
-                     DO j=1,3
-                        IF (i .NE. j) cell(i,j) = 0.0d0
-                     ENDDO
-                  ENDDO
-               ENDIF
+               !   waa = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vbb, vcc))
+               !   wbb = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vcc, vaa))
+               !   wcc = 0.5d0*ABS(DOT_PRODUCT(vaa, cross(vbb, vcc)))/NORM2(cross(vaa, vbb))
+               !   DO i=1,3
+               !      cell(i,1) = vaa(i)
+               !      cell(i,2) = vbb(i)
+               !      cell(i,3) = vcc(i)
+               !   ENDDO
+               !ELSE
+               !   waa = aa
+               !   wbb = bb
+               !   wcc = cc
+               !   cell(1,1) = aa
+               !   cell(2,2) = bb
+               !   cell(3,3) = cc
+               !   DO i=1,3
+               !      DO j=1,3
+               !         IF (i .NE. j) cell(i,j) = 0.0d0
+               !      ENDDO
+               !   ENDDO
+               !ENDIF
 	       !WRITE(*,*) cell(1,1), " ", cell(1,2), " ", cell(1,3)
 	       !WRITE(*,*) cell(2,1), " ", cell(2,2), " ", cell(2,3)
 	       !WRITE(*,*) cell(3,1), " ", cell(3,2), " ", cell(3,3)
 	       !WRITE(*,*) cosalpha, " ", cosbeta, " ", cosgamma, " ", singamma
 
-               IF ((mucutoff .GE. waa) .OR. (mucutoff .GE. wbb) .OR. (mucutoff .GE. wcc)) &
-                  WRITE(*,*) "WARNING: Cell is non-orthorhombic and cutoff is > 0.5*(box size)"
+               !IF ((mucutoff .GE. waa) .OR. (mucutoff .GE. wbb) .OR. (mucutoff .GE. wcc)) &
+               !   WRITE(*,*) "WARNING: Cell is non-orthorhombic and cutoff is > 0.5*(box size)"
 
-               CALL invmatrix(3,cell,icell)
+               !CALL invmatrix(3,cell,icell)
+            IF (nstm .or. nptm .or. cell(1,1) == 0.0d0) THEN
+               IF (nstm) THEN
+                  ! NST mode: fully flexible, non-orthorhombic cell
+                  ! Try to read the cell parameters the header in input stream
+                  READ(header, *) dummyc,dummyc,cell(1,1),cell(2,1),cell(3,1), &
+                      cell(1,2),cell(2,2),cell(3,2),cell(1,3),cell(2,3),cell(3,3)
+                  CALL invmatrix(3,cell,icell)
+               ELSE  
+                   ! NPT mode: this means variable cell!
+                   ! Try to read the cell parameters the header in input stream
+                   READ(header, *) dummyc,dummyc,cell(1,1),cell(2,2),cell(3,3)
+                   CALL invmatrix(3,cell,icell)
+               END IF
             END IF
             
             IF (dopamm) THEN
@@ -505,6 +520,8 @@
             WRITE(*,*) "   -ev delta            : Stride while reading data from the XYZ input "
             WRITE(*,*) "   -npt                 : NPT mode. read cell data from the XYZ header "
             WRITE(*,*) "                          Header format: # CELL: axx ayy azz           "
+            WRITE(*,*) "   -nst                 : Flexible cell mode. Read cell data from the XYZ header "
+            WRITE(*,*) "                          Header format: # CELL: axx axy axz ayx ayy ayz azx azy azz "
             WRITE(*,*) "   -w                   : Computes a weight for each DHA triplet "
             WRITE(*,*) "                          to account for the uniform-density phase space volume "
             WRITE(*,*) ""
