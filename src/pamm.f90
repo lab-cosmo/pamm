@@ -352,8 +352,8 @@
               DO i=1,nk
                  IF (pcluster(i)>pcluster(dummyi1)) dummyi1=i
               ENDDO
-              ! write out clusters
-              !WRITE(*,*) px,DLOG(pcluster(dummyi1)),dummyi1
+              ! write out the number of the
+              ! cluster with the highest probability
               WRITE(*,*) px,DLOG(pcluster),dummyi1
             ENDDO
             DEALLOCATE(clusters)
