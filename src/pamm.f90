@@ -1542,18 +1542,19 @@
 
          Q = 0.0d0
          DO i=1,D
-           ! let's apply the M.I.C. to the angle
-           xx(i,:) = x(i,:) - DNINT(x(i,:)/period(i)) * period(i)
+           xx(i,:) = x(i,:)*twopi/period(i) ! converts the positions to have a period of 2pi
            ! see the wiki:
            ! https://en.wikipedia.org/wiki/Von_Mises_distribution
            ! Section: Estimation of parameters
            R2 = (SUM(ww*DCOS(xx(i,:)))/nlk)**2 + (SUM(ww*DSIN(xx(i,:)))/nlk)**2
-           ! get the unbiased estimator
-           Re2 = (nlk/(nlk-1.0d0))*(R2-(1.0d0/nlk))
+
+           ! This expression would compute an unbiased estimator for R2, but can break havoc in the cases in which samples are weighted and nlk is just the sum of weights. On balance we go for a biased but stable calculation
+!              Re2 = (nlk/(nlk-1.0d0))*(R2-(1.0d0/nlk))               
+           Re2 = R2
            ! one could iterate this, but this first approximation should already be enough
            ! See: https://en.wikipedia.org/wiki/Von_Mises%E2%80%93Fisher_distribution
            ! Section: Estimation of parameters
-           ! and get the inverse of the concetration paramater
+           ! and get the inverse of the concentration paramater
            ! that correspond to a variance
            Q(i,i) = 1.0d0/(DSQRT(Re2)*(2.0d0-Re2) / (1.0d0 - Re2))
          ENDDO
