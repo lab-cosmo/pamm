@@ -82,9 +82,9 @@ This can be used to evaluate the hydrogen-bond dynamical relaxation function
 the [toolbox](http://github.com/epfl-cosmo/toolbox) library one can compute this by
 
 ```bash
-../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf h2o.pamm -sad < h2o-blyp-piglet.xyz > h2o.sad
+../bin/hbpamm  -td O -th H -ta O -ct 4.5 -w -gf hbdef.pamm -sad < h2o-blyp-piglet.xyz > h2o.sad
 for i in `seq 1 $(head -n 1 h2o.sad | wc -w)`; do awk -v i=$i '{print $i}' h2o.sad; done | \
-        autocorr -maxlag 150 -runlength $(wc -l h2o.sad) > h2o.hh
+        autocorr -maxlag 150 -runlength $(wc -l h2o.sad | awk '{print $1}') > h2o.hh
 ```
     
     
