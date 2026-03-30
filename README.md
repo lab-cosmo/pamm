@@ -1,16 +1,16 @@
 PAMM library and tools
 ======================
 
-This repository contains a simple Fortran90 implementation of 
-the Probabilistic Analysis of Molecular Motifs algorithm. 
-It contains a library to compute PAMM structure counts, a 
+This repository contains a simple Fortran90 implementation of
+the Probabilistic Analysis of Molecular Motifs algorithm.
+It contains a library to compute PAMM structure counts, a
 tool to perform the analysis on an arbitrary set of structural
-descriptors, and an example application to the automatic 
-definition of hydrogen bond descriptors. 
+descriptors, and an example application to the automatic
+definition of hydrogen bond descriptors.
 
 Source code is stored in the `src/` directory, and the executables
 will be generated inside `bin/`. `test/` contains a simple
-example of the usage of these programs. 
+example of the usage of these programs.
 
 
 Compilation and installation
@@ -39,3 +39,9 @@ Getting started
 
 An example of the usage of `pamm` and `hbpamm` can be found
 in the `test/` directory.
+
+
+Maintainers
+-----------
+
+This project is [maintained](https://github.com/lab-cosmo/.github/blob/main/Maintainers.md) by @ceriottm, who will reply to issues and pull requests opened on this repository as soon as possible. You can mention them directly if you did not receive an answer after a couple of days.
